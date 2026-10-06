@@ -1,0 +1,276 @@
+{
+  "audited_date": "2026-10-06",
+  "scope": "Read-only RC5 workflow and manifest audit; no weights or GPU execution",
+  "workflows": [
+    {
+      "file": "01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/workflows/VAST_H3_MASTER_NATIVE_INT8_96GB.json",
+      "sha256": "9c0d1e6c62aab4fd8fc1e3e5b9c9224d138658abad5594ab0888b45d669b1b60",
+      "top_nodes": 159,
+      "top_links": 117,
+      "definitions": 114,
+      "all_definition_nodes": 1309,
+      "all_definition_links": 2095,
+      "source_only_conversion": {
+        "schema": "EMPTY synthetic; not live conversion validation",
+        "api_nodes": 764,
+        "frontend_only_nodes_incorrectly_emitted": [
+          {
+            "id": "5742",
+            "type": "Label (rgthree)"
+          },
+          {
+            "id": "6181",
+            "type": "Label (rgthree)"
+          },
+          {
+            "id": "6324",
+            "type": "Fast Groups Bypasser (rgthree)"
+          },
+          {
+            "id": "2551:2842",
+            "type": "Fast Groups Bypasser (rgthree)"
+          },
+          {
+            "id": "6168",
+            "type": "Fast Groups Bypasser (rgthree)"
+          },
+          {
+            "id": "6180",
+            "type": "Fast Groups Bypasser (rgthree)"
+          },
+          {
+            "id": "3481",
+            "type": "Fast Groups Bypasser (rgthree)"
+          },
+          {
+            "id": "2250",
+            "type": "Fast Groups Bypasser (rgthree)"
+          },
+          {
+            "id": "3457",
+            "type": "Fast Groups Bypasser (rgthree)"
+          }
+        ],
+        "output_candidate_counts": {
+          "PreviewAny": 20,
+          "PreviewImage": 9,
+          "SaveVideo": 1
+        },
+        "llm_processor_ancestors": [
+          "2551:2640:4275",
+          "2551:2640:2445",
+          "2551:2640:2447",
+          "2551:2640:2441",
+          "2551:2640:7386",
+          "2551:2640:7402",
+          "2551:2640:7406",
+          "2551:2640:7410",
+          "2551:2640:7414",
+          "2551:2640:7418",
+          "2551:2640:7422",
+          "2551:2640:7426",
+          "2551:2640:7430",
+          "2551:2640:7434",
+          "2551:2640:7446",
+          "2551:2640:7450"
+        ],
+        "sampler_ancestors": [
+          "7335:469",
+          "7334:6773"
+        ],
+        "model_override_results": {
+          "4595:4529": {
+            "inputs": {
+              "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
+            },
+            "class_type": "UNETLoader",
+            "_meta": {
+              "title": "UNETLoader"
+            }
+          },
+          "4595:130": {
+            "inputs": {
+              "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+            },
+            "class_type": "CLIPLoader",
+            "_meta": {
+              "title": "Load CLIP (MiniMax H3)"
+            }
+          },
+          "4595:121": {
+            "inputs": {
+              "vae_name": "minimax_h3_video_vae_int8_convrot.safetensors"
+            },
+            "class_type": "VAELoader",
+            "_meta": {
+              "title": "VAELoader"
+            }
+          },
+          "4595:122": {
+            "inputs": {
+              "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+            },
+            "class_type": "VAELoader",
+            "_meta": {
+              "title": "VAELoader"
+            }
+          }
+        }
+      }
+    },
+    {
+      "file": "01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/workflows/VAST_H3_PROMPT_ONLY_STAGE2.json",
+      "sha256": "f2c4f549bd2ebd62b3865af767432a2519bf3a12207fc2c6306470dcf15582ab",
+      "top_nodes": 158,
+      "top_links": 115,
+      "definitions": 114,
+      "all_definition_nodes": 1308,
+      "all_definition_links": 2093,
+      "source_only_conversion": {
+        "schema": "EMPTY synthetic; not live conversion validation",
+        "api_nodes": 763,
+        "frontend_only_nodes_incorrectly_emitted": [
+          {
+            "id": "5742",
+            "type": "Label (rgthree)"
+          },
+          {
+            "id": "6181",
+            "type": "Label (rgthree)"
+          },
+          {
+            "id": "6324",
+            "type": "Fast Groups Bypasser (rgthree)"
+          },
+          {
+            "id": "2551:2842",
+            "type": "Fast Groups Bypasser (rgthree)"
+          },
+          {
+            "id": "6168",
+            "type": "Fast Groups Bypasser (rgthree)"
+          },
+          {
+            "id": "6180",
+            "type": "Fast Groups Bypasser (rgthree)"
+          },
+          {
+            "id": "3481",
+            "type": "Fast Groups Bypasser (rgthree)"
+          },
+          {
+            "id": "2250",
+            "type": "Fast Groups Bypasser (rgthree)"
+          },
+          {
+            "id": "3457",
+            "type": "Fast Groups Bypasser (rgthree)"
+          }
+        ],
+        "output_candidate_counts": {
+          "PreviewAny": 20,
+          "PreviewImage": 9
+        },
+        "llm_processor_ancestors": [
+          "2551:2640:4275",
+          "2551:2640:2445",
+          "2551:2640:2447",
+          "2551:2640:2441",
+          "2551:2640:7386",
+          "2551:2640:7402",
+          "2551:2640:7406",
+          "2551:2640:7410",
+          "2551:2640:7414",
+          "2551:2640:7418",
+          "2551:2640:7422",
+          "2551:2640:7426",
+          "2551:2640:7430",
+          "2551:2640:7434",
+          "2551:2640:7446",
+          "2551:2640:7450"
+        ],
+        "sampler_ancestors": [],
+        "model_override_results": {
+          "4595:4529": {
+            "inputs": {
+              "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
+            },
+            "class_type": "UNETLoader",
+            "_meta": {
+              "title": "UNETLoader"
+            }
+          },
+          "4595:130": {
+            "inputs": {
+              "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+            },
+            "class_type": "CLIPLoader",
+            "_meta": {
+              "title": "Load CLIP (MiniMax H3)"
+            }
+          },
+          "4595:121": {
+            "inputs": {
+              "vae_name": "minimax_h3_video_vae_int8_convrot.safetensors"
+            },
+            "class_type": "VAELoader",
+            "_meta": {
+              "title": "VAELoader"
+            }
+          },
+          "4595:122": {
+            "inputs": {
+              "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+            },
+            "class_type": "VAELoader",
+            "_meta": {
+              "title": "VAELoader"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "official_wheel": {
+    "filename": "comfy_cli-1.21.0-py3-none-any.whl",
+    "sha256": "659b1701801b3d905a8d866fe5eb28db2352bb266569ba6e4a36ff0c14da9e14",
+    "pypi_sha256": "659b1701801b3d905a8d866fe5eb28db2352bb266569ba6e4a36ff0c14da9e14",
+    "match": true,
+    "url": "https://files.pythonhosted.org/packages/46/d1/b371d9e0f5ae3969c10ffe7689e8e7fb6eb95f3fd6429c5e702255449c7a/comfy_cli-1.21.0-py3-none-any.whl"
+  },
+  "source_evidence": [
+    {
+      "source": "comfy-cli1.21 wheel",
+      "file": "comfy_cli/workflow_to_api.py",
+      "lines": [
+        43,
+        96,
+        185,
+        408,
+        422,
+        682
+      ],
+      "finding": "Only six UI-only classes filtered; every non-muted regular node emitted; declared interface linkIds select subgraph outputs; host promoted values overlay default widgets."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/ComfyUI/v0.38.0/execution.py",
+      "lines": [
+        1130,
+        1147,
+        1163
+      ],
+      "finding": "Checks every class before OUTPUT_NODE output selection."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Comfy-Org/ComfyUI/v0.38.0/comfy_extras/nodes_preview_any.py",
+      "lines": [
+        16
+      ],
+      "finding": "PreviewAny.OUTPUT_NODE = True."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/rgthree/rgthree-comfy/2c5342a8cb0eaecaabf61435a5f37dd594c510ba/__init__.py",
+      "finding": "No Label or Fast Groups Bypasser Python class mappings; Label JS extends virtual base."
+    }
+  ]
+}

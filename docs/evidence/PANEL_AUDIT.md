@@ -1,0 +1,46 @@
+# RC5 controller and mobile panel audit
+
+Scope: original `app/main.py`, `static/index.html`, scheduler, recovery, panel authentication, lifecycle controls, original offline checks. Original application files were left unchanged. All runtime probes ran on a disposable copy, with external service calls mocked. No Vast operation or generation was submitted.
+
+## Validation
+
+- Original `scripts/offline_selftest.py`: PASS in an isolated copy.
+- Original `scripts/integration_matrix_test.py`: PASS in an isolated copy.
+- Additional `panel_regression_probe.py`: seven original defects reproduced; results in `panel_regression_results.json`. This is a diagnostic, not a certification of production readiness.
+
+Run the diagnostic with a Python environment containing the original controller requirements:
+
+```bash
+python panel_regression_probe.py /path/to/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5 --output panel_regression_results.json
+```
+
+## Required corrections before relying on Vast lifecycle automation
+
+1. **High: filesystem verification and GPU telemetry cannot run.** `app/main.py:2` does not import `subprocess`; `app/main.py:838` and `app/main.py:933` call `subprocess.run`. The GPU endpoint reports `NameError`, while `_mount_info` silently returns `(None, None)`. Persistent storage can never be verified, so keep-data destruction is always disabled. No environment variable corrects a missing Python import. Independent GPU inspection and manual storage verification are available, but they do not fix the panel.
+
+2. **High: workers can start more work while stop or destroy is executing.** `app/main.py:1047` changes `stop_after_current` to `executing_stop` and schedules a 1.5-second delay. Dispatch only blocks the armed names at `app/main.py:1097` and `app/main.py:1120`; it resumes for `executing_stop`, `executing_destroy`, and `executing_idle_stop`. Existing queued prompts/renders can therefore start just before the machine disappears. Immediate stop/destroy have the same dispatch gap. Workaround: drain the queue, avoid creating/approving work during shutdown, and use the Vast console after verifying no active computation. A dispatcher correction is required for reliable automation.
+
+3. **High: a failed lifecycle action permanently ends the guard.** The guard schedules an action then returns (`app/main.py:1051`, `app/main.py:1065`, `app/main.py:1070`, `app/main.py:1079`). `delayed_instance_action` catches a CLI failure and sets `action_failed`, but does not restart the guard. `cancel_plan` (`app/main.py:1390`) clears the visible plan without restarting the task. Idle/cost/queue guards then cease operating for that controller process. Workaround: restart the panel only after reconciling/draining work, or manage shutdown externally. Do not treat the current cost guard as a spending guarantee.
+
+## Required corrections before restarting the panel during active generation
+
+4. **High: failed render histories can be shown as completed.** Recovery at `app/main.py:1239` accepts any nonempty `outputs`. A failed history containing only a `PreviewAny` text preview is marked `completed` at `app/main.py:1244`, with no video output. Recovery does not inspect `status.status_str`, `status.completed`, or execution-error messages. Workaround: inspect actual video artifacts and ComfyUI history after a restart; do not use the recovered green status as proof of successful output. Application logic must distinguish failed/partial history from a successful render.
+
+5. **High: unavailable remote state can trigger duplicate renders.** Failed history reads become `{}` at `app/main.py:1224`; failed queue reads also become `{}` at `app/main.py:1252`. `app/main.py:1293` interprets these unknown results as confirmation the old prompt is gone and requeues the job. Both requests failing after readiness can therefore cause a still-running or already-completed paid render to be submitted again. Workaround: do not restart the controller while work is active; manually reconcile old IDs/artifacts if connectivity fails. Application logic must preserve uncertainty and retry safely.
+
+6. **Medium: recovery and normal dispatch run concurrently on the same service.** Startup launches recovery and both workers immediately (`app/main.py:1320`). The scheduler ignores jobs in recovery but can select the next queued job (`app/main.py:1119`). This can queue new work before prior execution is reconciled, complicating cancellation and timeouts. An initial service readiness failure also leaves the recovery job unchanged after the one-shot task returns (`app/main.py:1219`, `app/main.py:1308`). Workaround: restart only while both queues are idle; readiness/reconciliation should gate new dispatch on that service.
+
+## Configuration and mobile-panel notes
+
+7. **Low: Basic Auth rejects non-ASCII text with an exception.** `hmac.compare_digest` on strings at `app/main.py:62` raises `TypeError` if the provided username or password has non-ASCII characters. The ASCII password generated by provisioning works. Supported workaround: use an ASCII username and generated ASCII password; do not select a password containing Polish letters. Invalid Unicode credentials currently produce an internal error instead of normal unauthorized status.
+
+- Basic Auth intentionally fails closed without `H3_PANEL_PASSWORD`; this is correct and must be supplied through a secure environment binding for the CPU preview.
+- The first-release image/audio contract is consistent between frontend and backend: exactly one primary image plus five references, and at most one audio file. The no-audio workflow substitutes technical silence and disables the real H3 audio-reference flag.
+- The scheduler correctly prioritizes automatic prompt candidates over review-only prompt candidates, and approved review renders over automatic renders while the plan is `none`. Pending review does not block an armed queue shutdown.
+- The controller's cost estimate covers time since this controller process started; it resets after a restart and excludes charges beyond that estimate. Documentation already calls it approximate. This is a feature limitation, not an enforced account-wide budget.
+- `static/index.html:251` and `static/index.html:252` replace editable guard values on every five-second status refresh, so unsaved edits may be lost. A configuration API call works; UI polling should avoid overwriting a field the user is editing.
+- Preflight/smoke scripts hardcode 8188, 8189, and 7860 although the launcher allows overrides; keep the documented default ports for compatibility until checks accept those settings.
+
+## Readiness conclusion
+
+The original static/offline tests establish workflow-file integrity and selected API contracts. They do not establish successful live rendering, compatibility with the installed custom-node implementations, safe Vast shutdown, or recovery correctness. The current RC5 panel can be previewed and audited on CPU; reliable billable production execution still requires the separate code corrections above and live acceptance testing with the actual GPU/model stack.

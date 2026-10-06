@@ -1,0 +1,35 @@
+{
+  "files": [
+    {
+      "file": "AJ_NEW_CHAT_BOOTSTRAP_PROMPT (1).txt",
+      "size_bytes": 1318,
+      "sha256": "82a4e0fe17f99caf936a699af7431b8094134e15b21d118ce5253c06a813155a"
+    },
+    {
+      "file": "AJ_NEW_CHAT_BOOTSTRAP_PROMPT.txt",
+      "size_bytes": 1318,
+      "sha256": "82a4e0fe17f99caf936a699af7431b8094134e15b21d118ce5253c06a813155a"
+    },
+    {
+      "file": "AJ_PROJECT_HANDOFF_CURRENT_STATE_2026-10-06 (1).md",
+      "size_bytes": 7332,
+      "sha256": "7cdf201bdd816465b805c9f8d4aaafe9e7e7745e389a10895d2ed82542f18dd6"
+    },
+    {
+      "file": "AJ_PROJECT_HANDOFF_CURRENT_STATE_2026-10-06.md",
+      "size_bytes": 7332,
+      "sha256": "7cdf201bdd816465b805c9f8d4aaafe9e7e7745e389a10895d2ed82542f18dd6"
+    },
+    {
+      "file": "AJ_PROJECT_MIGRATION_2026-10-06.sha256",
+      "size_bytes": 102,
+      "sha256": "a3061028737f8ac936db8b8cb99ab59efe2d4f51e146de96b1bc05544d3d4679"
+    },
+    {
+      "file": "AJ_PROJECT_MIGRATION_2026-10-06.zip",
+      "size_bytes": 4079248,
+      "sha256": "037811461e71a72dd14806d6785f0622e17a44a18575f1c723f234a69ada85ca"
+    }
+  ],
+  "note": "The two attachments with (1) in the filename are byte-identical to their earlier versions."
+}

@@ -1,0 +1,17 @@
+Pracujemy nad projektem `aj`. Otrzymujesz ZIP migracyjny przygotowany 2026-10-06. Nie próbuj rekonstruować projektu z nazw plików i nie zaczynaj od ogólnej teorii.
+
+Najpierw przeczytaj w tej kolejności:
+1. `00_START_HERE/README_FIRST.md`
+2. `00_START_HERE/CURRENT_STATE.md`
+3. `00_START_HERE/DECISIONS_AND_HISTORY.md`
+4. `00_START_HERE/KNOWN_FAILURES_DO_NOT_REPEAT.md`
+5. `00_START_HERE/NEXT_STEPS.md`
+6. `01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/README.md`
+7. `01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/FULL_PRE_RENTAL_AUDIT.md`
+8. `04_MANIFESTS/VAST_H3_API_MAP.json`
+
+Traktuj RC5 jako najwyższy source of truth. Główny production model to native MiniMax H3 Ref2VA INT8; 10Eros jest tylko opcjonalnym A/B. Najbliższym krokiem jest live acceptance na Vast.ai, nie kolejna przebudowa lokalnego workflowu.
+
+Zanim zaproponujesz zmianę, sprawdź, czy nie została już przetestowana lub odrzucona w `KNOWN_FAILURES_DO_NOT_REPEAT.md`. Jeśli zmiana dotyczy konkretnego node ID, modelu, portu, seeda lub pliku — odczytaj rzeczywisty workflow/config zamiast zgadywać.
+
+Użytkownik chce konkretne instrukcje, dokładne ścieżki/komendy i zachowanie istniejącego, działającego stanu. Przy dużych modyfikacjach najpierw wykonuj kopię/branch i nie nadpisuj source of truth bez potrzeby.

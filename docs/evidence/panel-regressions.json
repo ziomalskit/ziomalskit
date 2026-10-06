@@ -1,0 +1,106 @@
+{
+  "source_panel": "/workspace/ziomalskit/migration/01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5",
+  "network_calls": 0,
+  "original_files_modified": false,
+  "findings": [
+    {
+      "id": "missing_subprocess_import",
+      "severity": "high",
+      "status": "confirmed",
+      "expected": "GPU inspection and filesystem verification can invoke subprocess.run",
+      "observed": {
+        "subprocess_imported": false,
+        "gpu": {
+          "error": "NameError(\"name 'subprocess' is not defined\")"
+        },
+        "root_mount": [
+          null,
+          null
+        ]
+      },
+      "location": "app/main.py:2,838,933"
+    },
+    {
+      "id": "dispatch_during_shutdown",
+      "severity": "high",
+      "status": "confirmed",
+      "expected": "Dispatch remains blocked while a delayed lifecycle action executes",
+      "observed": {
+        "stop_after_current": {
+          "prompt": null,
+          "render": null
+        },
+        "executing_stop": {
+          "prompt": "prompt",
+          "render": "render"
+        },
+        "executing_destroy": {
+          "prompt": "prompt",
+          "render": "render"
+        },
+        "executing_idle_stop": {
+          "prompt": "prompt",
+          "render": "render"
+        }
+      },
+      "location": "app/main.py:1047-1051,1097,1120"
+    },
+    {
+      "id": "recovery_accepts_failed_render",
+      "severity": "high",
+      "status": "confirmed",
+      "expected": "An execution_error history is failed and never completed with no video",
+      "observed": {
+        "job_status": "completed",
+        "outputs": [],
+        "history_status": "error",
+        "history_completed": false
+      },
+      "location": "app/main.py:1239-1247"
+    },
+    {
+      "id": "recovery_requeues_on_unknown_remote_state",
+      "severity": "high",
+      "status": "confirmed",
+      "expected": "Failed history/queue reads preserve recovery state until absence is verified",
+      "observed": {
+        "job_status": "render_queued_review",
+        "both_remote_requests": "failed"
+      },
+      "location": "app/main.py:1224-1227,1252-1255,1293-1299"
+    },
+    {
+      "id": "dispatch_before_recovery_reconciliation",
+      "severity": "medium",
+      "status": "confirmed",
+      "expected": "New dispatch waits for unresolved execution on the same service",
+      "observed": {
+        "unresolved_job": "recovery_render",
+        "selected_job": "next"
+      },
+      "location": "app/main.py:1119-1131,1317-1322"
+    },
+    {
+      "id": "guard_dies_after_failed_lifecycle_action",
+      "severity": "high",
+      "status": "confirmed",
+      "expected": "Idle/cost/lifecycle guard continues after a failed instance action or cancellation",
+      "observed": {
+        "guard_task_done": true,
+        "failed_plan": "action_failed",
+        "after_cancel": "none"
+      },
+      "location": "app/main.py:1051,1065,1070,1079,1390-1393"
+    },
+    {
+      "id": "non_ascii_basic_auth_raises",
+      "severity": "low",
+      "status": "confirmed",
+      "expected": "Invalid credentials return 401; supported configured passwords can authenticate",
+      "observed": {
+        "exception": "comparing strings with non-ASCII characters is not supported"
+      },
+      "location": "app/main.py:62"
+    }
+  ]
+}

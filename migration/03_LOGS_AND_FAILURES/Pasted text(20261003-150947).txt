@@ -1,0 +1,306 @@
+Node threw an error during execution.
+
+
+# ComfyUI Error Report
+## Error Details
+- **Node ID:** 2551:2640:2445
+- **Node Type:** LLMTextProcessor
+- **Exception Type:** ValueError
+- **Exception Message:** ValueError: Model not found: MN-Violet-Lotus-12B.Q5_K_M.gguf
+
+## Stack Trace
+```
+  File "A:\ComfyUI\ComfyUI (1)\ComfyUI\execution.py", line 547, in execute
+    output_data, output_ui, has_subgraph, has_pending_tasks = await get_output_data(prompt_id, unique_id, obj, input_data_all, execution_block_cb=execution_block_cb, pre_execute_cb=pre_execute_cb, v3_data=v3_data)
+                                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  File "A:\ComfyUI\ComfyUI (1)\ComfyUI\execution.py", line 352, in get_output_data
+    return_values = await _async_map_node_over_list(prompt_id, unique_id, obj, input_data_all, obj.FUNCTION, allow_interrupt=True, execution_block_cb=execution_block_cb, pre_execute_cb=pre_execute_cb, v3_data=v3_data)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  File "A:\ComfyUI\ComfyUI (1)\ComfyUI\execution.py", line 326, in _async_map_node_over_list
+    await process_inputs(input_dict, i)
+
+  File "A:\ComfyUI\ComfyUI (1)\ComfyUI\execution.py", line 314, in process_inputs
+    result = f(**inputs)
+
+  File "A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\ComfyUI-LLM-text-processor\nodes.py", line 189, in generate
+    raise ValueError(f"Model not found: {model}")
+
+```
+## System Information
+- **ComfyUI Version:** 0.38.0
+- **Arguments:** ComfyUI\main.py --feature-flag show_signin_button=true --enable-manager --extra-model-paths-config C:\Users\Maciej\AppData\Roaming\Comfy Desktop\instance-model-paths\inst-1790696680534.yaml --input-directory A:\Comfy-Desktop\ComfyUI-Shared\input --output-directory A:\Comfy-Desktop\ComfyUI-Shared\output
+- **OS:** win32
+- **Python Version:** 3.13.12 (main, Feb 12 2026, 00:38:53) [MSC v.1944 64 bit (AMD64)]
+- **Embedded Python:** false
+- **PyTorch Version:** 2.12.1+cu130
+## Devices
+
+- **Name:** cuda:0 NVIDIA GeForce RTX 5080 : cudaMallocAsync
+  - **Type:** cuda
+  - **VRAM Total:** 17066033152
+  - **VRAM Free:** 15712911360
+  - **Torch VRAM Total:** 0
+  - **Torch VRAM Free:** 0
+
+## Logs
+```
+2026-10-03T17:06:16.359800 - [32m[INFO][0m setup plugin alembic.autogenerate.schemas
+2026-10-03T17:06:16.359861 - [32m[INFO][0m setup plugin alembic.autogenerate.tables
+2026-10-03T17:06:16.359882 - [32m[INFO][0m setup plugin alembic.autogenerate.types
+2026-10-03T17:06:16.359898 - [32m[INFO][0m setup plugin alembic.autogenerate.constraints
+2026-10-03T17:06:16.359914 - [32m[INFO][0m setup plugin alembic.autogenerate.defaults
+2026-10-03T17:06:16.359928 - [32m[INFO][0m setup plugin alembic.autogenerate.comments
+2026-10-03T17:06:16.359939 - [32m[INFO][0m setup plugin alembic.autogenerate.checkconstraint_byname
+2026-10-03T17:06:16.636410 - [1m[33m[WARNING][0m On windows we are currently forcing single GPU mode in ComfyUI due to a Nvidia related issue, if you want to disable this use: --cuda-device all
+2026-10-03T17:06:16.641862 - [32m[INFO][0m Adding extra search path checkpoints A:\Comfy-Desktop\ComfyUI-Shared\models\checkpoints
+2026-10-03T17:06:16.641903 - [32m[INFO][0m Adding extra search path classifiers A:\Comfy-Desktop\ComfyUI-Shared\models\classifiers
+2026-10-03T17:06:16.641920 - [32m[INFO][0m Adding extra search path clip_vision A:\Comfy-Desktop\ComfyUI-Shared\models\clip_vision
+2026-10-03T17:06:16.641935 - [32m[INFO][0m Adding extra search path configs A:\Comfy-Desktop\ComfyUI-Shared\models\configs
+2026-10-03T17:06:16.641948 - [32m[INFO][0m Adding extra search path controlnet A:\Comfy-Desktop\ComfyUI-Shared\models\controlnet
+2026-10-03T17:06:16.641960 - [32m[INFO][0m Adding extra search path controlnet A:\Comfy-Desktop\ComfyUI-Shared\models\t2i_adapter
+2026-10-03T17:06:16.641971 - [32m[INFO][0m Adding extra search path diffusers A:\Comfy-Desktop\ComfyUI-Shared\models\diffusers
+2026-10-03T17:06:16.641983 - [32m[INFO][0m Adding extra search path diffusion_models A:\Comfy-Desktop\ComfyUI-Shared\models\diffusion_models
+2026-10-03T17:06:16.641994 - [32m[INFO][0m Adding extra search path embeddings A:\Comfy-Desktop\ComfyUI-Shared\models\embeddings
+2026-10-03T17:06:16.642004 - [32m[INFO][0m Adding extra search path gligen A:\Comfy-Desktop\ComfyUI-Shared\models\gligen
+2026-10-03T17:06:16.642015 - [32m[INFO][0m Adding extra search path hypernetworks A:\Comfy-Desktop\ComfyUI-Shared\models\hypernetworks
+2026-10-03T17:06:16.642025 - [32m[INFO][0m Adding extra search path latent_upscale_models A:\Comfy-Desktop\ComfyUI-Shared\models\latent_upscale_models
+2026-10-03T17:06:16.642035 - [32m[INFO][0m Adding extra search path loras A:\Comfy-Desktop\ComfyUI-Shared\models\loras
+2026-10-03T17:06:16.642045 - [32m[INFO][0m Adding extra search path model_patches A:\Comfy-Desktop\ComfyUI-Shared\models\model_patches
+2026-10-03T17:06:16.642056 - [32m[INFO][0m Adding extra search path audio_encoders A:\Comfy-Desktop\ComfyUI-Shared\models\audio_encoders
+2026-10-03T17:06:16.642065 - [32m[INFO][0m Adding extra search path photomaker A:\Comfy-Desktop\ComfyUI-Shared\models\photomaker
+2026-10-03T17:06:16.642074 - [32m[INFO][0m Adding extra search path style_models A:\Comfy-Desktop\ComfyUI-Shared\models\style_models
+2026-10-03T17:06:16.642084 - [32m[INFO][0m Adding extra search path text_encoders A:\Comfy-Desktop\ComfyUI-Shared\models\text_encoders
+2026-10-03T17:06:16.642094 - [32m[INFO][0m Adding extra search path upscale_models A:\Comfy-Desktop\ComfyUI-Shared\models\upscale_models
+2026-10-03T17:06:16.642104 - [32m[INFO][0m Adding extra search path background_removal A:\Comfy-Desktop\ComfyUI-Shared\models\background_removal
+2026-10-03T17:06:16.642114 - [32m[INFO][0m Adding extra search path frame_interpolation A:\Comfy-Desktop\ComfyUI-Shared\models\frame_interpolation
+2026-10-03T17:06:16.642123 - [32m[INFO][0m Adding extra search path geometry_estimation A:\Comfy-Desktop\ComfyUI-Shared\models\geometry_estimation
+2026-10-03T17:06:16.642133 - [32m[INFO][0m Adding extra search path optical_flow A:\Comfy-Desktop\ComfyUI-Shared\models\optical_flow
+2026-10-03T17:06:16.642142 - [32m[INFO][0m Adding extra search path detection A:\Comfy-Desktop\ComfyUI-Shared\models\detection
+2026-10-03T17:06:16.642152 - [32m[INFO][0m Adding extra search path vae A:\Comfy-Desktop\ComfyUI-Shared\models\vae
+2026-10-03T17:06:16.642163 - [32m[INFO][0m Adding extra search path vae_approx A:\Comfy-Desktop\ComfyUI-Shared\models\vae_approx
+2026-10-03T17:06:16.642173 - [32m[INFO][0m Adding extra search path LLM A:\Comfy-Desktop\ComfyUI-Shared\models\LLM
+2026-10-03T17:06:16.642183 - [32m[INFO][0m Adding extra search path semantic_bridge A:\Comfy-Desktop\ComfyUI-Shared\models\semantic_bridge
+2026-10-03T17:06:16.642193 - [32m[INFO][0m Adding extra search path clip A:\Comfy-Desktop\ComfyUI-Shared\models\clip
+2026-10-03T17:06:16.642203 - [32m[INFO][0m Adding extra search path unet A:\Comfy-Desktop\ComfyUI-Shared\models\unet
+2026-10-03T17:06:16.642218 - [32m[INFO][0m Adding extra search path checkpoints C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\checkpoints
+2026-10-03T17:06:16.642228 - [32m[INFO][0m Adding extra search path classifiers C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\classifiers
+2026-10-03T17:06:16.642238 - [32m[INFO][0m Adding extra search path clip_vision C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\clip_vision
+2026-10-03T17:06:16.642248 - [32m[INFO][0m Adding extra search path configs C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\configs
+2026-10-03T17:06:16.642258 - [32m[INFO][0m Adding extra search path controlnet C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\controlnet
+2026-10-03T17:06:16.642267 - [32m[INFO][0m Adding extra search path controlnet C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\t2i_adapter
+2026-10-03T17:06:16.642277 - [32m[INFO][0m Adding extra search path diffusers C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\diffusers
+2026-10-03T17:06:16.642286 - [32m[INFO][0m Adding extra search path diffusion_models C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\diffusion_models
+2026-10-03T17:06:16.642296 - [32m[INFO][0m Adding extra search path embeddings C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\embeddings
+2026-10-03T17:06:16.642305 - [32m[INFO][0m Adding extra search path gligen C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\gligen
+2026-10-03T17:06:16.642315 - [32m[INFO][0m Adding extra search path hypernetworks C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\hypernetworks
+2026-10-03T17:06:16.642324 - [32m[INFO][0m Adding extra search path latent_upscale_models C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\latent_upscale_models
+2026-10-03T17:06:16.642334 - [32m[INFO][0m Adding extra search path loras C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\loras
+2026-10-03T17:06:16.642343 - [32m[INFO][0m Adding extra search path model_patches C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\model_patches
+2026-10-03T17:06:16.642352 - [32m[INFO][0m Adding extra search path audio_encoders C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\audio_encoders
+2026-10-03T17:06:16.642363 - [32m[INFO][0m Adding extra search path photomaker C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\photomaker
+2026-10-03T17:06:16.642373 - [32m[INFO][0m Adding extra search path style_models C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\style_models
+2026-10-03T17:06:16.642382 - [32m[INFO][0m Adding extra search path text_encoders C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\text_encoders
+2026-10-03T17:06:16.642391 - [32m[INFO][0m Adding extra search path upscale_models C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\upscale_models
+2026-10-03T17:06:16.642401 - [32m[INFO][0m Adding extra search path background_removal C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\background_removal
+2026-10-03T17:06:16.642412 - [32m[INFO][0m Adding extra search path frame_interpolation C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\frame_interpolation
+2026-10-03T17:06:16.642422 - [32m[INFO][0m Adding extra search path geometry_estimation C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\geometry_estimation
+2026-10-03T17:06:16.642432 - [32m[INFO][0m Adding extra search path optical_flow C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\optical_flow
+2026-10-03T17:06:16.642442 - [32m[INFO][0m Adding extra search path detection C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\detection
+2026-10-03T17:06:16.642452 - [32m[INFO][0m Adding extra search path vae C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\vae
+2026-10-03T17:06:16.642462 - [32m[INFO][0m Adding extra search path vae_approx C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\vae_approx
+2026-10-03T17:06:16.642471 - [32m[INFO][0m Adding extra search path LLM C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\LLM
+2026-10-03T17:06:16.642481 - [32m[INFO][0m Adding extra search path semantic_bridge C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\semantic_bridge
+2026-10-03T17:06:16.642491 - [32m[INFO][0m Adding extra search path clip C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\clip
+2026-10-03T17:06:16.642500 - [32m[INFO][0m Adding extra search path unet C:\Users\Maciej\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\unet
+2026-10-03T17:06:16.642517 - [32m[INFO][0m Setting output directory to: A:\Comfy-Desktop\ComfyUI-Shared\output
+2026-10-03T17:06:16.642535 - [32m[INFO][0m Setting input directory to: A:\Comfy-Desktop\ComfyUI-Shared\input
+2026-10-03T17:06:16.798854 - [START] Security scan2026-10-03T17:06:16.798867 - 
+2026-10-03T17:06:17.452366 - [DONE] Security scan2026-10-03T17:06:17.452378 - 
+2026-10-03T17:06:17.453663 - ** ComfyUI startup time:2026-10-03T17:06:17.453697 -  2026-10-03T17:06:17.453712 - 2026-10-03 17:06:17.4532026-10-03T17:06:17.453724 - 
+2026-10-03T17:06:17.453740 - ** Platform:2026-10-03T17:06:17.453751 -  2026-10-03T17:06:17.453761 - Windows2026-10-03T17:06:17.453771 - 
+2026-10-03T17:06:17.453783 - ** Python version:2026-10-03T17:06:17.453793 -  2026-10-03T17:06:17.453805 - 3.13.12 (main, Feb 12 2026, 00:38:53) [MSC v.1944 64 bit (AMD64)]2026-10-03T17:06:17.453815 - 
+2026-10-03T17:06:17.453826 - ** Python executable:2026-10-03T17:06:17.453836 -  2026-10-03T17:06:17.453846 - A:\ComfyUI\ComfyUI (1)\ComfyUI\.venv\Scripts\python.exe2026-10-03T17:06:17.453856 - 
+2026-10-03T17:06:17.453866 - ** ComfyUI Path:2026-10-03T17:06:17.453876 -  2026-10-03T17:06:17.453885 - A:\ComfyUI\ComfyUI (1)\ComfyUI2026-10-03T17:06:17.453894 - 
+2026-10-03T17:06:17.453905 - ** ComfyUI Base Folder Path:2026-10-03T17:06:17.453915 -  2026-10-03T17:06:17.453924 - A:\ComfyUI\ComfyUI (1)\ComfyUI2026-10-03T17:06:17.453934 - 
+2026-10-03T17:06:17.453945 - ** User directory:2026-10-03T17:06:17.453954 -  2026-10-03T17:06:17.453964 - A:\ComfyUI\ComfyUI (1)\ComfyUI\user2026-10-03T17:06:17.453974 - 
+2026-10-03T17:06:17.453984 - ** ComfyUI-Manager config path:2026-10-03T17:06:17.453994 -  2026-10-03T17:06:17.454004 - A:\ComfyUI\ComfyUI (1)\ComfyUI\user\__manager\config.ini2026-10-03T17:06:17.454014 - 
+2026-10-03T17:06:17.454027 - ** Log path:2026-10-03T17:06:17.454037 -  2026-10-03T17:06:17.454804 - A:\ComfyUI\ComfyUI (1)\ComfyUI\user\comfyui.log2026-10-03T17:06:17.454844 - 
+2026-10-03T17:06:17.952468 - [32m[INFO][0m [PRE] ComfyUI-Manager
+2026-10-03T17:06:17.953581 - [32m[INFO][0m 
+Prestartup times for custom nodes:
+2026-10-03T17:06:17.953644 - [32m[INFO][0m    0.0 seconds: A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\rgthree-comfy
+2026-10-03T17:06:17.953668 - [32m[INFO][0m    0.0 seconds: A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\ComfyUI-Easy-Use
+2026-10-03T17:06:17.953687 - [32m[INFO][0m 
+2026-10-03T17:06:19.669352 - [32m[INFO][0m Found comfy_kitchen backend cuda: {'available': True, 'disabled': False, 'unavailable_reason': None, 'capabilities': ['adaln', 'apply_rope', 'apply_rope1', 'apply_rope1_', 'apply_rope_', 'apply_rope_split_half', 'apply_rope_split_half1', 'apply_rope_split_half1_', 'apply_rope_split_half_', 'convrot_w4a4_linear', 'dequantize_convrot_w4a4_weight', 'dequantize_int8_convrot_weight', 'dequantize_int8_convrot_weight_dtype', 'dequantize_int8_simple', 'dequantize_int8_simple_dtype', 'dequantize_nvfp4', 'dequantize_per_tensor_fp8', 'dequantize_w4a8_int8_weight', 'fp16_conv3d', 'fp16_conv3d_out', 'fp16_linear', 'gemv_awq_w4a16', 'group_norm_silu_pad3d', 'group_norm_silu_pad3d_out', 'int8_linear', 'na3d', 'prepare_int4_weight_for_int8_linear', 'quantize_and_rotate_rowwise', 'quantize_convrot_w4a4_weight', 'quantize_int8_convrot_weight', 'quantize_int8_rowwise', 'quantize_int8_tensorwise', 'quantize_mxfp8', 'quantize_nvfp4', 'quantize_per_tensor_fp8', 'quantize_svdquant_w4a4', 'quantize_w4a8_int8_weight', 'rms_adaln', 'rms_rope', 'rms_rope1', 'rms_rope1_', 'rms_rope_', 'rms_rope_split_half', 'rms_rope_split_half1', 'rms_rope_split_half1_', 'rms_rope_split_half_', 'rotate_int8_convrot_weight', 'scaled_mm_nvfp4', 'scaled_mm_svdquant_w4a4', 'sol_attn', 'stochastic_rounding_fp8', 'w4a8_int8_linear']}
+2026-10-03T17:06:19.669439 - [32m[INFO][0m Found comfy_kitchen backend eager: {'available': True, 'disabled': False, 'unavailable_reason': None, 'capabilities': ['adaln', 'apply_rope', 'apply_rope1', 'apply_rope1_', 'apply_rope_', 'apply_rope_split_half', 'apply_rope_split_half1', 'apply_rope_split_half1_', 'apply_rope_split_half_', 'convrot_w4a4_linear', 'dequantize_convrot_w4a4_weight', 'dequantize_int8_convrot_weight', 'dequantize_int8_convrot_weight_dtype', 'dequantize_int8_embedding', 'dequantize_int8_simple', 'dequantize_int8_simple_dtype', 'dequantize_mxfp8', 'dequantize_nvfp4', 'dequantize_per_tensor_fp8', 'dequantize_w4a8_int8_weight', 'fp16_conv3d', 'fp16_conv3d_out', 'fp16_linear', 'gemv_awq_w4a16', 'group_norm_silu_pad3d', 'group_norm_silu_pad3d_out', 'int8_linear', 'na3d', 'prepare_int4_weight_for_int8_linear', 'quantize_and_rotate_rowwise', 'quantize_convrot_w4a4_weight', 'quantize_int8_convrot_weight', 'quantize_int8_rowwise', 'quantize_int8_tensorwise', 'quantize_mxfp8', 'quantize_nvfp4', 'quantize_per_tensor_fp8', 'quantize_svdquant_w4a4', 'quantize_w4a8_int8_weight', 'rms_adaln', 'rms_rope', 'rms_rope1', 'rms_rope1_', 'rms_rope_', 'rms_rope_split_half', 'rms_rope_split_half1', 'rms_rope_split_half1_', 'rms_rope_split_half_', 'rotate_int8_convrot_weight', 'scaled_mm_mxfp8', 'scaled_mm_nvfp4', 'scaled_mm_svdquant_w4a4', 'sol_attn', 'stochastic_rounding_fp8', 'w4a8_int8_linear']}
+2026-10-03T17:06:19.669470 - [32m[INFO][0m Found comfy_kitchen backend triton: {'available': False, 'disabled': True, 'unavailable_reason': "ImportError: No module named 'triton'", 'capabilities': []}
+2026-10-03T17:06:19.669491 - [32m[INFO][0m Found comfy_kitchen backend ascend: {'available': False, 'disabled': False, 'unavailable_reason': "torch-npu is not installed: No module named 'torch_npu'", 'capabilities': []}
+2026-10-03T17:06:19.669549 - [32m[INFO][0m Found comfy_kitchen backend hip: {'available': False, 'disabled': False, 'unavailable_reason': 'PyTorch ROCm/HIP runtime not available', 'capabilities': []}
+2026-10-03T17:06:19.675382 - [32m[INFO][0m Checkpoint files will always be loaded safely.
+2026-10-03T17:06:19.758176 - [32m[INFO][0m Total VRAM 16275 MB, total RAM 31801 MB
+2026-10-03T17:06:19.758294 - [32m[INFO][0m pytorch version: 2.12.1+cu130
+2026-10-03T17:06:19.758525 - [32m[INFO][0m Set vram state to: NORMAL_VRAM
+2026-10-03T17:06:19.758608 - [32m[INFO][0m Device: cuda:0 NVIDIA GeForce RTX 5080 : cudaMallocAsync
+2026-10-03T17:06:19.773912 - [32m[INFO][0m Using async weight offloading with 2 streams
+2026-10-03T17:06:19.774042 - [32m[INFO][0m Enabled pinned memory 12720.0
+2026-10-03T17:06:19.800396 - [32m[INFO][0m Using pytorch attention
+2026-10-03T17:06:21.322406 - [32m[INFO][0m aimdo: src-win/cuda-detour.c:38:INFO:aimdo_setup_hooks: installing 6 hooks
+2026-10-03T17:06:21.337708 - [32m[INFO][0m aimdo: src/control.c:269:INFO:comfy-aimdo NVML pressure enabled
+2026-10-03T17:06:21.344784 - [32m[INFO][0m aimdo: src-win/shmem-detect.c:80:INFO:comfy-aimdo WDDM adapter match: NVIDIA GeForce RTX 5080 runtime_luid=00000000:00014d6d dxgi_luid=00000000:00014d6d
+2026-10-03T17:06:21.344849 - [32m[INFO][0m aimdo: src/control.c:284:INFO:comfy-aimdo inited for GPU: NVIDIA GeForce RTX 5080 (VRAM: 16275 MB)
+2026-10-03T17:06:21.344902 - [32m[INFO][0m DynamicVRAM support detected and enabled
+2026-10-03T17:06:21.344928 - [32m[INFO][0m Python version: 3.13.12 (main, Feb 12 2026, 00:38:53) [MSC v.1944 64 bit (AMD64)]
+2026-10-03T17:06:21.344948 - [32m[INFO][0m ComfyUI version: 0.38.0
+2026-10-03T17:06:21.345411 - [32m[INFO][0m comfy-aimdo version: 0.5.5
+2026-10-03T17:06:21.345896 - [32m[INFO][0m comfy-kitchen version: 0.2.36
+2026-10-03T17:06:21.348669 - [32m[INFO][0m comfyui-workflow-templates version: 0.11.70
+2026-10-03T17:06:21.348722 - [32m[INFO][0m comfyui-embedded-docs version: 0.5.12
+2026-10-03T17:06:21.348748 - [32m[INFO][0m comfy-kitchen version: 0.2.36
+2026-10-03T17:06:21.348768 - [32m[INFO][0m comfy-aimdo version: 0.5.5
+2026-10-03T17:06:21.348796 - [1m[33m[WARNING][0m ________________________________________________________________________
+WARNING WARNING WARNING WARNING WARNING
+
+Installed comfyui-frontend-package version 1.52.7 is lower than the recommended version 1.53.6.
+
+Please install the updated requirements.txt file by running:
+A:\ComfyUI\ComfyUI (1)\ComfyUI\.venv\Scripts\python.exe -s -m pip install -r A:\ComfyUI\ComfyUI (1)\ComfyUI\requirements.txt
+If you are on the portable package you can run: update\update_comfyui.bat to solve this problem.
+________________________________________________________________________
+2026-10-03T17:06:21.349520 - [32m[INFO][0m [Prompt Server] web root: A:\ComfyUI\ComfyUI (1)\ComfyUI\.venv\Lib\site-packages\comfyui_frontend_package\static
+2026-10-03T17:06:21.350066 - [32m[INFO][0m Asset seeder disabled
+2026-10-03T17:06:21.350133 - [32m[INFO][0m [START] ComfyUI-Manager
+2026-10-03T17:06:21.447491 - [ComfyUI-Manager] Using GitPython backend2026-10-03T17:06:21.447520 - 
+2026-10-03T17:06:21.477029 - [32m[INFO][0m [ComfyUI-Manager] network_mode: public
+2026-10-03T17:06:21.481620 - [1m[33m[WARNING][0m [ComfyUI-Manager] The matrix sharing feature has been disabled because the `matrix-nio` dependency is not installed.
+	To use this feature, please run the following command:
+	A:\ComfyUI\ComfyUI (1)\ComfyUI\.venv\Scripts\python.exe -m pip install matrix-nio
+
+2026-10-03T17:06:22.375377 - [32m[INFO][0m No OpenGL_accelerate module loaded: No module named 'OpenGL_accelerate'
+2026-10-03T17:06:22.930438 - [33mModule 'diffusers' load failed. If you don't have it installed, do it:[0m2026-10-03T17:06:22.930464 - 
+2026-10-03T17:06:22.930474 - [33mpip install diffusers[0m2026-10-03T17:06:22.930482 - 
+2026-10-03T17:06:22.940776 - [34m[ComfyUI-Easy-Use] server: [0mv1.4.1 [92mLoaded[0m2026-10-03T17:06:22.940799 - 
+2026-10-03T17:06:22.940811 - [34m[ComfyUI-Easy-Use] web root: [0mA:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\ComfyUI-Easy-Use\web_version/v2 [92mLoaded[0m2026-10-03T17:06:22.940820 - 
+2026-10-03T17:06:22.958271 - [1m[33m[WARNING][0m KJNodes: PatchTritonVAE node could not be imported. PatchTritonVAE will be unavailable.
+Traceback (most recent call last):
+  File "A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\ComfyUI-KJNodes\nodes\triton_vae.py", line 10, in <module>
+    import triton
+ModuleNotFoundError: No module named 'triton'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\ComfyUI-KJNodes\__init__.py", line 386, in <module>
+    from .nodes.triton_vae import PatchTritonVAE
+  File "A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\ComfyUI-KJNodes\nodes\triton_vae.py", line 13, in <module>
+    raise ImportError("PatchTritonVAE requires triton (pip install triton, or triton-windows)") from e
+ImportError: PatchTritonVAE requires triton (pip install triton, or triton-windows)
+2026-10-03T17:06:22.964763 - [94mtheUpsiders Logic Nodes: [92mLoaded[0m2026-10-03T17:06:22.964784 - 
+2026-10-03T17:06:23.309376 - 
+2026-10-03T17:06:23.309415 - [92m[rgthree-comfy] Loaded 48 exciting nodes. 🎉[0m2026-10-03T17:06:23.309426 - 
+2026-10-03T17:06:23.309435 - 
+2026-10-03T17:06:23.309485 - [33m[rgthree-comfy] ComfyUI's new Node 2.0 rendering may be incompatible with some rgthree-comfy nodes and features, breaking some rendering as well as losing the ability to access a node's properties (a vital part of many nodes). It also appears to run MUCH more slowly spiking CPU usage and causing jankiness and unresponsiveness, especially with large workflows. Personally I am not planning to use the new Nodes 2.0 and, unfortunately, am not able to invest the time to investigate and overhaul rgthree-comfy where needed. If you have issues when Nodes 2.0 is enabled, I'd urge you to switch it off as well and join me in hoping ComfyUI is not planning to deprecate the existing, stable canvas rendering all together.
+[0m2026-10-03T17:06:23.309499 - 
+2026-10-03T17:06:23.310596 - [32m[INFO][0m 
+Import times for custom nodes:
+2026-10-03T17:06:23.310658 - [32m[INFO][0m    0.0 seconds: A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\websocket_image_save.py
+2026-10-03T17:06:23.310683 - [32m[INFO][0m    0.0 seconds: A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\ComfyUI-AIToolkit-MiniMaxH3
+2026-10-03T17:06:23.310701 - [32m[INFO][0m    0.0 seconds: A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\ComfyUI-Logic
+2026-10-03T17:06:23.310718 - [32m[INFO][0m    0.0 seconds: A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\BUNNY_H3_Conditioning_Bridge
+2026-10-03T17:06:23.310735 - [32m[INFO][0m    0.0 seconds: A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\ComfyUI-UnloadModels
+2026-10-03T17:06:23.310752 - [32m[INFO][0m    0.0 seconds: A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\Comfyui_Minimax_h3_latent_Upscaler
+2026-10-03T17:06:23.310769 - [32m[INFO][0m    0.0 seconds: A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\comfyui_essential-er
+2026-10-03T17:06:23.310787 - [32m[INFO][0m    0.0 seconds: A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\ComfyUI-LLM-text-processor
+2026-10-03T17:06:23.310802 - [32m[INFO][0m    0.0 seconds: A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\comfyui-various
+2026-10-03T17:06:23.310817 - [32m[INFO][0m    0.0 seconds: A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\ComfyUI_Simple_Qwen3-VL-gguf
+2026-10-03T17:06:23.310833 - [32m[INFO][0m    0.0 seconds: A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\rgthree-comfy
+2026-10-03T17:06:23.310848 - [32m[INFO][0m    0.0 seconds: A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\ComfyUI-KJNodes
+2026-10-03T17:06:23.310862 - [32m[INFO][0m    0.0 seconds: A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\ComfyUI-VideoHelperSuite
+2026-10-03T17:06:23.310877 - [32m[INFO][0m    0.1 seconds: A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\ComfyUI-Easy-Use
+2026-10-03T17:06:23.310891 - [32m[INFO][0m    0.3 seconds: A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\ComfyUI-Spectrum-MiniMax-H3
+2026-10-03T17:06:23.310908 - [32m[INFO][0m 
+2026-10-03T17:06:23.317587 - [32m[INFO][0m Context impl SQLiteImpl.
+2026-10-03T17:06:23.317647 - [32m[INFO][0m Will assume non-transactional DDL.
+2026-10-03T17:06:23.375282 - [32m[INFO][0m Using RAM pressure cache.
+2026-10-03T17:06:23.375554 - [1m[33m[WARNING][0m ________________________________________________________________________
+WARNING WARNING WARNING WARNING WARNING
+
+Installed comfyui-frontend-package version 1.52.7 is lower than the recommended version 1.53.6.
+
+Please install the updated requirements.txt file by running:
+A:\ComfyUI\ComfyUI (1)\ComfyUI\.venv\Scripts\python.exe -s -m pip install -r A:\ComfyUI\ComfyUI (1)\ComfyUI\requirements.txt
+If you are on the portable package you can run: update\update_comfyui.bat to solve this problem.
+________________________________________________________________________
+2026-10-03T17:06:23.375856 - [32m[INFO][0m Starting server
+
+2026-10-03T17:06:23.376168 - [32m[INFO][0m To see the GUI go to: http://127.0.0.1:8188
+2026-10-03T17:06:24.474801 - [1m[33m[WARNING][0m [DEPRECATION WARNING] Detected import of deprecated legacy API: /extensions/core/widgetInputs.js. This is likely caused by a custom node extension using outdated APIs. Please update your extensions or contact the extension author for an updated version.
+2026-10-03T17:06:29.912452 - [32m[INFO][0m [ComfyUI-Manager] The ComfyRegistry cache update is still in progress, so an outdated cache is being used.
+2026-10-03T17:06:30.058381 - FETCH DATA from: A:\ComfyUI\ComfyUI (1)\ComfyUI\.venv\Lib\site-packages\comfyui_manager\custom-node-list.json2026-10-03T17:06:30.058406 - 2026-10-03T17:06:30.070662 -  [DONE]2026-10-03T17:06:30.070700 - 
+2026-10-03T17:06:46.479160 - [32m[INFO][0m got prompt
+2026-10-03T17:06:46.560681 - [1m[33m[WARNING][0m WARNING: _.IS_CHANGED() got an unexpected keyword argument 'format'
+2026-10-03T17:06:47.662164 - [32m[INFO][0m Model storage policy: fast_disk=False paths=['A:\\ComfyUI\\ComfyUI (1)\\ComfyUI\\models\\vae\\minimax_h3_audio_vae_fp32.safetensors']
+2026-10-03T17:06:47.704052 - [32m[INFO][0m VAE load device: cuda:0, offload device: cpu, dtype: torch.float32
+2026-10-03T17:06:47.721964 - [32m[INFO][0m Model storage policy: fast_disk=False paths=['A:\\ComfyUI\\ComfyUI (1)\\ComfyUI\\models\\vae\\minimax_h3_video_vae_int8_convrot.safetensors']
+2026-10-03T17:06:47.722061 - [32m[INFO][0m Found quantization metadata version 1
+2026-10-03T17:06:47.858177 - [32m[INFO][0m VAE load device: cuda:0, offload device: cpu, dtype: torch.float16
+2026-10-03T17:06:47.995190 - [32m[INFO][0m Found quantization metadata version 1
+2026-10-03T17:06:47.995732 - [32m[INFO][0m Using MixedPrecisionOps for text encoder
+2026-10-03T17:06:48.219344 - [32m[INFO][0m Model storage policy: fast_disk=False paths=['A:\\ComfyUI\\ComfyUI (1)\\ComfyUI\\models\\text_encoders\\qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors']
+2026-10-03T17:06:48.424919 - [32m[INFO][0m CLIP/text encoder model load device: cuda:0, offload device: cpu, current: cpu, dtype: torch.float16
+2026-10-03T17:06:48.643701 - [32m[INFO][0m Found quantization metadata version 1
+2026-10-03T17:06:48.643893 - [32m[INFO][0m Detected mixed precision quantization
+2026-10-03T17:06:48.644087 - [32m[INFO][0m Using mixed precision operations
+2026-10-03T17:06:48.644508 - [32m[INFO][0m Native ops: int8_tensorwise, w6a8_int8, mxfp8, nvfp4, convrot_w4a4, asym_w4a8_int8, float8_e4m3fn, float8_e5m2 
+2026-10-03T17:06:49.101003 - [32m[INFO][0m model weight dtype torch.bfloat16, manual cast: torch.bfloat16
+2026-10-03T17:06:49.102772 - [32m[INFO][0m model_type FLOW_AV
+2026-10-03T17:06:49.103880 - [32m[INFO][0m Model storage policy: fast_disk=False paths=['A:\\ComfyUI\\ComfyUI (1)\\ComfyUI\\models\\diffusion_models\\minimax_h3_ref2va_pruned_int8_convrot.safetensors']
+2026-10-03T17:06:49.191106 - [32m[INFO][0m Applying MiniMax H3 Memory Efficient Sage Attention Patch to all transformer blocks
+2026-10-03T17:06:49.192730 - [32m[INFO][0m Using sage attention mode: auto
+2026-10-03T17:06:51.497035 - [32m[INFO][0m got prompt
+2026-10-03T17:07:09.245844 - [1m[31m[ERROR][0m !!! Exception during processing !!! Model not found: MN-Violet-Lotus-12B.Q5_K_M.gguf
+2026-10-03T17:07:09.247609 - [1m[31m[ERROR][0m Traceback (most recent call last):
+  File "A:\ComfyUI\ComfyUI (1)\ComfyUI\execution.py", line 547, in execute
+    output_data, output_ui, has_subgraph, has_pending_tasks = await get_output_data(prompt_id, unique_id, obj, input_data_all, execution_block_cb=execution_block_cb, pre_execute_cb=pre_execute_cb, v3_data=v3_data)
+                                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "A:\ComfyUI\ComfyUI (1)\ComfyUI\execution.py", line 352, in get_output_data
+    return_values = await _async_map_node_over_list(prompt_id, unique_id, obj, input_data_all, obj.FUNCTION, allow_interrupt=True, execution_block_cb=execution_block_cb, pre_execute_cb=pre_execute_cb, v3_data=v3_data)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "A:\ComfyUI\ComfyUI (1)\ComfyUI\execution.py", line 326, in _async_map_node_over_list
+    await process_inputs(input_dict, i)
+  File "A:\ComfyUI\ComfyUI (1)\ComfyUI\execution.py", line 314, in process_inputs
+    result = f(**inputs)
+  File "A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\ComfyUI-LLM-text-processor\nodes.py", line 189, in generate
+    raise ValueError(f"Model not found: {model}")
+ValueError: Model not found: MN-Violet-Lotus-12B.Q5_K_M.gguf
+
+2026-10-03T17:07:09.249280 - [32m[INFO][0m [32mPrompt executed in 22.69 seconds[0m
+2026-10-03T17:07:09.727088 - [1m[33m[WARNING][0m WARNING: _.IS_CHANGED() got an unexpected keyword argument 'format'
+2026-10-03T17:07:29.494796 - [1m[31m[ERROR][0m !!! Exception during processing !!! Model not found: MN-Violet-Lotus-12B.Q5_K_M.gguf
+2026-10-03T17:07:29.495691 - [1m[31m[ERROR][0m Traceback (most recent call last):
+  File "A:\ComfyUI\ComfyUI (1)\ComfyUI\execution.py", line 547, in execute
+    output_data, output_ui, has_subgraph, has_pending_tasks = await get_output_data(prompt_id, unique_id, obj, input_data_all, execution_block_cb=execution_block_cb, pre_execute_cb=pre_execute_cb, v3_data=v3_data)
+                                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "A:\ComfyUI\ComfyUI (1)\ComfyUI\execution.py", line 352, in get_output_data
+    return_values = await _async_map_node_over_list(prompt_id, unique_id, obj, input_data_all, obj.FUNCTION, allow_interrupt=True, execution_block_cb=execution_block_cb, pre_execute_cb=pre_execute_cb, v3_data=v3_data)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "A:\ComfyUI\ComfyUI (1)\ComfyUI\execution.py", line 326, in _async_map_node_over_list
+    await process_inputs(input_dict, i)
+  File "A:\ComfyUI\ComfyUI (1)\ComfyUI\execution.py", line 314, in process_inputs
+    result = f(**inputs)
+  File "A:\ComfyUI\ComfyUI (1)\ComfyUI\custom_nodes\ComfyUI-LLM-text-processor\nodes.py", line 189, in generate
+    raise ValueError(f"Model not found: {model}")
+ValueError: Model not found: MN-Violet-Lotus-12B.Q5_K_M.gguf
+
+2026-10-03T17:07:29.497641 - [32m[INFO][0m [32mPrompt executed in 19.77 seconds[0m
+
+```
+## Attached Workflow
+Please make sure that workflow does not contain any sensitive information such as API keys or passwords.
+```
+Workflow too large. Please manually upload the workflow from local file system.
+```
+
+## Additional Context
+(Please add any additional context or steps to reproduce the error here)

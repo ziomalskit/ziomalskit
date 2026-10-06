@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "workflow_file": "VAST_H3_MASTER_NATIVE_INT8_96GB.json",
+  "profile": "native_int8_96gb",
+  "nodes": {
+    "model_loader": {
+      "id": 4595,
+      "field": "unet_name",
+      "default": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "alternatives": {
+        "native_int8": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+        "10eros_hybrid": "10Eros_Max_h3_hybrid_beta5_int8.safetensors"
+      }
+    },
+    "user_prompt": {
+      "id": 2624,
+      "field": "positive"
+    },
+    "prompt_override": {
+      "id": 2632,
+      "field": "positive"
+    },
+    "final_prompt_named_value": {
+      "id": 1716,
+      "name": "final_prompt",
+      "note": "Expose to controller/history in next integration step"
+    },
+    "pictures": [
+      {
+        "slot": 1,
+        "id": 3554,
+        "field": "image",
+        "role": "primary anchor"
+      },
+      {
+        "slot": 2,
+        "id": 4613,
+        "field": "image"
+      },
+      {
+        "slot": 3,
+        "id": 4624,
+        "field": "image"
+      },
+      {
+        "slot": 4,
+        "id": 4635,
+        "field": "image"
+      },
+      {
+        "slot": 5,
+        "id": 4646,
+        "field": "image"
+      },
+      {
+        "slot": 6,
+        "id": 4657,
+        "field": "image"
+      }
+    ],
+    "audio": [
+      {
+        "slot": 1,
+        "id": 3944,
+        "field": "audio"
+      },
+      {
+        "slot": 2,
+        "id": 4734,
+        "field": "audio"
+      },
+      {
+        "slot": 3,
+        "id": 4749,
+        "field": "audio"
+      }
+    ],
+    "first_pass_sampler": {
+      "id": 7334,
+      "fields": {
+        "seed": "noise_seed",
+        "steps": "steps",
+        "sampler": "sampler_name",
+        "scheduler": "scheduler",
+        "denoise": "denoise"
+      },
+      "defaults": {
+        "steps": 20,
+        "sampler": "res_multistep",
+        "scheduler": "simple",
+        "denoise": 1.0
+      }
+    },
+    "second_pass_sampler": {
+      "id": 7335,
+      "fields": {
+        "seed": "noise_seed",
+        "steps": "steps",
+        "sampler": "sampler_name",
+        "scheduler": "scheduler",
+        "denoise": "denoise"
+      },
+      "defaults": {
+        "steps": 4,
+        "sampler": "er_sde",
+        "scheduler": "linear_quadratic",
+        "denoise": 0.3
+      }
+    },
+    "latent_upscaler": {
+      "id": 6175,
+      "fields": {
+        "model": "model_name",
+        "megapixels": "mode.megapixels",
+        "force_unload": "force_unload"
+      },
+      "defaults": {
+        "megapixels": 0.8,
+        "force_unload": false
+      }
+    },
+    "first_pass_loras": {
+      "id": 6164,
+      "type": "Power Lora Loader (rgthree)",
+      "entries": [
+        {
+          "on": true,
+          "lora": "HMBreastsV2.safetensors",
+          "strength": 1,
+          "strengthTwo": null
+        },
+        {
+          "on": false,
+          "lora": "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+          "strength": 1,
+          "strengthTwo": null
+        },
+        {
+          "on": true,
+          "lora": "MysticXXX_MMH3-V4-ref2va.safetensors",
+          "strength": 0.6,
+          "strengthTwo": null
+        },
+        {
+          "on": false,
+          "lora": "HMNSFW-AIO-V2.5.safetensors",
+          "strength": 0.6,
+          "strengthTwo": null
+        },
+        {
+          "on": true,
+          "lora": "movement_h3_lora_v1_500.safetensors",
+          "strength": 0.5,
+          "strengthTwo": null
+        },
+        {
+          "on": false,
+          "lora": "MMH3-MPOV.safetensors",
+          "strength": 0.6,
+          "strengthTwo": null
+        },
+        {
+          "on": false,
+          "lora": "H3_Combat_V2.safetensors",
+          "strength": 0.6,
+          "strengthTwo": null
+        }
+      ]
+    },
+    "second_pass_loras": {
+      "id": 6165,
+      "type": "Power Lora Loader (rgthree)",
+      "entries": []
+    }
+  },
+  "memory_changes": {
+    "removed_nodes": [
+      {
+        "id": 7384,
+        "type": "UnloadCPUModels"
+      },
+      {
+        "id": 7385,
+        "type": "UnloadAfterSampling"
+      }
+    ],
+    "latent_upscaler_force_unload": false
+  },
+  "frontend_requirements": {
+    "prompt_preview": [
+      "user_prompt",
+      "visual/reference audit",
+      "creative plan",
+      "final_h3_prompt"
+    ],
+    "review_before_render": true,
+    "queue_one_job_at_a_time": true,
+    "watchdog": {
+      "soft_timeout_minutes": 8,
+      "hard_restart_after_seconds": 90
+    }
+  }
+}

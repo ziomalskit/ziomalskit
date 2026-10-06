@@ -1,0 +1,90 @@
+﻿name,category,included,size_bytes,source,note
+00_START_HERE/CURRENT_STATE.md,PACKAGED,yes,7332,migration_package,
+00_START_HERE/DECISIONS_AND_HISTORY.md,PACKAGED,yes,3660,migration_package,
+00_START_HERE/KNOWN_FAILURES_DO_NOT_REPEAT.md,PACKAGED,yes,2663,migration_package,
+00_START_HERE/NEW_CHAT_BOOTSTRAP_PROMPT.txt,PACKAGED,yes,1318,migration_package,
+00_START_HERE/NEXT_STEPS.md,PACKAGED,yes,1466,migration_package,
+00_START_HERE/README_FIRST.md,PACKAGED,yes,2387,migration_package,
+00_START_HERE/SOURCE_LIMITATIONS.md,PACKAGED,yes,1647,migration_package,
+01_CURRENT_TRUTH/CURRENT_10EROS_HYBRID_BETA5_v8_VISIBLE_CAUSALITY_AB.json,PACKAGED,yes,3021403,migration_package,
+01_CURRENT_TRUTH/CURRENT_10EROS_HYBRID_BETA5_v8_VISIBLE_CAUSALITY_REFERENCE_SAFE.json,PACKAGED,yes,3021405,migration_package,
+01_CURRENT_TRUTH/CURRENT_REF2VA_INT8_CONVROT_JOYCAPTION_v8_3X3_TILES_QWEN_VERIFIER.json,PACKAGED,yes,3015267,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/.env.example,PACKAGED,yes,1102,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/AUDIT_REPORT.md,PACKAGED,yes,1666,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/FINAL_AUDIT_RC5.md,PACKAGED,yes,1575,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/FULL_PRE_RENTAL_AUDIT.md,PACKAGED,yes,6097,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/INSTALL_ON_VAST.sh,PACKAGED,yes,442,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/LIVE_ACCEPTANCE_TESTS.md,PACKAGED,yes,1934,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/README.md,PACKAGED,yes,982,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/STAGE5_AUDIT.md,PACKAGED,yes,1046,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/STAGE5_RC2_AUDIT.md,PACKAGED,yes,1286,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/VAST_CONTROL.md,PACKAGED,yes,1050,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/VAST_LAUNCH_SETTINGS.md,PACKAGED,yes,454,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/app/main.py,PACKAGED,yes,61865,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/config/VAST_H3_API_MAP.json,PACKAGED,yes,5243,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/config/custom_nodes_manifest.json,PACKAGED,yes,1160,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/config/models_manifest.json,PACKAGED,yes,3355,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/requirements.txt,PACKAGED,yes,75,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/scripts/install_fallback_nodes.sh,PACKAGED,yes,1882,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/scripts/integration_matrix_test.py,PACKAGED,yes,7056,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/scripts/offline_selftest.py,PACKAGED,yes,6462,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/scripts/patch_llama_binary.py,PACKAGED,yes,867,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/scripts/preflight.py,PACKAGED,yes,3308,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/scripts/preflight.sh,PACKAGED,yes,248,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/scripts/provision.sh,PACKAGED,yes,5730,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/scripts/service_ctl.sh,PACKAGED,yes,5156,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/scripts/setup_linux_llama.sh,PACKAGED,yes,1399,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/scripts/smoke_test.py,PACKAGED,yes,3145,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/scripts/smoke_test.sh,PACKAGED,yes,249,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/state/.gitkeep,PACKAGED,yes,,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/static/index.html,PACKAGED,yes,14275,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/workflows/VAST_H3_MASTER_NATIVE_INT8_96GB.json,PACKAGED,yes,3017973,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/workflows/VAST_H3_PROMPT_ONLY_STAGE2.json,PACKAGED,yes,3016643,migration_package,
+01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5.zip,PACKAGED,yes,612792,migration_package,
+01_CURRENT_TRUTH/VAST_H3_MASTER_NATIVE_INT8_96GB.json,PACKAGED,yes,3020205,migration_package,
+02_HISTORY_ATTACHMENTS/FreshRandomInt.py,PACKAGED,yes,999,migration_package,
+02_HISTORY_ATTACHMENTS/Jedziemy dale123123123j.json,PACKAGED,yes,2831526,migration_package,
+02_HISTORY_ATTACHMENTS/last kombinacej.json,PACKAGED,yes,109515,migration_package,
+02_HISTORY_ATTACHMENTS/minimaksik.json,PACKAGED,yes,69240,migration_package,
+02_HISTORY_ATTACHMENTS/minimax-h3-image-to-video-auto-prompt.2fba63c57dcc.json,PACKAGED,yes,50812,migration_package,
+02_HISTORY_ATTACHMENTS/minimax-h3-image-to-video.b5006de3522e.json,PACKAGED,yes,28853,migration_package,
+02_HISTORY_ATTACHMENTS/minimax-h3-refmod.a0f3195a7c5f.json,PACKAGED,yes,36997,migration_package,
+02_HISTORY_ATTACHMENTS/simpleWan22Workflow_v20.json,PACKAGED,yes,24417,migration_package,
+02_HISTORY_ATTACHMENTS/simplyAdvancedMinimax_v154.json,PACKAGED,yes,2908886,migration_package,
+03_LOGS_AND_FAILURES/Pasted text(20261003-150401).txt,PACKAGED,yes,34366,migration_package,
+03_LOGS_AND_FAILURES/Pasted text(20261003-150947).txt,PACKAGED,yes,34370,migration_package,
+03_LOGS_AND_FAILURES/Pasted text(20261003-151514).txt,PACKAGED,yes,32383,migration_package,
+03_LOGS_AND_FAILURES/Pasted text(20261006-062727).txt,PACKAGED,yes,139249,migration_package,
+04_MANIFESTS/FINAL_AUDIT_RC5.md,PACKAGED,yes,1575,migration_package,
+04_MANIFESTS/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5.sha256,PACKAGED,yes,116,migration_package,
+04_MANIFESTS/VAST_H3_API_MAP.json,PACKAGED,yes,4487,migration_package,
+05_LEGACY_WAN22_FOUNDATION/Pasted markdown(4).md,PACKAGED,yes,13128,migration_package,
+05_LEGACY_WAN22_FOUNDATION/Screenshot 2026-09-10 222202.png,PACKAGED,yes,303344,migration_package,
+05_LEGACY_WAN22_FOUNDATION/Screenshot 2026-09-11 004721.png,PACKAGED,yes,68574,migration_package,
+05_LEGACY_WAN22_FOUNDATION/Screenshot 2026-09-11 010234.png,PACKAGED,yes,785252,migration_package,
+scanner_low_convert(1).safetensors,legacy Wan2.2 model,no,306809072,project/library,not packed: obsolete heavy model binary
+/aj/Pasted text.txt,legacy project text,no,22156,project/library,raw bytes unavailable from Project surface
+/aj/wan22_lora.toml,legacy training/config,no,1530,project/library,raw bytes unavailable from Project surface
+/aj/run_high.log,legacy training log,no,144118,project/library,raw bytes unavailable from Project surface
+/aj/264 Wan 2.2 I2V Long Video with auto stich.json,legacy workflow,no,442778,project/library,raw bytes unavailable from Project surface
+/aj/aj_wan22_character_identity_handoff.md,legacy handoff,no,29613,project/library,raw bytes unavailable from Project surface; knowledge captured in handoff
+/aj/elizawoman193_chat_handoff_FULL.zip,legacy handoff archive,no,10361452,project/library,raw bytes unavailable from Project surface
+/aj/HANDOFF_elizawoman193_FULL.md,legacy handoff,no,40427,project/library,raw bytes unavailable from Project surface
+/aj/aj_wan22_handoff_2026-09-13.zip,legacy handoff archive,no,1397425,project/library,raw bytes unavailable from Project surface
+/aj/Jedziemy dalej_CLEAN_REBUILD_FROM_VANILLA_ALL_CURRENT_SETTINGS.json,H3 checkpoint,no,2850497,project/library,raw bytes unavailable from Project surface; superseded
+/aj/Jedziemy dalej_CURRENT_PLUS_SAFE_UNLOADS.json,H3 checkpoint,no,2852123,project/library,raw bytes unavailable from Project surface; superseded 16GB state
+/aj/Jedziemy dalej_CURRENT_PLUS_SAFE_UNLOADS_NVFP4_ADULT_LORA_SECOND_PASS_STACK.json,H3 checkpoint,no,2853394,project/library,raw bytes unavailable from Project surface; superseded/failed direction
+/aj/ROLLBACK_LAST_GOOD_INT8_BEFORE_FIRST_MODEL_SWAP.json,H3 rollback,no,2852123,project/library,raw bytes unavailable from Project surface; state summarized
+/aj/CURRENT_WORKFLOW_INT8_RESTORED_LAST_GOOD_CORE.json,H3 rollback/current checkpoint,no,2852134,project/library,raw bytes unavailable from Project surface; superseded by v8
+/aj/ROLLBACK_LAST_GOOD_MIXED_ONLY_UNET_TEST.json,H3 rollback,no,2852145,project/library,raw bytes unavailable from Project surface
+/aj/ROLLBACK_LAST_GOOD_INT8_PROMPTER_STABLE_24GPU.json,H3 rollback,no,2852123,project/library,raw bytes unavailable from Project surface
+/aj/INT8_PROMPTER50_SECOND_PASS_STABILITY_FIX.json,H3 checkpoint,no,2852123,project/library,raw bytes unavailable from Project surface
+/aj/INT8_PROMPTER50_SECOND_PASS_SAFE_v2.json,H3 checkpoint,no,2852121,project/library,raw bytes unavailable from Project surface
+/aj/ROLLBACK_LAST_GOOD_INT8_PROMPTER50_MISTRAL_NEMO_HERETIC_WRITER.json,H3 checkpoint,no,2852339,project/library,raw bytes unavailable from Project surface
+/aj/10EROS_REF2VA_INT8_JOYCAPTION_STEP0_TO_STEP2.json,H3/10Eros experiment,no,2862067,project/library,raw bytes unavailable; superseded
+/aj/10EROS_REF2VA_INT8_JOYCAPTION_v8_3X3_TILES_QWEN_VERIFIER.json,H3/10Eros v8,no,3015298,project/library,raw bytes unavailable; native current + visible 10Eros branches packaged instead
+/aj/10EROS_HYBRID_BETA5_INT8_JOYCAPTION_v8_3X3_TILES_QWEN_VERIFIER_AB.json,10Eros v8 A/B,no,3015283,project/library,raw bytes unavailable; visible-causality current branch packaged
+/aj/10EROS_HYBRID_BETA5_INT8_JOYCAPTION_v8_3X3_TILES_QWEN_VERIFIER_REFERENCE_SAFE.json,10Eros v8 ref-safe,no,3015285,project/library,raw bytes unavailable; visible-causality current branch packaged
+/aj/Download_JoyCaption_BetaOne_Q4K_mmproj.ps1,download script,no,2620,project/library,raw bytes unavailable; models manifest in RC5 is authoritative
+/aj/Download_Qwen3VL_8B_Q4KM_Verifier_FIXED_ASCII.ps1,download script,no,2436,project/library,raw bytes unavailable; models manifest in RC5 is authoritative
+/aj/H3_AIMDO_Unload_Fix.zip,16GB workaround,no,270201,project/library,raw bytes unavailable; deliberately obsolete for 96GB
