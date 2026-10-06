@@ -14,7 +14,7 @@ import time
 import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / 'migration/01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5'
+SOURCE = ROOT / 'h3'
 
 
 def serve(stage: Path, password: str, port: int, log):
@@ -28,6 +28,7 @@ def serve(stage: Path, password: str, port: int, log):
         'RENDER_RESTART_CMD': '/usr/bin/false', 'PROMPT_RESTART_CMD': '/usr/bin/false',
         'H3_PERSISTENT_ROOT': '', 'H3_PERSISTENCE_MODE': '',
         'PYTHONDONTWRITEBYTECODE': '1',
+        'H3_ALLOW_SUBMISSIONS': '0',
     })
     return subprocess.Popen([sys.executable, '-m', 'uvicorn', 'app.main:app',
                              '--host', '127.0.0.1', '--port', str(port)],

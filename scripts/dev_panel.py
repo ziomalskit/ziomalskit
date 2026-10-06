@@ -1,4 +1,4 @@
-"""Run the original controller locally, using isolated state and no Vast CLI."""
+"""Run the working controller locally, using isolated state and no submissions."""
 from __future__ import annotations
 
 import argparse
@@ -15,7 +15,7 @@ import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / 'migration/01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5'
+SOURCE = ROOT / 'h3'
 LOCAL = ROOT / '.local'
 STAGE = LOCAL / 'panel'
 PID_FILE = LOCAL / 'panel.pid'
@@ -79,6 +79,7 @@ def runtime_environment(auth: dict, port: int) -> dict:
         'H3_PERSISTENT_ROOT': '', 'H3_PERSISTENCE_MODE': '',
         'H3_PANEL_PORT': str(port),
         'PYTHONDONTWRITEBYTECODE': '1',
+        'H3_ALLOW_SUBMISSIONS': '0',
     })
     return environment
 

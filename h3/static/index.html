@@ -1,0 +1,260 @@
+<!doctype html>
+<html><head>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>H3 Mobile</title>
+<style>
+:root{font-family:system-ui;background:#0d0f12;color:#f3f4f6}
+body{margin:0;max-width:900px;margin:auto;padding:16px}
+h1{font-size:24px;margin-bottom:2px}
+.card{background:#171a20;border:1px solid #2b3039;border-radius:16px;padding:14px;margin:12px 0}
+label{display:block;margin:10px 0 5px;color:#b8c0cc}
+textarea,input,select,button{box-sizing:border-box;width:100%;font:inherit;border-radius:12px;border:1px solid #39404b;background:#0f1217;color:#fff;padding:12px}
+textarea{min-height:130px}
+button{background:#f1f3f5;color:#111;font-weight:700;margin-top:10px}
+button.secondary{background:#252a32;color:#fff}
+button.reject{background:#3a2020;color:#fff}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tiny{font-size:12px;color:#929aa6}.pill{font-size:11px;padding:2px 7px;border:1px solid #3d4653;border-radius:999px}
+.job{padding:11px;border-bottom:1px solid #2b3039;cursor:pointer}
+.job.active{outline:1px solid #78818f}.ok{color:#75d89b}.warn{color:#ffd166}.bad{color:#ff7b7b}
+.reviewcard{border:1px solid #343a45;border-radius:12px;padding:10px;margin:8px 0}
+.reviewactions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+pre{white-space:pre-wrap;word-break:break-word;background:#0b0d10;padding:10px;border-radius:10px}
+a{color:#9ecbff}
+
+.vastgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}
+.metric{background:#0f1217;border-radius:10px;padding:9px}
+.metric b{display:block;font-size:16px}
+.danger{background:#4a1f24!important;color:#fff!important}
+.safe{background:#173323!important;color:#fff!important}
+.vastactions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media(max-width:520px){.vastgrid,.vastactions{grid-template-columns:1fr}}
+</style></head><body>
+<h1>H3 Mobile</h1><div class="tiny">Stage 5 • H3 + Vast Control • 10 prompts/batch • 5 auto + 5 review</div>
+
+<div class="card">
+  <b>Vast Control</b> <span id="vastState" class="pill">loading…</span>
+  <div class="vastgrid">
+    <div class="metric"><span class="tiny">GPU</span><b id="vastGpu">—</b><span id="vastGpuSub" class="tiny">—</span></div>
+    <div class="metric"><span class="tiny">Cost</span><b id="vastCost">—</b><span id="vastCostSub" class="tiny">—</span></div>
+    <div class="metric"><span class="tiny">VRAM</span><b id="vastVram">—</b><span id="vastVramSub" class="tiny">—</span></div>
+    <div class="metric"><span class="tiny">Storage</span><b id="vastDisk">—</b><span id="vastPersist" class="tiny">—</span></div>
+  </div>
+  <div style="margin-top:10px" class="tiny" id="vastPlan">Shutdown plan: none</div>
+  <div class="vastactions">
+    <button class="secondary" onclick="vastAction('stop_after_current')">STOP AFTER CURRENT</button>
+    <button class="secondary" onclick="vastAction('stop_after_queue')">STOP AFTER QUEUE</button>
+    <button class="safe" id="destroyKeepBtn" onclick="vastAction('destroy_after_queue_keep_data')">FINISH QUEUE & DESTROY COMPUTE</button>
+    <button class="secondary" onclick="vastAction('cancel_plan')">CANCEL SHUTDOWN PLAN</button>
+  </div>
+  <details>
+    <summary>Guards & service controls</summary>
+    <div class="row">
+      <div><label>Idle stop (minutes, 0=off)</label><input id="idleMin" type="number" value="0" min="0"></div>
+      <div><label>Session cost guard $ (0=off)</label><input id="costGuard" type="number" value="0" min="0" step="0.25"></div>
+    </div>
+    <button class="secondary" onclick="saveGuards()">SAVE GUARDS</button>
+    <div class="vastactions">
+      <button class="secondary" onclick="restartService('render')">RESTART RENDER COMFY</button>
+      <button class="secondary" onclick="restartService('prompt')">RESTART PROMPT COMFY</button>
+    </div>
+  </details>
+  <details>
+    <summary>Danger zone</summary>
+    <div class="tiny">STOP disconnects this panel. It cannot start itself again; use the Vast console to START.</div>
+    <button class="danger" onclick="stopNow()">STOP INSTANCE NOW</button>
+    <button class="danger" onclick="destroyNow()">DESTROY INSTANCE NOW</button>
+  </details>
+</div>
+
+<div class="card">
+<label>Picture 1 — primary anchor</label><input id="pic" type="file" accept="image/*">
+<label>Supporting references — exactly 5</label><input id="refs" type="file" accept="image/*" multiple>
+<label>Audio reference — optional, max 1</label><input id="audio" type="file" accept="audio/*">
+</div>
+
+<div class="card">
+<label>Scene / user prompt</label><textarea id="prompt"></textarea>
+<label>Render model</label><select id="model">
+<option value="native_int8">Native MiniMax H3 INT8</option>
+<option value="10eros_hybrid">10Eros Hybrid (A/B)</option>
+</select>
+<div class="row">
+<div><label>Batches</label><input id="batches" type="number" value="1" min="1" max="100"></div>
+<div><label>Stuck timeout (min)</label><input id="timeout" type="number" value="8" min="1"></div>
+</div>
+<div class="tiny" style="margin-top:10px">Każdy batch: 10 promptów. #1–5 lecą automatycznie. #6–10 trafiają do Review.</div>
+<details><summary>LoRAs</summary><div id="loras"></div></details>
+<button onclick="generate()">GENERATE BATCH</button>
+</div>
+
+<div class="card">
+<b>Review pool</b>
+<div class="tiny">Zatwierdzony prompt wskakuje na samą górę render queue. Niezatwierdzone niczego nie blokują.</div>
+<div id="reviewPool">—</div>
+</div>
+
+<div class="card">
+<b>Prompt preview</b> <span id="selectedStatus" class="pill">no job selected</span>
+<details><summary>Step 0 — Visual facts</summary><pre id="p0">—</pre></details>
+<details><summary>Step 1 — Expanded intent</summary><pre id="p1">—</pre></details>
+<details><summary>Step 2 — Reference map</summary><pre id="p2">—</pre></details>
+<details><summary>Step 3 — Creative plan</summary><pre id="p3">—</pre></details>
+<details open><summary>Step 4 — Final H3 prompt</summary><pre id="p4">—</pre></details>
+</div>
+
+<div class="card"><b>Queue / Results</b><div id="jobs">—</div></div>
+
+<script>
+let loras=[], selected=null, lastJobs=[];
+
+async function init(){
+  const c=await fetch('/api/config').then(r=>r.json());
+  loras=c.loras||[];
+  document.getElementById('loras').innerHTML=loras.map((x,i)=>
+    `<label><input style="width:auto" type="checkbox" id="le${i}" ${x.on?'checked':''}> ${x.lora}</label>
+     <input id="ls${i}" type="number" step="0.05" value="${x.strength}">`).join('');
+  await refresh(); setInterval(refresh,2500);
+}
+async function up(f){
+  let fd=new FormData(); fd.append('file',f);
+  let r=await fetch('/api/upload',{method:'POST',body:fd});
+  if(!r.ok) throw new Error(await r.text());
+  return (await r.json()).filename;
+}
+async function generate(){
+  try{
+    let pics=[];
+    let p=document.getElementById('pic').files[0];
+    let refs=[...document.getElementById('refs').files];
+    if(!p) throw new Error('Picture 1 is required.');
+    if(refs.length!==5) throw new Error('This audited release requires exactly 5 supporting references.');
+    pics.push(await up(p));
+    for(let f of refs) pics.push(await up(f));
+    let aud=[];
+    for(let f of document.getElementById('audio').files) aud.push(await up(f));
+    let ls=loras.map((x,i)=>({name:x.lora,enabled:document.getElementById('le'+i).checked,strength:+document.getElementById('ls'+i).value}));
+    let body={
+      prompt:document.getElementById('prompt').value,
+      model:document.getElementById('model').value,
+      batches:+document.getElementById('batches').value,
+      soft_timeout_minutes:+document.getElementById('timeout').value,
+      pictures:pics,audio:aud,loras:ls
+    };
+    let r=await fetch('/api/batches',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok) throw new Error(await r.text());
+    await refresh();
+  }catch(e){alert(e)}
+}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+async function selectJob(id){selected=id; await refreshPrompts(); renderJobs();}
+async function refreshPrompts(){
+  if(!selected)return;
+  let r=await fetch('/api/jobs/'+selected+'/prompts'); if(!r.ok)return;
+  let p=await r.json();
+  document.getElementById('selectedStatus').textContent=`B${p.batch_seq} #${p.candidate_index} • ${p.status}`;
+  document.getElementById('p0').textContent=p.visual_facts||'—';
+  document.getElementById('p1').textContent=p.expanded_intent||'—';
+  document.getElementById('p2').textContent=p.reference_map||'—';
+  document.getElementById('p3').textContent=p.creative_plan||'—';
+  document.getElementById('p4').textContent=p.approved_final_prompt||p.final_h3_prompt||'—';
+}
+async function approve(id){
+  const j=lastJobs.find(x=>x.id===id); if(!j)return;
+  let txt=prompt("Final prompt (możesz edytować):", j.final_h3_prompt||"");
+  if(txt===null)return;
+  let r=await fetch('/api/jobs/'+id+'/approve',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({final_prompt:txt})});
+  if(!r.ok) alert(await r.text()); await refresh();
+}
+async function reject(id){
+  let r=await fetch('/api/jobs/'+id+'/reject',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({reason:null})});
+  if(!r.ok) alert(await r.text()); await refresh();
+}
+function renderReview(){
+  const p=lastJobs.filter(j=>j.status==='pending_review');
+  document.getElementById('reviewPool').innerHTML=p.length?p.map(j=>`
+    <div class="reviewcard">
+      <b>Batch ${j.batch_seq} • Prompt ${j.candidate_index}</b>
+      <div class="tiny">prompt seed ${j.prompt_seed} • render seed ${j.render_seed ?? j.seed}</div>
+      <div style="margin-top:8px">${esc((j.final_h3_prompt||'').slice(0,500))}${(j.final_h3_prompt||'').length>500?'…':''}</div>
+      <div class="reviewactions">
+        <button onclick="approve('${j.id}')">✓ APPROVE</button>
+        <button class="reject" onclick="reject('${j.id}')">✕ REJECT</button>
+      </div>
+      <button class="secondary" onclick="selectJob('${j.id}')">VIEW FULL PROMPT</button>
+    </div>`).join(''):'—';
+}
+function renderJobs(){
+  let jobs=[...lastJobs].reverse();
+  document.getElementById('jobs').innerHTML=jobs.length?jobs.map(j=>{
+    let cls=j.status==='completed'?'ok':(j.status.includes('failed')||j.status.includes('stuck')?'bad':(j.status==='pending_review'?'warn':''));
+    let active=j.id===selected?' active':'';
+    return `<div class="job${active}" onclick="selectJob('${j.id}')">
+      <b class="${cls}">${esc(j.status)}</b> · B${j.batch_seq} #${j.candidate_index} · render seed ${j.render_seed ?? j.seed}<br>
+      <span class="tiny">${esc(j.current_node||'')} ${j.review_required?'• review':'• auto'}</span>
+      ${(j.outputs||[]).map(u=>`<br><a href="${esc(u)}" target="_blank" onclick="event.stopPropagation()">output</a>`).join('')}
+    </div>`}).join(''):'—';
+}
+async function refresh(){
+  let d=await fetch('/api/jobs').then(r=>r.json());
+  lastJobs=d.jobs||[];
+  if(!selected && lastJobs.length) selected=lastJobs[lastJobs.length-1].id;
+  renderReview(); renderJobs(); await refreshPrompts();
+}
+
+async function vastAction(action, extra={}){
+  let r=await fetch('/api/vast/action',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action,...extra})});
+  if(!r.ok){alert(await r.text());return}
+  await refreshVast();
+}
+async function saveGuards(){
+  let idle=+document.getElementById('idleMin').value;
+  let cost=+document.getElementById('costGuard').value;
+  await vastAction('set_idle_timer',{idle_minutes:idle||null});
+  await vastAction('set_cost_guard',{cost_guard_usd:cost||null});
+}
+async function restartService(service){
+  if(!confirm('Restart '+service+' service?')) return;
+  let r=await fetch('/api/services/'+service+'/restart',{method:'POST'});
+  if(!r.ok) alert(await r.text());
+}
+async function stopNow(){
+  let x=prompt('Type STOP to stop the Vast instance now. The panel will disconnect.');
+  if(x!=='STOP')return;
+  await vastAction('stop_now',{confirm:x});
+}
+async function destroyNow(){
+  let x=prompt('Type DESTROY to permanently destroy this instance. Instance-local data will be lost.');
+  if(x!=='DESTROY')return;
+  await vastAction('destroy_now',{confirm:x});
+}
+async function refreshVast(){
+  try{
+    let s=await fetch('/api/vast/status').then(r=>r.json());
+    let inst=s.instance||{};
+    document.getElementById('vastState').textContent=inst.actual_status||s.error||'unknown';
+    let g=s.gpu||{};
+    document.getElementById('vastGpu').textContent=g.name||'—';
+    document.getElementById('vastGpuSub').textContent=(g.util_pct!=null?g.util_pct+'% • '+g.temp_c+'°C • '+g.power_w+'W':'—');
+    document.getElementById('vastVram').textContent=(g.vram_total_mb?Math.round(g.vram_used_mb/1024)+' / '+Math.round(g.vram_total_mb/1024)+' GB':'—');
+    document.getElementById('vastVramSub').textContent='GPU memory';
+    document.getElementById('vastCost').textContent=s.hourly_usd!=null?'$'+Number(s.hourly_usd).toFixed(2)+'/h':'—';
+    document.getElementById('vastCostSub').textContent=s.estimated_session_compute_usd!=null?'controller session ≈ $'+Number(s.estimated_session_compute_usd).toFixed(2):'session estimate unavailable';
+    let d=s.disk||{};
+    document.getElementById('vastDisk').textContent=d.free_gb!=null?d.free_gb+' GB free':'—';
+    let p=s.persistence||{};
+    document.getElementById('vastPersist').textContent=p.safe_for_destroy_keep_data?'persistent data VERIFIED':('NOT SAFE: '+(p.reason||'persistent data not verified'));
+    document.getElementById('destroyKeepBtn').disabled=!p.safe_for_destroy_keep_data;
+    document.getElementById('destroyKeepBtn').title=p.safe_for_destroy_keep_data?'':'Configure H3_PERSISTENT_ROOT on a separate mounted Vast volume first';
+    let plan=s.plan||{};
+    document.getElementById('vastPlan').textContent='Shutdown plan: '+(plan.plan||'none')+(plan.reason?' • '+plan.reason:'');
+    document.getElementById('idleMin').value=plan.idle_minutes||0;
+    document.getElementById('costGuard').value=plan.cost_guard_usd||0;
+  }catch(e){
+    document.getElementById('vastState').textContent='status error';
+  }
+}
+setInterval(refreshVast,5000);
+refreshVast();
+init();
+</script></body></html>

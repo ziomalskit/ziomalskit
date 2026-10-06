@@ -1,0 +1,17 @@
+{
+  "package": "comfy-cli",
+  "version": "1.21.0",
+  "source": "https://pypi.org/project/comfy-cli/1.21.0/",
+  "wheel_sha256": "659b1701801b3d905a8d866fe5eb28db2352bb266569ba6e4a36ff0c14da9e14",
+  "files_sha256": {
+    "workflow_to_api.py": "f88f8f97c925efffde16d4703f7d20fbe373e71415aeeb33386849214cf076f5",
+    "promoted.py": "4103c41403872c8d240459af08e349a99923e72da14281c6bc9431a496384ca4",
+    "engine_support.py": "8f4c67f640449b16c6d6a09b83a8dc0a6db16c9d4eb62f155749f38079c0be4a"
+  },
+  "scope": "Exact pure converter/promoted modules and four verbatim engine helpers; no installation/GPU/network in tests",
+  "test_schema_fixture": {
+    "file": "../workflow_catalog.json",
+    "sha256": "49c1548eb1680b2ebe7b801b1dff748cd1d9d637097962ba8e3230512e349740",
+    "source": "RC5 serialized node widget/port fields; synthetic CPU structural fixture; not live object_info"
+  }
+}
