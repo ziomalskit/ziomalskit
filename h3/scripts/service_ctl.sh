@@ -24,6 +24,11 @@ mkdir -p "$PID_DIR" "$WORKSPACE"
 
 [[ -x "$COMFY_PYTHON" ]] || { echo "ComfyUI interpreter missing: $COMFY_PYTHON" >&2; exit 1; }
 
+# All invocations share one lock, including 'all'. Do not unlink this file:
+# waiters must continue locking the same inode. Workers close this fd below.
+exec 9>"$PID_DIR/service_ctl.lock"
+flock -x 9
+
 pidfile(){ echo "$PID_DIR/$1.pid"; }
 logfile(){ echo "$WORKSPACE/$1.log"; }
 
@@ -65,7 +70,7 @@ start_one(){
         --temp-directory "$COMFY_ROOT/temp-render" \
         --user-directory "$COMFY_ROOT/user-render" \
         --database-url "sqlite:///$COMFY_ROOT/user-render/comfyui.db" \
-        --highvram >"$(logfile comfyui-render)" 2>&1 &
+        --highvram 9>&- >"$(logfile comfyui-render)" 2>&1 &
       echo $! >"$(pidfile "$svc")"
       ;;
     prompt)
@@ -79,7 +84,7 @@ start_one(){
         --temp-directory "$COMFY_ROOT/temp-prompt" \
         --user-directory "$COMFY_ROOT/user-prompt" \
         --database-url "sqlite:///$COMFY_ROOT/user-prompt/comfyui.db" \
-        --vram-headroom 6 >"$(logfile comfyui-prompt)" 2>&1 &
+        --vram-headroom 6 9>&- >"$(logfile comfyui-prompt)" 2>&1 &
       echo $! >"$(pidfile "$svc")"
       ;;
     panel)
@@ -101,7 +106,7 @@ start_one(){
       export H3_PERSISTENCE_MODE="${H3_PERSISTENCE_MODE:-}"
       # Panel must be externally reachable through Vast port mapping; Basic Auth protects it.
       nohup "$PYTHON_BIN" -m uvicorn app.main:app \
-        --host 0.0.0.0 --port "$PANEL_PORT" >"$(logfile h3-mobile)" 2>&1 &
+        --host 0.0.0.0 --port "$PANEL_PORT" 9>&- >"$(logfile h3-mobile)" 2>&1 &
       echo $! >"$(pidfile "$svc")"
       ;;
     *) echo "unknown service: $svc" >&2; exit 2;;

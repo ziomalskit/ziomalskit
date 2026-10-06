@@ -127,6 +127,7 @@ vast_guard_task: asyncio.Task | None = None
 lifecycle_action_task: asyncio.Task | None = None
 recovery_task: asyncio.Task | None = None
 recovering_services: set[str] = set()
+recovery_counts: dict[str, int] = {}
 state_load_error: str | None = None
 vast_control_load_error: str | None = None
 last_busy_at = time.time()
@@ -201,10 +202,13 @@ def _record_cancel_confirmation(job: dict, service: str, prompt_id: str, confirm
 
 
 def state_diagnostics() -> dict[str, Any]:
+    lifecycle_error = vast_control_load_error or vast_control.get("persistence_error")
+    if vast_control.get("plan") in {"action_failed", "action_interrupted", "blocked_unsafe_persistence"}:
+        lifecycle_error = lifecycle_error or vast_control.get("reason") or "Lifecycle requires manual reconciliation"
     return {
-        "ready": not (state_load_error or vast_control_load_error),
+        "ready": not (state_load_error or lifecycle_error),
         "queue_error": state_load_error,
-        "lifecycle_error": vast_control_load_error,
+        "lifecycle_error": lifecycle_error,
     }
 
 
@@ -274,7 +278,15 @@ def _atomic_json_write(path: Path, payload: Any) -> None:
 def save_vast_control() -> None:
     if vast_control_load_error:
         raise RuntimeError(vast_control_load_error)
-    _atomic_json_write(VAST_CONTROL_FILE, vast_control)
+    vast_control.pop("persistence_error", None)
+    try:
+        _atomic_json_write(VAST_CONTROL_FILE, vast_control)
+    except Exception as error:
+        # Even if disk writes fail, never leave an unowned executing action in
+        # memory. An executing record on disk becomes action_interrupted on boot.
+        vast_control.update({"plan": "action_failed", "reason": "Lifecycle state write failed; manual reconciliation required",
+                             "persistence_error": repr(error)})
+        raise
 
 
 def save_state() -> None:
@@ -1322,41 +1334,51 @@ async def vast_instance_status() -> dict[str, Any]:
     return base
 
 
-async def delayed_instance_action(action: str, delay: float = 2.0, *, require_persistence: bool = False) -> None:
-    await asyncio.sleep(delay)
-    if not submissions_allowed():
-        vast_control["plan"] = "action_failed"
-        vast_control["reason"] = "Lifecycle actions are disabled in this CPU development environment"
-        save_vast_control()
-        return
-    if action == "destroy" and require_persistence:
-        storage = await asyncio.to_thread(persistent_storage_status)
-        if not storage["safe_for_destroy_keep_data"]:
-            vast_control["plan"] = "blocked_unsafe_persistence"
-            vast_control["reason"] = "Persistent storage is no longer verified; destroy was not dispatched"
-            save_vast_control()
-            return
-    iid = instance_id_from_env()
-    if not iid:
-        vast_control["plan"] = "action_failed"
-        vast_control["reason"] = "instance id unavailable"
-        save_vast_control()
-        return
-    vast_control["last_action"] = action
-    vast_control["last_action_at"] = time.time()
-    save_vast_control()
+def _lifecycle_failure(reason: str, *, plan: str = "action_failed") -> None:
+    """Block dispatch in memory even when the failure cannot be persisted."""
+    vast_control.update({"plan": plan, "reason": reason})
     try:
+        save_vast_control()
+    except Exception as error:
+        # Diagnostics must not kill the guard or trigger a destructive retry.
+        vast_control["persistence_error"] = repr(error)
+
+
+async def delayed_instance_action(action: str, delay: float = 2.0, *, require_persistence: bool = False) -> None:
+    try:
+        await asyncio.sleep(delay)
+        if not submissions_allowed():
+            _lifecycle_failure("Lifecycle actions are disabled in this CPU development environment")
+            return
+        if action == "destroy" and require_persistence:
+            storage = await asyncio.to_thread(persistent_storage_status)
+            if not storage["safe_for_destroy_keep_data"]:
+                _lifecycle_failure("Persistent storage is no longer verified; destroy was not dispatched",
+                                   plan="blocked_unsafe_persistence")
+                return
+        iid = instance_id_from_env()
+        if not iid:
+            _lifecycle_failure("instance id unavailable")
+            return
+        # A settings write or queue failure can happen while the delay or
+        # mount inspection awaits. Fail closed at the final dispatch boundary.
+        if not state_diagnostics()["ready"]:
+            _lifecycle_failure("Controller state became unavailable; lifecycle was not dispatched")
+            return
+        vast_control["last_action"] = action
+        vast_control["last_action_at"] = time.time()
+        save_vast_control()
         if action == "stop":
             await run_vast_cli("stop", "instance", iid)
         elif action == "destroy":
             await run_vast_cli("destroy", "instance", iid, "-y")
         else:
             raise ValueError(action)
-    except Exception as e:
-        # If the process survives, surface the failure instead of leaving an eternal "executing_*".
-        vast_control["plan"] = "action_failed"
-        vast_control["reason"] = repr(e)
-        save_vast_control()
+    except asyncio.CancelledError:
+        _lifecycle_failure("Lifecycle action interrupted; manual reconciliation required", plan="action_interrupted")
+        raise
+    except Exception as error:
+        _lifecycle_failure(f"Lifecycle action failed or its outcome is unknown; manual reconciliation required: {error}")
 
 
 def _schedule_instance_action(action: str, delay: float = 1.5) -> None:
@@ -1441,7 +1463,7 @@ async def vast_guard_worker() -> None:
                     save_vast_control()
         except Exception as e:
             vast_control["guard_error"] = repr(e)
-            save_vast_control()
+            _lifecycle_failure(f"Lifecycle guard failed; manual reconciliation required: {e}")
         await asyncio.sleep(10)
 
 
@@ -1537,11 +1559,15 @@ async def render_worker() -> None:
 
 
 async def _recover_one_job(job: dict, service: str) -> None:
+    recovery_counts[service] = recovery_counts.get(service, 0) + 1
     recovering_services.add(service)
     try:
         await _recover_one_job_impl(job, service)
     finally:
-        recovering_services.discard(service)
+        recovery_counts[service] -= 1
+        if recovery_counts[service] == 0:
+            del recovery_counts[service]
+            recovering_services.discard(service)
 
 
 async def _recover_one_job_impl(job: dict, service: str) -> None:
@@ -1622,17 +1648,38 @@ async def _recover_one_job_impl(job: dict, service: str) -> None:
 
 async def recover_jobs_after_controller_restart() -> None:
     async def recover_service(service: str) -> None:
-        while True:
-            if not (state_load_error or vast_control_load_error):
-                job = next((j for j in queue if j.get("status") in {
-                    f"recovery_{service}", f"{service}_submission_uncertain",
-                }), None)
-                if job is not None:
+        active: dict[str, asyncio.Task] = {}
+        statuses = {f"recovery_{service}", f"{service}_submission_uncertain"}
+
+        async def recover_job(job: dict) -> None:
+            while job.get("status") in statuses:
+                if not (state_load_error or vast_control_load_error):
                     try:
                         await _recover_one_job(job, service)
                     except Exception as error:
-                        _preserve_recovery(job, service, f"Recovery will retry: {error}")
-            await asyncio.sleep(5)
+                        try:
+                            _preserve_recovery(job, service, f"Recovery will retry: {error}")
+                        except Exception as write_error:
+                            job["recovery_warning"] = f"Recovery state write failed: {write_error}"
+                await asyncio.sleep(5)
+
+        try:
+            while True:
+                for job_id, task in list(active.items()):
+                    if task.done():
+                        await task
+                        del active[job_id]
+                if not (state_load_error or vast_control_load_error):
+                    for job in queue:
+                        if job.get("status") in statuses and job["id"] not in active:
+                            # One reconciler per job. A manual job or long watcher
+                            # cannot starve another job on this same service.
+                            active[job["id"]] = asyncio.create_task(recover_job(job), name=f"h3-recovery-{service}")
+                await asyncio.sleep(5)
+        finally:
+            for task in active.values():
+                task.cancel()
+            await asyncio.gather(*active.values(), return_exceptions=True)
 
     # Separate retry loops: a long render watcher or startup delay must not
     # prevent prompt-service reconciliation, and vice versa.
@@ -1900,7 +1947,7 @@ async def create_batches(req: BatchRequest):
 
 @app.get("/api/jobs")
 async def jobs():
-    return {"jobs": queue, "batches": batches, "state": state_diagnostics()}
+    return {"jobs": queue, "batches": batches}
 
 
 @app.get("/api/jobs/{controller_job_id}")

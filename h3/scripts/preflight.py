@@ -160,6 +160,12 @@ def run_checks(environment: dict[str, str] | None = None) -> list[str]:
                     raise ValueError("missing backend classes: " + ", ".join(missing))
             elif not isinstance(info, dict) or "batch" not in info:
                 raise ValueError("panel config response is invalid")
+            else:
+                state = info.get("state")
+                if not isinstance(state, dict) or state.get("ready") is not True or any(
+                    value for key, value in state.items() if key.endswith("error")
+                ):
+                    raise ValueError("controller state is unavailable; resolve queue/lifecycle errors before deployment")
         check(name + " service", service)
     return errors
 

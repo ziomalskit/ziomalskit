@@ -202,6 +202,7 @@ class DeploymentTests(unittest.TestCase):
         info={name:{} for name in ['LLMTextProcessor','BunnyH3ConditioningBridge','MinimaxH3LatentUpscaler3D',
                                   'MergeImageBatchAndAudioList','Power Lora Loader (rgthree)','Seed (rgthree)']}
         info['batch']={}
+        info['state']={'ready': True, 'queue_error': None, 'lifecycle_error': None}
         with patch.object(preflight.subprocess,'check_output',side_effect=command), \
              patch.object(preflight,'verify_llama') as verify, \
              patch.object(preflight,'get_json',return_value=info) as fetch, \
