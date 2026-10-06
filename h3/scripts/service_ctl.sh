@@ -28,18 +28,24 @@ mkdir -p "$PID_DIR" "$WORKSPACE"
 # waiters must continue locking the same inode. Workers close this fd below.
 exec 9>"$PID_DIR/service_ctl.lock"
 flock -x 9
+"$COMFY_PYTHON" "$PANEL_ROOT/scripts/process_identity.py" support || {
+  echo "Safe service control requires Linux pidfd support" >&2; exit 1;
+}
 
 pidfile(){ echo "$PID_DIR/$1.pid"; }
 logfile(){ echo "$WORKSPACE/$1.log"; }
 
+process_identity(){
+  local service="$1" port
+  shift
+  case "$service" in render) port="$RENDER_PORT";; prompt) port="$PROMPT_PORT";; panel) port="$PANEL_PORT";; *) return 1;; esac
+  "$COMFY_PYTHON" "$PANEL_ROOT/scripts/process_identity.py" "$@" \
+    --pid-file "$(pidfile "$service")" --service "$service" \
+    --python "$COMFY_PYTHON" --comfy-root "$COMFY_ROOT" --panel-root "$PANEL_ROOT" --port "$port"
+}
+
 alive(){
-  local f p
-  f="$(pidfile "$1")"
-  [[ -f "$f" ]] || return 1
-  p="$(cat "$f" 2>/dev/null || true)"
-  [[ -n "$p" ]] && kill -0 "$p" 2>/dev/null || return 1
-  # Linux containers may retain a dead child briefly as a zombie.
-  [[ ! -r "/proc/$p/stat" || ! "$(cat "/proc/$p/stat")" =~ \)\ Z[[:space:]] ]]
+  owned_pid="$(process_identity "$1" check)"
 }
 
 wait_http(){
@@ -54,7 +60,7 @@ wait_http(){
 start_one(){
   local svc="$1"
   if alive "$svc"; then
-    echo "$svc already running (pid $(cat "$(pidfile "$svc")"))"
+    echo "$svc already running (pid $owned_pid)"
     return 0
   fi
   rm -f "$(pidfile "$svc")"
@@ -71,7 +77,7 @@ start_one(){
         --user-directory "$COMFY_ROOT/user-render" \
         --database-url "sqlite:///$COMFY_ROOT/user-render/comfyui.db" \
         --highvram 9>&- >"$(logfile comfyui-render)" 2>&1 &
-      echo $! >"$(pidfile "$svc")"
+      process_identity "$svc" record --pid "$!"
       ;;
     prompt)
       cd "$COMFY_ROOT"
@@ -85,7 +91,7 @@ start_one(){
         --user-directory "$COMFY_ROOT/user-prompt" \
         --database-url "sqlite:///$COMFY_ROOT/user-prompt/comfyui.db" \
         --vram-headroom 6 9>&- >"$(logfile comfyui-prompt)" 2>&1 &
-      echo $! >"$(pidfile "$svc")"
+      process_identity "$svc" record --pid "$!"
       ;;
     panel)
       cd "$PANEL_ROOT"
@@ -107,7 +113,7 @@ start_one(){
       # Panel must be externally reachable through Vast port mapping; Basic Auth protects it.
       nohup "$PYTHON_BIN" -m uvicorn app.main:app \
         --host 0.0.0.0 --port "$PANEL_PORT" 9>&- >"$(logfile h3-mobile)" 2>&1 &
-      echo $! >"$(pidfile "$svc")"
+      process_identity "$svc" record --pid "$!"
       ;;
     *) echo "unknown service: $svc" >&2; exit 2;;
   esac
@@ -131,19 +137,23 @@ start_one(){
       [[ "$code" == 401 ]] || { echo "panel authenticated HTTP readiness timeout" >&2; exit 1; }
       ;;
   esac
-  echo "$svc started (pid $(cat "$(pidfile "$svc")"))"
+  echo "$svc started (pid $owned_pid)"
 }
 
 stop_one(){
-  local svc="$1" f p
+  local svc="$1" f
   f="$(pidfile "$svc")"
   if ! alive "$svc"; then
     rm -f "$f"
     echo "$svc already stopped"
     return 0
   fi
-  p="$(cat "$f")"
-  kill "$p" 2>/dev/null || true
+  # The helper rechecks the record AFTER opening a pidfd and signals that fd.
+  # PID reuse between this check and signalling can never hit the replacement.
+  if ! process_identity "$svc" signal --signal TERM && alive "$svc"; then
+    echo "Unable to signal owned $svc process; PID record preserved" >&2
+    return 1
+  fi
   for _ in $(seq 1 40); do
     if ! alive "$svc"; then
       rm -f "$f"
@@ -152,14 +162,25 @@ stop_one(){
     fi
     sleep 0.5
   done
-  kill -9 "$p" 2>/dev/null || true
-  rm -f "$f"
-  echo "$svc killed after timeout"
+  if ! process_identity "$svc" signal --signal KILL && alive "$svc"; then
+    echo "Unable to kill owned $svc process; PID record preserved" >&2
+    return 1
+  fi
+  for _ in $(seq 1 10); do
+    if ! alive "$svc"; then
+      rm -f "$f"
+      echo "$svc killed after timeout"
+      return 0
+    fi
+    sleep 0.1
+  done
+  echo "$svc did not exit; PID record preserved" >&2
+  return 1
 }
 
 status_one(){
   local svc="$1"
-  if alive "$svc"; then echo "$svc RUNNING pid=$(cat "$(pidfile "$svc")")"; else echo "$svc STOPPED"; fi
+  if alive "$svc"; then echo "$svc RUNNING pid=$owned_pid"; else echo "$svc STOPPED"; fi
 }
 
 cmd="${1:-status}"

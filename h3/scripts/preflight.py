@@ -166,6 +166,11 @@ def run_checks(environment: dict[str, str] | None = None) -> list[str]:
                     value for key, value in state.items() if key.endswith("error")
                 ):
                     raise ValueError("controller state is unavailable; resolve queue/lifecycle errors before deployment")
+                workers = state.get("workers")
+                if workers is not None and (not isinstance(workers, dict) or any(
+                    workers.get(name) != "running" for name in ("prompt", "render", "recovery", "lifecycle_guard")
+                )):
+                    raise ValueError("required controller worker is unavailable")
         check(name + " service", service)
     return errors
 

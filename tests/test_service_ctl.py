@@ -24,7 +24,7 @@ class ServiceControlTests(unittest.TestCase):
         self.base = Path(self.temporary.name)
         self.panel = self.base / "panel with spaces"
         (self.panel / "scripts").mkdir(parents=True)
-        for name in ("service_ctl.sh", "python_env.sh"):
+        for name in ("service_ctl.sh", "python_env.sh", "process_identity.py"):
             shutil.copy2(ROOT / "h3/scripts" / name, self.panel / "scripts" / name)
         self.comfy = self.base / "ComfyUI"
         self.comfy.mkdir()
@@ -35,6 +35,8 @@ class ServiceControlTests(unittest.TestCase):
 import json,os,signal,sys,time
 from pathlib import Path
 a=sys.argv[1:]
+if a and a[0].endswith('/process_identity.py'):
+ os.execv({sys.executable!r},[{sys.executable!r},*a])
 if a and a[0]=='-c':
  print({str(prefix)!r});sys.exit(0)
 service='panel' if a[:2]==['-m','uvicorn'] else ('render' if a[a.index('--port')+1]=='8188' else 'prompt')
@@ -112,7 +114,10 @@ while True:time.sleep(.05)
                 starts = [row for row in self.events() if row["event"] == "start" and row["service"] == service]
                 self.assertEqual(len(starts), 1)
                 pidfile = self.panel / "state/pids" / f"{service}.pid"
-                self.assertEqual(int(pidfile.read_text()), starts[0]["pid"])
+                identity = json.loads(pidfile.read_text())
+                self.assertEqual(identity["pid"], starts[0]["pid"])
+                self.assertEqual(identity["service"], service)
+                self.assertGreater(identity["start_time"], 0)
                 self.assert_lock_released()
                 self.finished(self.command("stop", service))
 

@@ -32,6 +32,7 @@ COMFY_MODELS_DIR = Path(os.getenv("COMFY_MODELS_DIR", str(COMFY_ROOT / "models")
 RENDER_RESTART_CMD = os.getenv("RENDER_RESTART_CMD", "supervisorctl restart comfyui-render")
 PROMPT_RESTART_CMD = os.getenv("PROMPT_RESTART_CMD", "supervisorctl restart comfyui-prompt")
 QUEUE_FILE = STATE / "queue.json"
+QUEUE_PUBLICATION_FILE = STATE / "queue.publication.json"
 
 VAST_CONTROL_FILE = STATE / "vast_control.json"
 VAST_CLI = os.getenv("VAST_CLI", "vastai")
@@ -129,6 +130,9 @@ recovery_task: asyncio.Task | None = None
 recovering_services: set[str] = set()
 recovery_counts: dict[str, int] = {}
 state_load_error: str | None = None
+queue_persistence_error: str | None = None
+queue_persistence_epoch = 0
+controller_started = False
 vast_control_load_error: str | None = None
 last_busy_at = time.time()
 
@@ -160,7 +164,8 @@ def submissions_allowed() -> bool:
 def lifecycle_dispatch_blocked() -> bool:
     plan = str(vast_control.get("plan") or "none")
     inflight = lifecycle_action_task is not None and not lifecycle_action_task.done()
-    return bool(state_load_error or vast_control_load_error) or inflight or plan.startswith("executing_") or plan in {
+    return bool(state_load_error or queue_persistence_error or vast_control_load_error or
+                (controller_started and _worker_health()[1])) or inflight or plan.startswith("executing_") or plan in {
         "action_failed", "action_interrupted", "blocked_unsafe_persistence",
     }
 
@@ -201,13 +206,26 @@ def _record_cancel_confirmation(job: dict, service: str, prompt_id: str, confirm
         save_state()
 
 
+def _worker_health() -> tuple[dict[str, str], str | None]:
+    tasks = {"prompt": prompt_worker_task, "render": render_worker_task,
+             "recovery": recovery_task, "lifecycle_guard": vast_guard_task}
+    workers = {name: "not_started" if task is None else "stopped" if task.done() else "running"
+               for name, task in tasks.items()}
+    unavailable = [name for name, status in workers.items() if status != "running"]
+    return workers, "Required controller tasks unavailable: " + ", ".join(unavailable) if unavailable else None
+
+
 def state_diagnostics() -> dict[str, Any]:
     lifecycle_error = vast_control_load_error or vast_control.get("persistence_error")
     if vast_control.get("plan") in {"action_failed", "action_interrupted", "blocked_unsafe_persistence"}:
         lifecycle_error = lifecycle_error or vast_control.get("reason") or "Lifecycle requires manual reconciliation"
+    workers, worker_error = _worker_health()
     return {
-        "ready": not (state_load_error or lifecycle_error),
+        "ready": not (state_load_error or queue_persistence_error or lifecycle_error or worker_error),
         "queue_error": state_load_error,
+        "persistence_error": queue_persistence_error,
+        "worker_error": worker_error,
+        "workers": workers,
         "lifecycle_error": lifecycle_error,
     }
 
@@ -289,15 +307,50 @@ def save_vast_control() -> None:
         raise
 
 
-def save_state() -> None:
+def _record_queue_persistence_failure(error: Exception) -> None:
+    global queue_persistence_error, queue_persistence_epoch
+    queue_persistence_error = f"Queue state write failed; dispatch is blocked: {error!r}"
+    queue_persistence_epoch += 1
+
+
+def _persist_queue_snapshot(next_queue: list[dict], next_batches: list[dict], *, publication: bool = False) -> None:
+    global queue_persistence_error
     if state_load_error:
         raise RuntimeError(state_load_error)
-    _atomic_json_write(QUEUE_FILE, {"queue": queue, "batches": batches})
+    try:
+        if publication:
+            # A failure after replace but before directory fsync is ambiguous.
+            # This durable marker prevents boot from dispatching an unpublished
+            # request. A live retry first restores the published memory snapshot.
+            _atomic_json_write(QUEUE_PUBLICATION_FILE, {"pending": True})
+        _atomic_json_write(QUEUE_FILE, {"queue": next_queue, "batches": next_batches})
+        if QUEUE_PUBLICATION_FILE.exists():
+            QUEUE_PUBLICATION_FILE.unlink()
+        # Marker deletion need not be crash-durable: if it reappears after a
+        # power loss, boot conservatively requires manual reconciliation.
+        # The queue itself has already passed file AND directory fsync.
+    except Exception as error:
+        _record_queue_persistence_failure(error)
+        raise
+    queue_persistence_error = None
+
+
+def save_state() -> None:
+    _persist_queue_snapshot(queue, batches)
+
+
+def _resume_queue_persistence() -> None:
+    if queue_persistence_error and not state_load_error:
+        # Never repair from the failed request's private staged snapshot.
+        save_state()
 
 
 def load_state() -> None:
     global queue, batches, state_load_error
     state_load_error = None
+    if QUEUE_PUBLICATION_FILE.exists():
+        state_load_error = "Queue publication was interrupted; manual reconciliation is required; existing files preserved"
+        return
     if not QUEUE_FILE.exists():
         return
     try:
@@ -978,7 +1031,7 @@ async def _dispatch_prepared_workflow(prepared: Any, workflow: Path, service: st
 
 
 async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
-    if state_load_error or vast_control_load_error:
+    if state_load_error or queue_persistence_error or vast_control_load_error or (controller_started and _worker_health()[1]):
         raise RuntimeError("Stored controller state is unavailable; submission is blocked")
     if not submissions_allowed():
         raise SubmissionRejected("Submissions are disabled in this CPU development environment")
@@ -1344,7 +1397,9 @@ def _lifecycle_failure(reason: str, *, plan: str = "action_failed") -> None:
         vast_control["persistence_error"] = repr(error)
 
 
-async def delayed_instance_action(action: str, delay: float = 2.0, *, require_persistence: bool = False) -> None:
+async def delayed_instance_action(action: str, delay: float = 2.0, *, require_persistence: bool = False,
+                                  persistence_epoch: int | None = None) -> None:
+    epoch = queue_persistence_epoch if persistence_epoch is None else persistence_epoch
     try:
         await asyncio.sleep(delay)
         if not submissions_allowed():
@@ -1362,7 +1417,7 @@ async def delayed_instance_action(action: str, delay: float = 2.0, *, require_pe
             return
         # A settings write or queue failure can happen while the delay or
         # mount inspection awaits. Fail closed at the final dispatch boundary.
-        if not state_diagnostics()["ready"]:
+        if epoch != queue_persistence_epoch or not state_diagnostics()["ready"]:
             _lifecycle_failure("Controller state became unavailable; lifecycle was not dispatched")
             return
         vast_control["last_action"] = action
@@ -1387,6 +1442,7 @@ def _schedule_instance_action(action: str, delay: float = 1.5) -> None:
         raise HTTPException(409, "a lifecycle action is already executing")
     lifecycle_action_task = asyncio.create_task(delayed_instance_action(
         action, delay, require_persistence=bool(vast_control.get("require_persistence")),
+        persistence_epoch=queue_persistence_epoch,
     ))
 
 
@@ -1525,17 +1581,36 @@ async def render_job(job: dict) -> None:
 
 
 def _handle_worker_error(job: dict, service: str, error: Exception) -> None:
-    if job.get(f"{service}_submission_state") in {"attempting", "accepted", "uncertain"}:
-        _preserve_recovery(job, service, f"Execution outcome could not be confirmed: {error}")
-    else:
-        job["status"] = "cancelled" if job.get("cancel_requested") else f"{service}_failed"
-        job["error"] = str(error)
-        job["finished_at"] = time.time()
-        save_state()
+    try:
+        if job.get(f"{service}_submission_state") in {"attempting", "accepted", "uncertain"}:
+            _preserve_recovery(job, service, f"Execution outcome could not be confirmed: {error}")
+        else:
+            job["status"] = "cancelled" if job.get("cancel_requested") else f"{service}_failed"
+            job["error"] = str(error)
+            job["finished_at"] = time.time()
+            save_state()
+    except Exception as write_error:
+        _record_queue_persistence_failure(write_error)
+        job["persistence_warning"] = str(write_error)
+
+
+async def _wait_for_queue_persistence() -> bool:
+    if not queue_persistence_error:
+        return False
+    try:
+        _resume_queue_persistence()
+    except Exception:
+        # Error state remains visible; only retry the local published snapshot,
+        # never a ComfyUI submission or an uncertain Vast operation.
+        await asyncio.sleep(0.75)
+        return True
+    return False
 
 
 async def prompt_worker() -> None:
     while True:
+        if await _wait_for_queue_persistence():
+            continue
         job = pick_next_prompt_job()
         if job:
             try:
@@ -1548,6 +1623,8 @@ async def prompt_worker() -> None:
 
 async def render_worker() -> None:
     while True:
+        if await _wait_for_queue_persistence():
+            continue
         job = pick_next_render_job()
         if job:
             try:
@@ -1695,8 +1772,9 @@ async def recover_jobs_after_controller_restart() -> None:
 
 @app.on_event("startup")
 async def startup() -> None:
-    global prompt_worker_task, render_worker_task, vast_guard_task, recovery_task, last_busy_at
+    global prompt_worker_task, render_worker_task, vast_guard_task, recovery_task, last_busy_at, controller_started
     load_state()
+    controller_started = True
     last_busy_at = time.time()
     recovery_task = asyncio.create_task(recover_jobs_after_controller_restart())
     prompt_worker_task = asyncio.create_task(prompt_worker())
@@ -1783,7 +1861,7 @@ async def api_vast_action(req: VastActionRequest):
         raise HTTPException(400, "Type STOP to confirm")
     if action == "destroy_now" and req.confirm != "DESTROY":
         raise HTTPException(400, "Type DESTROY to confirm")
-    if state_load_error or vast_control_load_error:
+    if state_load_error or queue_persistence_error or vast_control_load_error or (controller_started and _worker_health()[1]):
         raise HTTPException(503, "Stored controller state is unavailable; repair it before changing lifecycle controls")
 
     action_inflight = lifecycle_action_task is not None and not lifecycle_action_task.done()
@@ -1879,6 +1957,7 @@ async def upload(file: UploadFile = File(...)):
 
 @app.post("/api/batches")
 async def create_batches(req: BatchRequest):
+    _resume_queue_persistence()
     if shutdown_armed():
         raise HTTPException(409, "shutdown plan is armed; cancel it before creating a new batch")
     if not req.prompt.strip():
@@ -1890,6 +1969,9 @@ async def create_batches(req: BatchRequest):
     base_analysis_seed = int((time.time_ns() >> 16) & 0x7FFFFFFF)
 
     async with queue_lock:
+        if shutdown_armed():
+            raise HTTPException(409, "shutdown plan is armed; cancel it before creating a new batch")
+        next_queue, next_batches = list(queue), list(batches)
         batch_seq_start = max([b.get("seq", 0) for b in batches] or [0]) + 1
 
         for batch_offset in range(req.batches):
@@ -1916,7 +1998,7 @@ async def create_batches(req: BatchRequest):
                 "review_required": REVIEW_PER_BATCH,
                 "analysis_seed": analysis_seed,
             }
-            batches.append(batch)
+            next_batches.append(batch)
             created_batches.append(batch_id)
 
             for i in range(PROMPTS_PER_BATCH):
@@ -1925,7 +2007,7 @@ async def create_batches(req: BatchRequest):
                     if req.random_each else base_render_seed
                 )
                 prompt_seed = base_prompt_seed + (batch_offset * PROMPTS_PER_BATCH * 2) + i * 2
-                queue.append({
+                next_queue.append({
                     "id": uuid.uuid4().hex,
                     "batch_id": batch_id,
                     "batch_seq": batch_seq,
@@ -1940,7 +2022,11 @@ async def create_batches(req: BatchRequest):
                     "render_priority": None,
                     "context": context,
                 })
-        save_state()
+        _persist_queue_snapshot(next_queue, next_batches, publication=True)
+        # No await separates the durable commit and publication. Existing job
+        # identities are preserved for active watchers and recovery tasks.
+        queue[:] = next_queue
+        batches[:] = next_batches
 
     return {"created_batches": created_batches}
 
@@ -1978,19 +2064,22 @@ async def prompts(controller_job_id: str):
 
 @app.post("/api/jobs/{controller_job_id}/approve")
 async def approve(controller_job_id: str, req: ApprovalRequest):
-    if shutdown_armed():
-        raise HTTPException(409, "shutdown plan is armed; cancel it before approving review prompts")
-    job = find_job(controller_job_id)
-    if job.get("status") != "pending_review":
-        raise HTTPException(409, f"job is {job.get('status')}, not pending_review")
-    final_prompt = req.final_prompt if req.final_prompt is not None else job.get("final_h3_prompt")
-    if not final_prompt or not str(final_prompt).strip():
-        raise HTTPException(400, "final prompt is empty")
-    job["approved_final_prompt"] = str(final_prompt)
-    job["approved_at"] = time.time()
-    job["render_priority"] = 0
-    job["status"] = "render_queued_review"
-    save_state()
+    async with queue_lock:
+        _resume_queue_persistence()
+        if shutdown_armed():
+            raise HTTPException(409, "shutdown plan is armed; cancel it before approving review prompts")
+        job = find_job(controller_job_id)
+        if job.get("status") != "pending_review":
+            raise HTTPException(409, f"job is {job.get('status')}, not pending_review")
+        final_prompt = req.final_prompt if req.final_prompt is not None else job.get("final_h3_prompt")
+        if not final_prompt or not str(final_prompt).strip():
+            raise HTTPException(400, "final prompt is empty")
+        staged_job = dict(job, approved_final_prompt=str(final_prompt), approved_at=time.time(),
+                          render_priority=0, status="render_queued_review")
+        staged_queue = [staged_job if existing is job else existing for existing in queue]
+        _persist_queue_snapshot(staged_queue, batches, publication=True)
+        job.clear()
+        job.update(staged_job)
     return {"ok": True, "priority": "top"}
 
 
