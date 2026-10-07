@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import unittest
 from unittest.mock import patch
 
@@ -69,6 +70,21 @@ class SpawnCleanupTests(unittest.TestCase):
         self.assertFalse(self.args.pid_file.exists())
         self.assertEqual(list(self.root.glob(".service-pid-*")), [])
         self.assertIsNone(self.foreign.poll())
+
+    def assert_primary_failure(self, primary, secondary, command):
+        try:
+            process_identity.launch_process(self.args, command)
+        except BaseException as raised:
+            self.assertIs(raised, primary)
+            self.assertIs(type(raised), type(primary))
+            self.assertEqual(raised.errno, primary.errno)
+            self.assertTrue(any(repr(secondary) in note for note in raised.__notes__))
+            # Bare re-raise retains the registration frame without adding a
+            # second record_process frame at the cleanup/re-raise location.
+            frames = traceback.extract_tb(raised.__traceback__)
+            self.assertEqual(sum(frame.name == "record_process" for frame in frames), 1)
+        else:
+            self.fail("registration failure was not raised")
 
     def failed_capture(self, ignore_term):
         error = OSError(errno.EMFILE, "initial pidfd capture failed")
@@ -170,21 +186,21 @@ class SpawnCleanupTests(unittest.TestCase):
     def test_launcher_retries_only_its_own_temporary_artifact_cleanup(self):
         other = self.root / ".service-pid-other-service"
         other.write_text("unrelated registration")
-        error = OSError(errno.EIO, "temporary unlink failed once")
+        primary = OSError(errno.EIO, "primary registration fsync failed")
+        secondary = OSError(errno.EIO, "secondary temporary unlink failed once")
         real_unlink = os.unlink
         attempted = []
         def unlink(path, *args, **kwargs):
             if Path(path).name.startswith(".service-pid-") and Path(path) != other and not attempted:
                 attempted.append(Path(path))
-                raise error
+                raise secondary
             return real_unlink(path, *args, **kwargs)
         try:
             with patch.object(process_identity.subprocess, "Popen", side_effect=self.spawn), \
-                 patch.object(os, "fsync", side_effect=OSError(errno.EIO, "registration write failed")), \
-                 patch.object(os, "unlink", side_effect=unlink):
-                with self.assertRaises(OSError) as raised:
-                    process_identity.launch_process(self.args, self.command())
-            self.assertIs(raised.exception, error)
+                 patch.object(os, "fsync", side_effect=primary), \
+                 patch.object(os, "unlink", side_effect=unlink), \
+                 patch.object(self.real_popen, "send_signal", side_effect=AssertionError("Popen must not double-signal")):
+                self.assert_primary_failure(primary, secondary, self.command())
             self.assertEqual(len(attempted), 1)
             self.assertFalse(attempted[0].exists())
             self.assertEqual(other.read_text(), "unrelated registration")
@@ -192,6 +208,202 @@ class SpawnCleanupTests(unittest.TestCase):
             self.assert_reaped(self.children[-1])
         finally:
             other.unlink(missing_ok=True)
+
+    def test_registration_fsync_error_survives_pidfd_cleanup_error_and_fallback_reaps(self):
+        for ignore_term in (False, True):
+            with self.subTest(ignore_term=ignore_term):
+                self.signals.clear()
+                primary = OSError(errno.EIO, "primary registration fsync failed")
+                secondary = OSError(errno.EBADF, "secondary pidfd termination failed")
+                with patch.object(process_identity.subprocess, "Popen", side_effect=self.spawn), \
+                     patch.object(os, "fsync", side_effect=primary), \
+                     patch.object(process_identity, "terminate_owned_process", side_effect=secondary) as lower_cleanup, \
+                     patch.object(self.real_popen, "send_signal", lambda child, sig: self.send(child, sig)):
+                    self.assert_primary_failure(primary, secondary, self.command(ignore_term))
+                lower_cleanup.assert_called_once()
+                child = self.children[-1]
+                expected = [signal.SIGTERM, signal.SIGKILL] if ignore_term else [signal.SIGTERM]
+                self.assertEqual(self.signals, [(child.pid, sig) for sig in expected])
+                self.assert_reaped(child)
+
+    def test_registration_error_survives_launcher_fallback_cleanup_error(self):
+        primary = OSError(errno.EIO, "primary registration fsync failed")
+        secondary = OSError(errno.EIO, "secondary fallback wait failed after reaping")
+        real_cleanup = process_identity._terminate_launched_child
+        def cleanup(child):
+            real_cleanup(child)
+            raise secondary
+        with patch.object(process_identity.subprocess, "Popen", side_effect=self.spawn), \
+             patch.object(os, "fsync", side_effect=primary), \
+             patch.object(process_identity, "terminate_owned_process", return_value=None), \
+             patch.object(process_identity, "_terminate_launched_child", side_effect=cleanup):
+            self.assert_primary_failure(primary, secondary, self.command())
+        self.assert_reaped(self.children[-1])
+
+    def test_registration_fsync_error_survives_pidfile_unlink_error(self):
+        primary = OSError(errno.EIO, "primary registration fsync failed")
+        secondary = OSError(errno.EACCES, "secondary pidfile unlink failed once")
+        real_unlink = os.unlink
+        attempts = []
+        self.args.pid_file.write_text(json.dumps({"pid": self.foreign.pid, "service": "render"}))
+        def unlink(path, *args, **kwargs):
+            if Path(path) == self.args.pid_file:
+                attempts.append(Path(path))
+                if len(attempts) == 1:
+                    raise secondary
+            return real_unlink(path, *args, **kwargs)
+        with patch.object(process_identity.subprocess, "Popen", side_effect=self.spawn), \
+             patch.object(os, "fsync", side_effect=primary), patch.object(os, "unlink", side_effect=unlink), \
+             patch.object(self.real_popen, "send_signal", side_effect=AssertionError("Popen must not double-signal")):
+            self.assert_primary_failure(primary, secondary, self.command())
+        self.assertEqual(len(attempts), 2)
+        self.assert_reaped(self.children[-1])
+
+    def test_registration_fsync_error_survives_pidfd_close_error(self):
+        primary = OSError(errno.EIO, "primary registration fsync failed")
+        secondary = OSError(errno.EBADF, "secondary pidfd close failed")
+        real_capture, real_close = os.pidfd_open, os.close
+        descriptors, closed = [], []
+        def capture(pid):
+            descriptor = real_capture(pid)
+            descriptors.append(descriptor)
+            return descriptor
+        def close(fd):
+            real_close(fd)
+            if fd in descriptors:
+                closed.append(fd)
+                raise secondary
+        with patch.object(process_identity.subprocess, "Popen", side_effect=self.spawn), \
+             patch.object(os, "pidfd_open", side_effect=capture), patch.object(os, "fsync", side_effect=primary), \
+             patch.object(os, "close", side_effect=close), \
+             patch.object(self.real_popen, "send_signal", side_effect=AssertionError("Popen must not double-signal")):
+            self.assert_primary_failure(primary, secondary, self.command())
+        self.assertEqual(closed, descriptors)
+        self.assert_reaped(self.children[-1])
+
+    def test_registration_directory_fsync_error_survives_directory_close_error(self):
+        primary = OSError(errno.EIO, "primary directory fsync failed")
+        secondary = OSError(errno.EBADF, "secondary directory close failed")
+        real_sync, real_close = os.fsync, os.close
+        directory_fds = []
+        def sync(fd):
+            if os.readlink(f"/proc/self/fd/{fd}") == str(self.root):
+                directory_fds.append(fd)
+                raise primary
+            return real_sync(fd)
+        def close(fd):
+            real_close(fd)
+            if fd in directory_fds:
+                raise secondary
+        with patch.object(process_identity.subprocess, "Popen", side_effect=self.spawn), \
+             patch.object(os, "fsync", side_effect=sync), patch.object(os, "close", side_effect=close), \
+             patch.object(self.real_popen, "send_signal", side_effect=AssertionError("Popen must not double-signal")):
+            self.assert_primary_failure(primary, secondary, self.command())
+        self.assertEqual(len(directory_fds), 1)
+        self.assert_reaped(self.children[-1])
+
+    def test_registration_file_fsync_error_survives_file_close_error(self):
+        primary = OSError(errno.EIO, "primary registration fsync failed")
+        secondary = OSError(errno.EIO, "secondary registration stream close failed")
+        real_fdopen = os.fdopen
+        closed = []
+        class Stream:
+            def __init__(self, handle):
+                self.handle = handle
+            def __getattr__(self, name):
+                return getattr(self.handle, name)
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                self.close()
+            def close(self):
+                self.handle.close()
+                closed.append(True)
+                raise secondary
+        with patch.object(process_identity.subprocess, "Popen", side_effect=self.spawn), \
+             patch.object(os, "fdopen", side_effect=lambda *args, **kwargs: Stream(real_fdopen(*args, **kwargs))), \
+             patch.object(os, "fsync", side_effect=primary), \
+             patch.object(self.real_popen, "send_signal", side_effect=AssertionError("Popen must not double-signal")):
+            self.assert_primary_failure(primary, secondary, self.command())
+        self.assertEqual(closed, [True])
+        self.assert_reaped(self.children[-1])
+
+    def test_cleanup_failures_do_not_skip_later_cleanup_steps(self):
+        primary = OSError(errno.EIO, "primary registration fsync failed")
+        errors = [OSError(errno.EBADF, "pidfd termination"), OSError(errno.EACCES, "pidfile unlink"),
+                  OSError(errno.EIO, "temp unlink"), OSError(errno.EBADF, "pidfd close")]
+        real_capture, real_close, real_unlink = os.pidfd_open, os.close, os.unlink
+        descriptors, attempts, closed = [], [], []
+        def capture(pid):
+            fd = real_capture(pid)
+            descriptors.append(fd)
+            return fd
+        def unlink(path, *args, **kwargs):
+            path = Path(path)
+            if path == self.args.pid_file or path.name.startswith(".service-pid-"):
+                if path not in attempts:
+                    attempts.append(path)
+                    raise errors[1 if path == self.args.pid_file else 2]
+            return real_unlink(path, *args, **kwargs)
+        def close(fd):
+            real_close(fd)
+            if fd in descriptors:
+                closed.append(fd)
+                raise errors[3]
+        with patch.object(process_identity.subprocess, "Popen", side_effect=self.spawn), \
+             patch.object(os, "fsync", side_effect=primary), patch.object(os, "pidfd_open", side_effect=capture), \
+             patch.object(process_identity, "terminate_owned_process", side_effect=errors[0]), \
+             patch.object(os, "unlink", side_effect=unlink), patch.object(os, "close", side_effect=close):
+            self.assert_primary_failure(primary, errors[0], self.command())
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(closed, descriptors)
+        for error in errors:
+            self.assertTrue(any(repr(error) in note for note in primary.__notes__))
+        self.assert_reaped(self.children[-1])
+
+    def test_successful_registration_still_records_live_owned_child(self):
+        with patch.object(process_identity.subprocess, "Popen", side_effect=self.spawn), \
+             patch.object(process_identity, "terminate_owned_process") as lower_cleanup, \
+             patch.object(self.real_popen, "send_signal", side_effect=AssertionError("successful registration must not signal")):
+            process_identity.launch_process(self.args, self.command())
+        lower_cleanup.assert_not_called()
+        child = self.children[-1]
+        self.assertIsNone(child.poll())
+        pid, descriptor = process_identity.checked_pidfd(self.args)
+        try:
+            self.assertEqual(pid, child.pid)
+            self.assertEqual(json.loads(self.args.pid_file.read_text())["pid"], child.pid)
+        finally:
+            os.close(descriptor)
+        self.assertEqual(list(self.root.glob(".service-pid-*")), [])
+        self.assertIsNone(self.foreign.poll())
+
+    def test_successful_registration_exposes_cleanup_failure_without_orphan(self):
+        primary = OSError(errno.EIO, "first cleanup failure after successful registration")
+        secondary = OSError(errno.EBADF, "second cleanup failure closing pidfd")
+        real_capture, real_close = os.pidfd_open, os.close
+        descriptors = []
+        def capture(pid):
+            fd = real_capture(pid)
+            descriptors.append(fd)
+            return fd
+        def close(fd):
+            real_close(fd)
+            if fd in descriptors:
+                raise secondary
+        real_unlink = os.unlink
+        attempts = []
+        def unlink(path, *args, **kwargs):
+            if Path(path).name.startswith(".service-pid-") and not attempts:
+                attempts.append(Path(path))
+                raise primary
+            return real_unlink(path, *args, **kwargs)
+        with patch.object(process_identity.subprocess, "Popen", side_effect=self.spawn), \
+             patch.object(os, "pidfd_open", side_effect=capture), patch.object(os, "close", side_effect=close), \
+             patch.object(os, "unlink", side_effect=unlink):
+            self.assert_primary_failure(primary, secondary, self.command())
+        self.assertEqual(len(attempts), 1)
+        self.assert_reaped(self.children[-1])
 
     def test_initial_capture_failure_exits_cli_failure_after_reaping_child(self):
         # A real helper must exit, rather than merely return from a mocked

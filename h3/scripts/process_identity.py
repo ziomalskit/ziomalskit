@@ -77,6 +77,7 @@ def terminate_owned_process(descriptor: int) -> None:
 def record_process(args, *, artifacts: list[Path] | None = None) -> None:
     descriptor = os.pidfd_open(args.pid)
     temporary = None
+    primary_error = None
     try:
         deadline = time.monotonic() + 5
         while True:
@@ -98,23 +99,47 @@ def record_process(args, *, artifacts: list[Path] | None = None) -> None:
         fd, temporary = tempfile.mkstemp(prefix=".service-pid-", dir=args.pid_file.parent)
         if artifacts is not None:
             artifacts.append(Path(temporary))
-        with os.fdopen(fd, "w") as handle:
+        handle = None
+        try:
+            handle = os.fdopen(fd, "w")
             json.dump(record, handle)
             handle.flush()
             os.fsync(handle.fileno())
+        except BaseException as primary:
+            try:
+                if handle is None:
+                    os.close(fd)
+                else:
+                    handle.close()
+            except BaseException as cleanup_error:
+                primary.add_note(f"Registration stream close failed: {cleanup_error!r}")
+            raise
+        else:
+            handle.close()
         os.replace(temporary, args.pid_file)
         directory = os.open(args.pid_file.parent, os.O_RDONLY)
         try:
             os.fsync(directory)
-        finally:
+        except BaseException as primary:
+            try:
+                os.close(directory)
+            except BaseException as cleanup_error:
+                primary.add_note(f"Registration directory close failed: {cleanup_error!r}")
+            raise
+        else:
             os.close(directory)
-    except BaseException:
+    except BaseException as primary:
+        primary_error = primary
         # After capture, every registration failure owns this pidfd cleanup
         # obligation, including /proc reads and identity validation.
         try:
             terminate_owned_process(descriptor)
-        finally:
+        except BaseException as cleanup_error:
+            primary.add_note(f"Owned pidfd termination failed: {cleanup_error!r}")
+        try:
             args.pid_file.unlink(missing_ok=True)
+        except BaseException as cleanup_error:
+            primary.add_note(f"Registration pidfile cleanup failed: {cleanup_error!r}")
         raise
     finally:
         try:
@@ -123,8 +148,20 @@ def record_process(args, *, artifacts: list[Path] | None = None) -> None:
                     os.unlink(temporary)
                 except FileNotFoundError:
                     pass
+        except BaseException as cleanup_error:
+            if primary_error is None:
+                # A cleanup failure after a successful registration must
+                # remain visible and trigger the launcher's Popen fallback.
+                primary_error = cleanup_error
+                raise
+            primary_error.add_note(f"Registration temporary cleanup failed: {cleanup_error!r}")
         finally:
-            os.close(descriptor)
+            try:
+                os.close(descriptor)
+            except BaseException as cleanup_error:
+                if primary_error is None:
+                    raise
+                primary_error.add_note(f"Registration pidfd close failed: {cleanup_error!r}")
 
 
 def checked_pidfd(args) -> tuple[int, int]:
