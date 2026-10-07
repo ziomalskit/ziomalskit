@@ -1,4 +1,4 @@
-"""Own Linux service processes by boot/start identity; signal only through pidfd."""
+"""Own Linux services by pidfd identity, with Popen cleanup for spawned children."""
 from __future__ import annotations
 
 import argparse
@@ -74,7 +74,7 @@ def terminate_owned_process(descriptor: int) -> None:
         raise RuntimeError("Owned child did not exit after pidfd SIGKILL")
 
 
-def record_process(args) -> None:
+def record_process(args, *, artifacts: list[Path] | None = None) -> None:
     descriptor = os.pidfd_open(args.pid)
     temporary = None
     try:
@@ -96,6 +96,8 @@ def record_process(args) -> None:
         record = {key: snapshot[key] for key in ("pid", "start_time", "boot_id", "command_sha256")}
         record["service"] = args.service
         fd, temporary = tempfile.mkstemp(prefix=".service-pid-", dir=args.pid_file.parent)
+        if artifacts is not None:
+            artifacts.append(Path(temporary))
         with os.fdopen(fd, "w") as handle:
             json.dump(record, handle)
             handle.flush()
@@ -107,8 +109,8 @@ def record_process(args) -> None:
         finally:
             os.close(directory)
     except BaseException:
-        # From pidfd_open until durable registration, every failure owns this
-        # cleanup obligation, including /proc reads and identity validation.
+        # After capture, every registration failure owns this pidfd cleanup
+        # obligation, including /proc reads and identity validation.
         try:
             terminate_owned_process(descriptor)
         finally:
@@ -145,6 +147,19 @@ def checked_pidfd(args) -> tuple[int, int]:
     return pid, descriptor
 
 
+def _terminate_launched_child(child: subprocess.Popen) -> None:
+    """Reap this parent's child if registration could not clean it via pidfd."""
+    if child.poll() is not None:
+        child.wait(timeout=5)
+        return
+    try:
+        child.terminate()
+        child.wait(timeout=2)
+    except (OSError, subprocess.TimeoutExpired):
+        child.kill()
+        child.wait(timeout=5)
+
+
 def launch_process(args, command: list[str]) -> None:
     """Keep the spawned child unreaped until registration opens its pidfd.
 
@@ -159,10 +174,25 @@ def launch_process(args, command: list[str]) -> None:
         child = subprocess.Popen(command, cwd=cwd, stdout=log, stderr=subprocess.STDOUT,
                                  start_new_session=True, close_fds=True)
     args.pid = child.pid
+    artifacts = [args.pid_file]
     try:
-        record_process(args)
-    except BaseException:
-        child.wait(timeout=5)
+        record_process(args, artifacts=artifacts)
+    except BaseException as error:
+        # record_process normally terminates through its original pidfd. The
+        # parent still owns cleanup if capture itself failed or that cleanup
+        # left the child alive. Never resolve a PID from the registration file.
+        try:
+            _terminate_launched_child(child)
+        except BaseException as cleanup_error:
+            error.add_note(f"Spawned child cleanup failed: {cleanup_error!r}")
+        finally:
+            # Only this attempt's exact paths; other services may share the
+            # directory, so a glob over registration tempfiles is unsafe.
+            for artifact in artifacts:
+                try:
+                    artifact.unlink(missing_ok=True)
+                except BaseException as cleanup_error:
+                    error.add_note(f"Registration artifact cleanup failed: {cleanup_error!r}")
         raise
 
 
