@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
+import fcntl
+from types import SimpleNamespace
 import json
 import os
 from pathlib import Path
@@ -15,6 +18,8 @@ import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'h3/scripts'))
+import process_identity as identity
 SOURCE = ROOT / 'h3'
 LOCAL = ROOT / '.local'
 STAGE = LOCAL / 'panel'
@@ -23,17 +28,40 @@ AUTH_FILE = LOCAL / 'dev-auth.json'
 LOG_FILE = LOCAL / 'panel.log'
 
 
-def owned_pid() -> int | None:
-    if not PID_FILE.exists():
-        return None
+@contextlib.contextmanager
+def control_lock():
+    LOCAL.mkdir(parents=True, exist_ok=True)
+    fd = os.open(LOCAL / 'panel.lock', os.O_CREAT | os.O_RDWR | os.O_CLOEXEC, 0o600)
     try:
-        pid = int(PID_FILE.read_text())
-        args = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')
-        if str(STAGE).encode() in args and b'app.main:app' in args:
-            return pid
-    except (OSError, ValueError):
-        pass
-    return None
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        identity.close_preserving(fd)
+
+
+def process_args(port=7860):
+    return SimpleNamespace(pid_file=PID_FILE, service='panel', python=sys.executable,
+        panel_root=str(STAGE), comfy_root=str(LOCAL / 'ComfyUI'), port=port, log_file=LOG_FILE)
+
+
+def owned_pid() -> int | None:
+    try:
+        pid, fd = identity.checked_pidfd(process_args())
+    except identity.StaleIdentity:
+        return None
+    identity.close_preserving(fd)
+    return pid
+
+
+def owned_readiness(port, auth):
+    args = process_args(port)
+    pid, fd = identity.checked_pidfd(args)
+    try:
+        identity.require_owned_listener(args, pid, fd)
+        check_http(port, auth)
+        identity.require_owned_listener(args, pid, fd)
+    finally:
+        identity.close_preserving(fd)
 
 
 def credentials() -> dict:
@@ -84,66 +112,79 @@ def runtime_environment(auth: dict, port: int) -> dict:
     return environment
 
 
-def stop() -> None:
-    pid = owned_pid()
-    if pid is not None:
-        os.kill(pid, signal.SIGTERM)
-        for _ in range(50):
-            if owned_pid() is None:
-                break
-            time.sleep(0.1)
-        else:
-            raise RuntimeError('Panel did not terminate; preserved PID file for diagnosis')
-    PID_FILE.unlink(missing_ok=True)
+def stop_unlocked() -> None:
+    try:
+        pid, fd = identity.checked_pidfd(process_args(), allow_gate=True)
+    except identity.StaleIdentity:
+        PID_FILE.unlink(missing_ok=True)
+    else:
+        try:
+            identity.stop_group(pid, fd)
+            PID_FILE.unlink(missing_ok=True)
+        finally:
+            identity.close_preserving(fd)
     print('Local development panel stopped.')
 
 
-def main() -> None:
+def stop() -> None:
+    with control_lock():
+        stop_unlocked()
+
+
+def main_unlocked() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('start', 'stop', 'status', 'check'))
     parser.add_argument('--port', type=int, default=int(os.getenv('AJ_DEV_PORT', '7860')))
     args = parser.parse_args()
     if args.action == 'stop':
-        stop()
+        stop_unlocked()
         return
     if args.action == 'status':
         print('Local development panel running.' if owned_pid() else 'Local development panel stopped.')
         return
     auth = credentials()
     if args.action == 'check':
-        check_http(args.port, auth)
+        owned_readiness(args.port, auth)
         print('Authenticated HTML and configuration requests passed. GPU workers are not installed.')
         return
     if owned_pid():
-        check_http(args.port, auth)
+        owned_readiness(args.port, auth)
         print('Local development panel already running and responsive.')
         return
     shutil.copytree(SOURCE, STAGE, dirs_exist_ok=True,
-                    ignore=shutil.ignore_patterns('__pycache__', 'runtime.env'))
+                    ignore=shutil.ignore_patterns('__pycache__', 'runtime.env', 'state'))
     (LOCAL / 'ComfyUI/input').mkdir(parents=True, exist_ok=True)
     (LOCAL / 'ComfyUI/output').mkdir(parents=True, exist_ok=True)
     (LOCAL / 'ComfyUI/models').mkdir(parents=True, exist_ok=True)
-    with LOG_FILE.open('ab') as log:
-        process = subprocess.Popen([
-            sys.executable, '-m', 'uvicorn', 'app.main:app', '--app-dir', str(STAGE),
-            '--host', '127.0.0.1', '--port', str(args.port),
-        ], cwd=STAGE, env=runtime_environment(auth, args.port),
-            stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-    PID_FILE.write_text(str(process.pid))
-    for _ in range(100):
-        if process.poll() is not None:
-            PID_FILE.unlink(missing_ok=True)
-            raise RuntimeError('Panel startup failed. Inspect .local/panel.log.')
+    launch = process_args(args.port)
+    launch.environment = runtime_environment(auth, args.port)
+    identity.require_group_control()
+    identity.require_free_service_port(args.port)
+    identity.launch_process(launch, [sys.executable, '-m', 'uvicorn', 'app.main:app',
+        '--app-dir', str(STAGE), '--host', '127.0.0.1', '--port', str(args.port)])
+    try:
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            try:
+                owned_readiness(args.port, auth)
+                break
+            except (OSError, AssertionError, identity.IndeterminateIdentity):
+                time.sleep(.1)
+        else:
+            raise RuntimeError('Panel owned HTTP readiness timed out. Inspect .local/panel.log.')
+    except BaseException as primary:
         try:
-            check_http(args.port, auth)
-            break
-        except (OSError, AssertionError):
-            time.sleep(0.1)
-    else:
-        stop()
-        raise RuntimeError('Panel HTTP readiness timed out. Inspect .local/panel.log.')
+            stop_unlocked()
+        except BaseException as cleanup:
+            primary.add_note(f'Panel startup cleanup failed: {cleanup!r}')
+        raise
     print('Local development panel started; authenticated HTML/configuration checks passed.')
     print('Authentication is local in ignored .local/dev-auth.json. GPU workers are not installed.')
+
+
+def main() -> None:
+    with control_lock():
+        main_unlocked()
 
 
 if __name__ == '__main__':

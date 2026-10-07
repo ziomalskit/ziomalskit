@@ -6,12 +6,13 @@ DATA_ROOT="${H3_PERSISTENT_ROOT:-${WORKSPACE:-/workspace}}"
 WORKSPACE="$DATA_ROOT"
 COMFY_ROOT="${COMFY_ROOT:-$DATA_ROOT/ComfyUI}"
 PANEL_ROOT="${PANEL_ROOT:-$DATA_ROOT/H3_VAST_MOBILE}"
+PID_DIR="${PID_DIR:-$DATA_ROOT/.h3-service-pids}"
 H3_CUDA_VERSION="${H3_CUDA_VERSION:-13.0}"
 case "$H3_CUDA_VERSION" in 12.8|12.9|13.0) ;; *) echo "Supported CUDA selection: 12.8, 12.9, 13.0" >&2; exit 1;; esac
 mkdir -p "$DATA_ROOT"
 source "$PACKAGE_DIR/scripts/python_env.sh"
 h3_select_python
-export PACKAGE_DIR DATA_ROOT WORKSPACE COMFY_ROOT PANEL_ROOT H3_CUDA_VERSION
+export PACKAGE_DIR DATA_ROOT WORKSPACE COMFY_ROOT PANEL_ROOT PID_DIR H3_CUDA_VERSION
 
 echo "Preparing H3 with Python $COMFY_PYTHON and ComfyUI $COMFY_ROOT"
 if [[ "${H3_SKIP_SYSTEM_PACKAGES:-0}" != 1 ]] && command -v apt-get >/dev/null 2>&1; then
@@ -40,20 +41,7 @@ fi
 }
 "$COMFY_PYTHON" -c 'import torch; print("ComfyUI dependencies installed; CUDA readiness remains a separate check")'
 
-if [[ "$(readlink -f "$PACKAGE_DIR")" != "$(readlink -f "$PANEL_ROOT")" ]]; then
-  "$COMFY_PYTHON" - "$PACKAGE_DIR" "$PANEL_ROOT" <<'PY'
-import shutil, sys
-from pathlib import Path
-src, dst = map(Path, sys.argv[1:3])
-if src.resolve() in dst.resolve().parents or dst.resolve() in src.resolve().parents:
-    raise SystemExit('Package and deployment paths must not contain each other')
-if dst.exists() and any(dst.iterdir()) and not (dst/'app/main.py').is_file():
-    raise SystemExit('Refusing to overwrite an unrelated deployment directory')
-shutil.copytree(src, dst, dirs_exist_ok=True,
-    ignore=shutil.ignore_patterns('state', 'runtime.env', '__pycache__', '.venv', '.git'))
-(dst/'state').mkdir(exist_ok=True)
-PY
-fi
+"$COMFY_PYTHON" "$PACKAGE_DIR/scripts/deployment.py" "$PACKAGE_DIR" "$PANEL_ROOT"
 
 "$COMFY_PYTHON" -m pip install -r "$PANEL_ROOT/requirements.txt"
 mkdir -p "$COMFY_ROOT/input" "$COMFY_ROOT/output" \

@@ -42,13 +42,23 @@ def verify_llama(node: Path, cuda_version: str | None = None) -> Path:
     expected = node / "vendor" / "llama.cpp" / LLAMA_TAG / platform.key / "llama-cli"
     if existing.cli.resolve() != expected.resolve() or not expected.is_file():
         raise ValueError("LLM node selected an unexpected executable")
-    metadata = json.loads(expected.with_suffix(".build.json").read_text())
+    checksum = sha256(expected)
+    try:
+        metadata = json.loads(expected.with_suffix(".build.json").read_text())
+    except (OSError, ValueError):
+        metadata = {}
+    if metadata.get('sha256') != checksum:
+        keyed = expected.parent / ('.llama-' + checksum + '.build.json')
+        if keyed.is_file():
+            metadata = json.loads(keyed.read_text())
+        else:
+            raise ValueError("llama.cpp executable checksum differs from verified build")
     if metadata.get("commit") != LLAMA_COMMIT or metadata.get("tag") != LLAMA_TAG:
         raise ValueError("llama.cpp build provenance does not match the pinned release")
     expected_cuda = cuda_version or os.environ.get("H3_CUDA_VERSION") or "13.0"
     if metadata.get("cuda") != expected_cuda or metadata.get("arch") != "120":
         raise ValueError("llama.cpp CUDA build must match the configured runtime and Blackwell architecture")
-    if metadata.get("sha256") != sha256(expected):
+    if metadata.get("sha256") != checksum:
         raise ValueError("llama.cpp executable checksum differs from verified build")
     output = subprocess.check_output([str(existing.cli), "--version"], text=True, stderr=subprocess.STDOUT, timeout=30)
     if LLAMA_COMMIT[:7] not in output:

@@ -69,8 +69,9 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(gpu["vram_total_mb"], 98304)
         self.assertEqual(gpu["util_pct"], 25)
         run.assert_called_once()
-        with patch.object(self.m.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "/dev/volume /volume\n", "")):
-            self.assertEqual(self.m._mount_info(Path("/volume")), ("/dev/volume", "/volume"))
+        with patch.object(self.m.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps({"filesystems": [{"source": "/dev/volume", "target": "/volume", "fstype": "ext4", "fsroot": "/", "uuid": "volume-uuid", "maj:min": "8:1"}]}), "")):
+            self.assertEqual(self.m._mount_info(Path("/volume")), {"source": "/dev/volume", "target": "/volume",
+                "fstype": "ext4", "fsroot": "/", "uuid": "volume-uuid", "maj:min": "8:1"})
 
     async def test_persistent_volume_verification_checks_all_protected_paths(self):
         root = self.m.ROOT / "persistent"
@@ -85,9 +86,14 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
             directory.mkdir()
 
         def mounted(path):
-            return ("overlay", "/") if path == Path("/") else ("volume", str(root))
+            return {"source": "overlay", "target": "/", "fstype": "overlay", "fsroot": "/", "uuid": None, "maj:min": "0:1"} if path == Path("/") else mount
 
-        with patch.object(self.m, "_mount_info", side_effect=mounted):
+        mount = {"source": "volume", "target": str(root), "fstype": "ext4", "fsroot": "/", "uuid": "volume-uuid", "maj:min": "8:1"}
+        proof = root / "volume-proof.json"
+        proof.write_text(json.dumps({"provider": "vast-local-volume", "volume_id": 123, "retained_on_instance_destroy": True,
+            "instance_id": "123", "boot_id": Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+            "root_identity": [root.stat().st_dev, root.stat().st_ino], "mount": mount}))
+        with patch.dict(os.environ, {"CONTAINER_ID": "123", "H3_PERSISTENT_VOLUME_PROOF": str(proof)}), patch.object(self.m, "_mount_info", side_effect=mounted):
             self.assertTrue(self.m.persistent_storage_status()["safe_for_destroy_keep_data"])
             self.m.COMFY_OUTPUT_DIR = self.m.ROOT / "outside-volume"
             self.assertFalse(self.m.persistent_storage_status()["safe_for_destroy_keep_data"])

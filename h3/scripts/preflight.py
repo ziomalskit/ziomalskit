@@ -122,6 +122,7 @@ def run_checks(environment: dict[str, str] | None = None) -> list[str]:
             errors.append(f"{name}: {error}")
 
     def versions():
+        subprocess.check_call([python, "-c", "import sys; sys.version_info >= (3,11) or sys.exit('Python >=3.11 required')"])
         commit = subprocess.check_output(["git", "-C", str(comfy), "rev-parse", "HEAD"], text=True, stderr=subprocess.STDOUT).strip()
         if commit != COMFY_COMMIT:
             raise ValueError("ComfyUI must match the verified v0.38.0 commit")

@@ -8,6 +8,8 @@ Target:
 - expose only panel port 7860
 - ComfyUI 0.38.0 (pinned to the known-good local workflow environment)
 - comfy-cli 1.21.0
+- Python >=3.11 (development checks use Python 3.12)
+- Linux >=6.9 with pidfd process-group signalling for service/lifecycle control
 
 Conservative first-release input contract:
 - exactly 6 images: Picture 1 + 5 supporting references
@@ -17,6 +19,29 @@ Conservative first-release input contract:
 
 If preserving data, set `H3_PERSISTENCE_MODE=volume` and
 `H3_PERSISTENT_ROOT=<actual mounted Local Volume path>` BEFORE installation.
+
+Keep-data destroy also requires `H3_PERSISTENT_VOLUME_PROOF`, an administrator
+attestation created **after verifying the actual retained Local Volume attachment
+in Vast**. A directory, a filesystem type, or a different device is not evidence
+of retention. If the attachment cannot be verified, leave destroy disabled.
+The private JSON file (owner root or the panel user; no group/other write access)
+must contain `provider: "vast-local-volume"`, the positive integer `volume_id`,
+`retained_on_instance_destroy: true`, and `mount` containing the exact `source`,
+`target`, `fstype`, `fsroot`, `uuid` and `maj:min` fields returned by
+`findmnt -T "$H3_PERSISTENT_ROOT" -J -o SOURCE,TARGET,FSTYPE,FSROOT,UUID,MAJ:MIN`.
+It must also bind the verified attachment to the current `instance_id` (string),
+host `boot_id` from `/proc/sys/kernel/random/boot_id`, and `root_identity` containing
+the persistent root's `[st_dev, st_ino]`. An old or mismatched attestation fails closed.
+The filesystem must be ext4, XFS, Btrfs or ZFS, separate from the container root;
+all protected paths must exist on that exact mount. Reverify the provider
+attachment and replace the attestation when mounting a different volume.
+Never create this attestation merely because the local mount looks persistent.
+
+Provisioning stages and validates the complete deployment next to `PANEL_ROOT`,
+then uses an atomic directory exchange. Retired `.release-*` directories are
+retained because a live controller can still use their cwd, and their original
+`state/` and `runtime.env` can be referenced by the current release. Do not delete
+them during provisioning or while those mutable paths remain referenced.
 
 Run:
 ```bash
@@ -59,3 +84,8 @@ and resume through persistence recovery without another remote submit.
 Service control launches and registers each child in the same parent so PID
 reuse cannot occur before pidfd capture. Failed registration reaps that exact
 child via pidfd TERM, then KILL if necessary, and removes the failed PID record.
+The default ownership store is `$WORKSPACE/.h3-service-pids`, independent of
+`PANEL_ROOT` and `COMFY_ROOT`. Startup imports old `PANEL_ROOT/state/pids` records
+once before any service operation. An explicit `PID_DIR` must remain stable
+when changing worker configuration. Stop controls the entire originally owned
+group through one pidfd and readiness requires that group's listening socket.

@@ -6,6 +6,7 @@ from pathlib import Path
 import secrets
 import shlex
 import tempfile
+import sys
 
 
 LLAMA_TAG = "b10472"
@@ -32,25 +33,53 @@ def read_env(path: Path) -> dict[str, str]:
 def atomic_private_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    handle = None
+    primary = None
     try:
         os.fchmod(descriptor, 0o600)
-        with os.fdopen(descriptor, "w") as handle:
-            handle.write(content)
+        handle = os.fdopen(descriptor, "w")
+        descriptor = None
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+        handle.close()
+        handle = None
         os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            error = sys.exception()
+            try:
+                os.close(directory)
+            except BaseException as cleanup:
+                if error is None:
+                    raise
+                error.add_note(f'Directory close failed: {cleanup!r}')
+    except BaseException as error:
+        primary = error
+        raise
     finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+        for cleanup in (lambda: handle.close() if handle is not None else None,
+                        lambda: os.close(descriptor) if descriptor is not None else None,
+                        lambda: Path(temporary).unlink(missing_ok=True)):
+            try:
+                cleanup()
+            except BaseException as error:
+                if primary is None:
+                    raise
+                primary.add_note(f'Atomic file cleanup failed: {error!r}')
 
 
 def write_runtime(path: Path, environment: dict[str, str]) -> None:
     previous = read_env(path)
     names = (
-        "WORKSPACE", "COMFY_ROOT", "PANEL_ROOT", "PYTHON_BIN", "COMFY_PYTHON",
+        "WORKSPACE", "COMFY_ROOT", "PANEL_ROOT", "PID_DIR", "PYTHON_BIN", "COMFY_PYTHON",
         "RENDER_PORT", "PROMPT_PORT", "H3_PANEL_PORT", "RENDER_COMFY_URL",
         "PROMPT_COMFY_URL", "H3_PANEL_URL", "VAST_CLI", "SERVICE_CTL",
         "H3_PERSISTENCE_MODE", "H3_PERSISTENT_ROOT", "COMFY_INPUT_DIR",
         "COMFY_OUTPUT_DIR", "COMFY_MODELS_DIR", "H3_CUDA_VERSION",
-        "H3_MODEL_CHECKSUMS_FILE",
+        "H3_MODEL_CHECKSUMS_FILE", "H3_PERSISTENT_VOLUME_PROOF",
     )
     values = {name: environment.get(name, "") for name in names}
     values["H3_PANEL_USER"] = environment.get("H3_PANEL_USER") or previous.get("H3_PANEL_USER") or "h3"

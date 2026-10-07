@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
+import ctypes
+import fcntl
 import hashlib
 import json
 import os
@@ -13,6 +16,63 @@ import subprocess
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
+
+PIDFD_SIGNAL_PROCESS_GROUP = 4
+
+
+def close_preserving(descriptor: int) -> None:
+    primary = sys.exception()
+    try:
+        os.close(descriptor)
+    except BaseException as error:
+        if primary is None:
+            raise
+        primary.add_note(f'Descriptor cleanup failed: {error!r}')
+
+
+def require_group_control() -> None:
+    require_pidfd()
+    fd = os.pidfd_open(os.getpid())
+    try:
+        try:
+            signal.pidfd_send_signal(fd, 0, None, PIDFD_SIGNAL_PROCESS_GROUP)
+        except OSError as error:
+            import errno
+            if error.errno != errno.ESRCH:
+                raise RuntimeError('Safe group control requires Linux >=6.9') from error
+    finally:
+        close_preserving(fd)
+
+
+@contextmanager
+def record_control(path: Path):
+    """A surviving helper cannot race a later controller's record mutations.
+
+    This descriptor belongs to the helper, is close-on-exec, and is never
+    inherited by a worker. Contention is UNKNOWN, never service absence.
+    """
+    fd = os.open(path.with_name(path.name + '.control.lock'),
+                 os.O_CREAT | os.O_RDWR | os.O_CLOEXEC, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise IndeterminateIdentity('Another helper owns this service control attempt') from None
+        yield
+    finally:
+        close_preserving(fd)
+
+
+def require_live_launch_controller(expected: int | None) -> None:
+    parent = expected if expected is not None else os.getppid()
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(1, signal.SIGTERM, 0, 0, 0) != 0:  # PR_SET_PDEATHSIG
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+    if os.getppid() != parent:
+        raise IndeterminateIdentity('Launch controller exited before authorization')
 
 
 class StaleIdentity(ValueError):
@@ -71,6 +131,8 @@ def require_free_service_port(port: int) -> None:
 
 
 def require_pidfd() -> None:
+    if sys.version_info < (3, 11):
+        raise RuntimeError('Python >=3.11 required')
     if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
         raise RuntimeError("Linux pidfd support is required for safe service control")
     descriptor = os.pidfd_open(os.getpid())
@@ -90,7 +152,10 @@ def process_snapshot(pid: int) -> dict:
     command = (root / "cmdline").read_bytes()
     if not command:
         raise IndeterminateIdentity("service command is temporarily unavailable")
+    cwd_stat = (root / "cwd").stat()
     return {"pid": pid, "start_time": int(fields[19]),
+            "pgid": int(fields[2]), "sid": int(fields[3]),
+            "cwd_identity": [cwd_stat.st_dev, cwd_stat.st_ino],
             "boot_id": Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
             "command_sha256": hashlib.sha256(command).hexdigest(),
             "argv": [os.fsdecode(arg) for arg in command.rstrip(b"\0").split(b"\0")],
@@ -111,6 +176,17 @@ def expected_service(snapshot: dict, args) -> bool:
     return snapshot["cwd"] == Path(args.comfy_root).resolve() and "main.py" in argv and any(
         argv[index:index + 2] == ["--port", str(args.port)] for index in range(len(argv))
     )
+
+
+def committed_command_shape(command: list[str], service: str, port: int) -> bool:
+    # The interpreter and cwd were verified before durable COMMIT. Resolving
+    # their paths again would lose ownership after a symlink/release update.
+    port_matches = any(command[index:index + 2] == ['--port', str(port)]
+                       for index in range(len(command)))
+    if service == 'panel':
+        return port_matches and any(command[index:index + 3] == ['-m', 'uvicorn', 'app.main:app']
+                                    for index in range(len(command)))
+    return port_matches and 'main.py' in command
 
 
 def terminate_owned_process(descriptor: int) -> None:
@@ -161,6 +237,9 @@ def record_process(args, *, artifacts: list[Path] | None = None) -> None:
             time.sleep(0.02)
         record = {key: snapshot[key] for key in ("pid", "start_time", "boot_id", "command_sha256")}
         record["service"] = args.service
+        record["identity"] = {key: snapshot[key] for key in ("pgid", "sid", "cwd_identity")}
+        record["configuration"] = {"python": str(Path(args.python).resolve()),
+                                   "cwd": str(snapshot["cwd"]), "port": args.port}
         if getattr(args, "_gate_command", None) is not None:
             record["launch_command"] = args._launch_command
             record["target_argv"] = args._target_argv
@@ -248,14 +327,22 @@ def checked_pidfd(args, *, allow_gate: bool = False) -> tuple[int, int]:
     pid = record.get("pid")
     if type(pid) is not int or pid <= 0:
         raise StaleIdentity("invalid service PID record")
+    owns_group = (record.get('identity', {}).get('pgid') == pid
+                  or ('launch_command' in record and 'gate_command_sha256' in record))
     try:
         descriptor = os.pidfd_open(pid)
     except ProcessLookupError:
+        if (owns_group
+                and record.get('boot_id') == Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+                and group_members(pid)):
+            raise IndeterminateIdentity('Leader exited with surviving group; ownership record retained') from None
         raise StaleIdentity("recorded process is absent") from None
     try:
         try:
             snapshot = process_snapshot(pid)
         except ProcessLookupError:
+            if owns_group and group_members(pid):
+                raise IndeterminateIdentity('Leader exited with surviving group; ownership record retained') from None
             raise StaleIdentity("recorded process has exited") from None
         except FileNotFoundError:
             # Missing /proc data may be transient. Only pidfd-confirmed death
@@ -267,6 +354,26 @@ def checked_pidfd(args, *, allow_gate: bool = False) -> tuple[int, int]:
             raise IndeterminateIdentity("process identity is temporarily unavailable") from None
         if any(record.get(key) != snapshot[key] for key in ("start_time", "boot_id")):
             raise StaleIdentity("service process instance no longer matches")
+        identity = record.get("identity")
+        if identity is not None:
+            if any(identity.get(key) != snapshot[key] for key in ("pgid", "sid", "cwd_identity")):
+                raise StaleIdentity("committed service identity no longer matches")
+            config = record.get("configuration", {})
+            committed = SimpleNamespace(service=args.service, python=config.get("python", ""),
+                                        port=config.get("port"), comfy_root=str(snapshot["cwd"]),
+                                        panel_root=str(snapshot["cwd"]))
+        elif isinstance(record.get('launch_command'), list) and record['launch_command']:
+            # STEP 1 already pinned the exact target command and process
+            # instance. Infer its old configuration, not the new environment.
+            command = record['launch_command']
+            try:
+                port = int(command[command.index('--port') + 1])
+            except (ValueError, IndexError):
+                raise StaleIdentity('Invalid legacy service command') from None
+            committed = SimpleNamespace(service=args.service, python=command[0], port=port,
+                                        comfy_root=str(snapshot['cwd']), panel_root=str(snapshot['cwd']))
+        else:
+            committed = args
         if "launch_command" in record:
             command = record["launch_command"]
             target_argv = record.get("target_argv")
@@ -279,16 +386,15 @@ def checked_pidfd(args, *, allow_gate: bool = False) -> tuple[int, int]:
                     or len(record["gate_command_sha256"]) != 64):
                 raise StaleIdentity("invalid approved service command")
             if snapshot["command_sha256"] == record.get("gate_command_sha256"):
-                intended = dict(snapshot, argv=command)
-                if not expected_service(intended, args):
+                if not committed_command_shape(command, args.service, committed.port):
                     raise StaleIdentity("launch gate no longer matches expected service")
                 if not allow_gate:
                     raise IndeterminateIdentity("service launch has not reached exec")
-            elif (not expected_service(dict(snapshot, argv=command), args)
+            elif (not committed_command_shape(command, args.service, committed.port)
                     or snapshot["argv"] != target_argv
                     or snapshot["command_sha256"] != record["command_sha256"]):
                 raise StaleIdentity("service command no longer matches approved launch")
-        elif not expected_service(snapshot, args) or record.get("command_sha256") != snapshot["command_sha256"]:
+        elif not expected_service(snapshot, committed) or record.get("command_sha256") != snapshot["command_sha256"]:
             raise StaleIdentity("service process identity no longer matches")
     except BaseException as primary:
         try:
@@ -299,6 +405,208 @@ def checked_pidfd(args, *, allow_gate: bool = False) -> tuple[int, int]:
                 primary.control_error = True
         raise
     return pid, descriptor
+
+
+def group_members(pid: int) -> list[Path]:
+    """Inspect membership only; never use the resulting numeric PIDs to signal."""
+    members = []
+    for entry in Path('/proc').iterdir():
+        if not entry.name.isdecimal():
+            continue
+        try:
+            text = (entry / 'stat').read_text()
+            fields = text[text.rindex(')') + 2:].split()
+            if int(fields[2]) == pid and int(fields[3]) == pid and fields[0] not in {'Z', 'X'}:
+                members.append(entry)
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+    return members
+
+
+def stop_group(pid: int, descriptor: int) -> None:
+    """Keep the original pidfd through leader death and descendant cleanup."""
+    require_group_control()
+    snap = process_snapshot(pid)
+    if snap['pgid'] != pid or snap['sid'] != pid:
+        raise IndeterminateIdentity('Service does not own a dedicated group/session')
+    # The panel needs time to finish cancellation-safe cleanup of its own CLI
+    # sessions before escalation kills the controller itself.
+    grace = float(os.environ.get('H3_SERVICE_TERM_TIMEOUT', '20'))
+    if not 0 < grace <= 60:
+        raise ValueError('Invalid service TERM timeout')
+    errors = []
+    for sig, seconds in ((signal.SIGTERM, grace), (signal.SIGKILL, 5), (signal.SIGKILL, 5)):
+        try:
+            signal.pidfd_send_signal(descriptor, sig, None, PIDFD_SIGNAL_PROCESS_GROUP)
+        except ProcessLookupError:
+            if not group_members(pid):
+                break
+            errors.append(IndeterminateIdentity('Owned group cannot be addressed'))
+        except BaseException as error:
+            errors.append(error)
+            continue
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            try:
+                members = group_members(pid)
+            except BaseException as error:
+                errors.append(error)
+                break  # Retain the fd and still perform safe KILL cleanup.
+            if not members:
+                if sig == signal.SIGTERM:
+                    try:
+                        # A /proc enumeration can miss a child forked while
+                        # its leader exits. Only kernel-confirmed group absence
+                        # permits skipping KILL; a zombie-only group is harmless
+                        # to KILL through the same originally owned descriptor.
+                        signal.pidfd_send_signal(descriptor, 0, None, PIDFD_SIGNAL_PROCESS_GROUP)
+                    except ProcessLookupError:
+                        pass
+                    except BaseException as error:
+                        errors.append(error)
+                        break
+                    else:
+                        break
+                if errors:
+                    for error in errors[1:]:
+                        errors[0].add_note(f'Group cleanup failed: {error!r}')
+                    raise errors[0]
+                return
+            time.sleep(.02)
+    if errors:
+        for error in errors[1:]:
+            errors[0].add_note(f'Group cleanup failed: {error!r}')
+        raise errors[0]
+    if not group_members(pid):
+        return
+    raise IndeterminateIdentity('Owned group has not exited; record retained')
+
+
+def require_owned_listener(args, pid: int, descriptor: int) -> None:
+    snapshot = process_snapshot(pid)
+    if snapshot['pgid'] != pid or snapshot['sid'] != pid:
+        raise IndeterminateIdentity('Service does not own a dedicated group/session')
+    listeners = set()
+    for table in (Path('/proc/net/tcp'), Path('/proc/net/tcp6')):
+        for line in table.read_text().splitlines()[1:]:
+            fields = line.split()
+            if int(fields[3], 16) == 10 and int(fields[1].split(':')[1], 16) == args.port:
+                listeners.add('socket:[' + fields[9] + ']')
+    owned = set()
+    for member in group_members(pid):
+        try:
+            for fd in (member / 'fd').iterdir():
+                try:
+                    owned.add(os.readlink(fd))
+                except FileNotFoundError:
+                    pass
+        except FileNotFoundError:
+            pass
+    signal.pidfd_send_signal(descriptor, 0)
+    if not listeners or not listeners <= owned:
+        raise IndeterminateIdentity('Listening socket is not owned by this service')
+
+
+def require_desired_configuration(args, pid: int) -> None:
+    record = json.loads(args.pid_file.read_text())
+    config = record.get('configuration')
+    if config is None:
+        if expected_service(process_snapshot(pid), args):
+            return
+    else:
+        desired = Path(args.panel_root if args.service == 'panel' else args.comfy_root).stat()
+        if (config['python'] == str(Path(args.python).resolve()) and config['port'] == args.port
+                and record['identity']['cwd_identity'] == [desired.st_dev, desired.st_ino]):
+            return
+    raise IndeterminateIdentity('Owned service uses different configuration; restart required')
+
+
+def migrate_records(target: Path, legacy: Path) -> None:
+    """Import STEP 1 ownership before any new service-control operation.
+
+    Every caller passes through this lock before opening the control lock. The
+    old records remain available if import is interrupted; a durable marker
+    prevents reimporting old records after a service has been stopped.
+    """
+    if target.resolve() == legacy.resolve():
+        return
+    marker = target / '.legacy-imported'
+    fd = os.open(target / '.migration.lock', os.O_CREAT | os.O_RDWR | os.O_CLOEXEC, 0o600)
+    legacy_fd = None
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        if marker.exists():
+            return
+        if legacy.exists():
+            legacy_fd = os.open(legacy / 'service_ctl.lock', os.O_CREAT | os.O_RDWR | os.O_CLOEXEC, 0o600)
+            deadline = time.monotonic() + 5
+            while True:
+                try:
+                    fcntl.flock(legacy_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise IndeterminateIdentity('Legacy service control still holds its lock') from None
+                    time.sleep(.02)
+            for service in ('render', 'prompt', 'panel'):
+                old, new = legacy / (service + '.pid'), target / (service + '.pid')
+                if old.exists() and not new.exists():
+                    temporary = None
+                    stream = None
+                    out = None
+                    primary = None
+                    try:
+                        payload = old.read_bytes()
+                        out, temporary = tempfile.mkstemp(prefix='.import-', dir=target)
+                        stream = os.fdopen(out, 'wb')
+                        out = None
+                        stream.write(payload)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                        stream.close()
+                        stream = None
+                        os.replace(temporary, new)
+                    except BaseException as error:
+                        primary = error
+                        raise
+                    finally:
+                        for cleanup in (lambda: stream.close() if stream is not None else None,
+                                        lambda: os.close(out) if out is not None else None,
+                                        lambda: Path(temporary).unlink(missing_ok=True) if temporary is not None else None):
+                            try:
+                                cleanup()
+                            except BaseException as error:
+                                if primary is None:
+                                    primary = error
+                                else:
+                                    primary.add_note(f'Ownership import cleanup failed: {error!r}')
+                        if primary is not None and sys.exception() is None:
+                            raise primary
+        directory = os.open(target, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+            # Marker publication follows durable publication of every record.
+            out = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_CLOEXEC, 0o600)
+            try:
+                os.fsync(out)
+            finally:
+                close_preserving(out)
+            os.fsync(directory)
+        finally:
+            close_preserving(directory)
+    finally:
+        primary = sys.exception()
+        for owned in (legacy_fd, fd):
+            if owned is not None:
+                try:
+                    os.close(owned)
+                except BaseException as error:
+                    if primary is None:
+                        primary = error
+                    else:
+                        primary.add_note(f'Ownership migration close failed: {error!r}')
+        if primary is not None and sys.exception() is None:
+            raise primary
 
 
 def _terminate_launched_child(child: subprocess.Popen) -> None:
@@ -363,12 +671,13 @@ def launch_process(args, command: list[str]) -> None:
                               str(gate_read), str(ready_write), secrets.token_hex(24), "--", *command]
         log = args.log_file.open("wb")
         child = subprocess.Popen(args._gate_command, cwd=cwd, stdout=log, stderr=subprocess.STDOUT,
-                                 start_new_session=True, close_fds=True, pass_fds=(gate_read, ready_write))
+                                 start_new_session=True, close_fds=True, pass_fds=(gate_read, ready_write),
+                                 env=getattr(args, 'environment', None))
         args.pid = child.pid
         log.close()
         log = None
         for descriptor in (gate_read, ready_write):
-            os.close(descriptor)
+            close_preserving(descriptor)
             descriptors.remove(descriptor)
         ready = select.poll()
         ready.register(ready_read, select.POLLIN | select.POLLHUP)
@@ -428,9 +737,12 @@ def main() -> int:
         launch_gate(int(sys.argv[2]), int(sys.argv[3]), sys.argv[6:])
         return 0
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("support", "port-free", "launch", "record", "check", "signal"))
+    parser.add_argument("command", choices=("support", "migrate", "port-free", "launch", "record", "check", "signal", "stop", "listener", "desired"))
+    parser.add_argument('--pid-dir', type=Path)
+    parser.add_argument('--legacy-dir', type=Path)
     parser.add_argument("--pid-file", type=Path)
     parser.add_argument("--pid", type=int)
+    parser.add_argument("--controller-pid", type=int)
     parser.add_argument("--service", choices=("render", "prompt", "panel"))
     parser.add_argument("--comfy-root")
     parser.add_argument("--panel-root")
@@ -446,30 +758,50 @@ def main() -> int:
     try:
         require_pidfd()
         if args.command == "support":
+            require_group_control()
             return 0
-        if args.command == "port-free":
+        if args.command == 'migrate':
+            require_group_control()
+            migrate_records(args.pid_dir, args.legacy_dir)
+            return 0
+        if args.command == 'port-free' and args.pid_file is None:
             require_free_service_port(args.port)
             return 0
-        if args.command == "launch":
-            launch_process(args, command)
+        with record_control(args.pid_file):
+            if args.command == "port-free":
+                require_free_service_port(args.port)
+                return 0
+            if args.command == "launch":
+                if sys.version_info < (3, 11):
+                    raise RuntimeError('Python >=3.11 required')
+                require_group_control()
+                require_live_launch_controller(args.controller_pid)
+                launch_process(args, command)
+                return 0
+            if args.command == "record":
+                record_process(args)
+                return 0
+            pid, descriptor = checked_pidfd(args, allow_gate=args.command in {"signal", "stop"})
+            try:
+                if args.command == "stop":
+                    stop_group(pid, descriptor)
+                    args.pid_file.unlink(missing_ok=True)
+                elif args.command == "listener":
+                    require_owned_listener(args, pid, descriptor)
+                elif args.command == "desired":
+                    require_desired_configuration(args, pid)
+                elif args.command == "signal":
+                    signal.pidfd_send_signal(descriptor, getattr(signal, "SIG" + args.signal))
+                else:
+                    print(pid)
+            finally:
+                close_preserving(descriptor)
             return 0
-        if args.command == "record":
-            record_process(args)
-            return 0
-        pid, descriptor = checked_pidfd(args, allow_gate=args.command == "signal")
-        try:
-            if args.command == "signal":
-                signal.pidfd_send_signal(descriptor, getattr(signal, "SIG" + args.signal))
-            else:
-                print(pid)
-        finally:
-            os.close(descriptor)
-        return 0
     except StaleIdentity as error:
         return 2 if getattr(error, "control_error", False) else 1
     except Exception:
         # No argv/environment dump: panel credentials live only in its env.
-        return 2 if args.command in {"support", "check", "signal", "port-free"} else 1
+        return 2 if args.command in {"support", "check", "signal", "port-free", "stop", "listener", "desired"} else 1
 
 
 if __name__ == "__main__":

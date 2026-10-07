@@ -4,6 +4,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlencode
 
+if sys.version_info < (3, 11):
+    raise RuntimeError("H3 runtime requires Python >=3.11")
+
 import httpx
 from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.responses import FileResponse, StreamingResponse, Response
@@ -863,7 +866,7 @@ async def _cleanup_owned_restart(proc, descriptor: int | None, communication: as
     return errors
 
 
-async def _run_owned_restart(command: list[str]) -> tuple[int, bytes, bytes]:
+async def _run_owned_restart(command: list[str], *, preserve_success: bool = False) -> tuple[int, bytes, bytes]:
     _require_restart_group_control()
     proc = None
     descriptor = None
@@ -903,6 +906,14 @@ async def _run_owned_restart(command: list[str]) -> tuple[int, bytes, bytes]:
                 except BaseException as error:
                     errors = [error]
                     break
+            group_finished = False
+            if preserve_success and primary is None and proc.returncode == 0 and descriptor is not None:
+                try:
+                    signal.pidfd_send_signal(descriptor, 0, None, _PIDFD_SIGNAL_PROCESS_GROUP)
+                except ProcessLookupError:
+                    group_finished = True
+                except BaseException as error:
+                    errors.append(error)
             for resource in (proc.stdin, proc.stdout, proc.stderr):
                 try:
                     resource.close()
@@ -921,9 +932,17 @@ async def _run_owned_restart(command: list[str]) -> tuple[int, bytes, bytes]:
                 if primary is None:
                     raise authoritative
             elif errors:
-                for error in errors[1:]:
-                    errors[0].add_note(f"Restart cleanup failed: {error!r}")
-                raise errors[0]
+                if preserve_success and group_finished:
+                    # A confirmed successful CLI response cannot become an
+                    # uncertain remote operation because closing a local fd
+                    # failed. The entire owned group is already gone.
+                    vast_control['last_cli_cleanup_warning'] = (
+                        'Confirmed CLI success; local cleanup diagnostics: '
+                        + ', '.join(type(error).__name__ for error in errors))
+                else:
+                    for error in errors[1:]:
+                        errors[0].add_note(f"Restart cleanup failed: {error!r}")
+                    raise errors[0]
 
 
 async def restart_comfy(service: str) -> None:
@@ -1517,14 +1536,11 @@ async def run_vast_cli(*args: str, expect_json: bool = False) -> Any:
     api_key = os.getenv("CONTAINER_API_KEY", "").strip()
     if api_key:
         cmd.extend(["--api-key", api_key])
-    proc = await asyncio.create_subprocess_exec(
-        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
-    out, err = await proc.communicate()
+    returncode, out, err = await _run_owned_restart(cmd, preserve_success=True)
     sout = out.decode(errors="replace").strip()
     serr = err.decode(errors="replace").strip()
-    if proc.returncode != 0:
-        raise RuntimeError(serr or sout or f"vastai exited {proc.returncode}")
+    if returncode != 0:
+        raise RuntimeError(serr or sout or f"vastai exited {returncode}")
     if expect_json:
         if not sout:
             return {}
@@ -1589,83 +1605,76 @@ def queue_finished_for_shutdown() -> bool:
     return not any(j.get("status") in blocking for j in queue)
 
 
-def _mount_info(path: Path) -> tuple[str | None, str | None]:
+def _mount_info(path: Path) -> dict[str, Any]:
     try:
-        p = subprocess.run(
-            ["findmnt", "-T", str(path), "-n", "-o", "SOURCE,TARGET"],
-            capture_output=True, text=True, timeout=5
-        )
-        if p.returncode != 0 or not p.stdout.strip():
-            return None, None
-        bits = p.stdout.strip().split(None, 1)
-        return bits[0], bits[1] if len(bits) > 1 else None
+        result = subprocess.run(
+            ["findmnt", "-T", str(path), "-J", "-o", "SOURCE,TARGET,FSTYPE,FSROOT,UUID,MAJ:MIN"],
+            capture_output=True, text=True, timeout=5, check=True)
+        mounts = json.loads(result.stdout)["filesystems"]
+        if len(mounts) != 1 or not isinstance(mounts[0], dict):
+            return {}
+        return mounts[0]
     except Exception:
-        return None, None
+        return {}
 
 
 def persistent_storage_status() -> dict[str, Any]:
     root = Path(H3_PERSISTENT_ROOT).resolve() if H3_PERSISTENT_ROOT else None
-    result = {
-        "configured": bool(root),
-        "mode": H3_PERSISTENCE_MODE or None,
-        "root": str(root) if root else None,
-        "exists": False,
-        "verified_separate_mount": False,
-        "safe_for_destroy_keep_data": False,
-        "mount_source": None,
-        "mount_target": None,
-        "protected_paths": {},
-        "reason": None,
-    }
+    result = {"configured": bool(root), "mode": H3_PERSISTENCE_MODE or None,
+              "root": str(root) if root else None, "exists": bool(root and root.exists()),
+              "verified_separate_mount": False, "safe_for_destroy_keep_data": False,
+              "mount_source": None, "mount_target": None, "protected_paths": {}, "reason": None}
     if not root or not root.exists():
         result["reason"] = "persistent root is not configured or does not exist"
         return result
-
-    result["exists"] = True
-    source, target = _mount_info(root)
-    root_source, _ = _mount_info(Path("/"))
-    result["mount_source"] = source
-    result["mount_target"] = target
-    result["verified_separate_mount"] = bool(source and root_source and source != root_source)
-
-    # "Keep data" means these specific assets must live on the verified volume.
-    protected = {
-        "controller_state": STATE.resolve(),
-        "models": COMFY_MODELS_DIR.resolve(),
-        "outputs": COMFY_OUTPUT_DIR.resolve(),
-        "inputs": COMFY_INPUT_DIR.resolve(),
-    }
+    mount = _mount_info(root)
+    system_mount = _mount_info(Path("/"))
+    keys = ("source", "target", "fstype", "fsroot", "uuid", "maj:min")
+    result.update(mount_source=mount.get("source"), mount_target=mount.get("target"),
+                  mount_fstype=mount.get("fstype"))
+    # A provider-attested attachment binds the retention contract to the actual
+    # mount. Filesystem type or a different device alone cannot prove retention.
+    proof_ok = False
+    try:
+        proof_path = Path(os.environ["H3_PERSISTENT_VOLUME_PROOF"])
+        stat = proof_path.stat()
+        if stat.st_uid not in {0, os.geteuid()} or stat.st_mode & 0o022:
+            raise ValueError("untrusted persistence proof permissions")
+        proof = json.loads(proof_path.read_text())
+        if not isinstance(proof, dict):
+            raise ValueError('Invalid persistence attestation')
+        root_stat = root.stat()
+        proof_ok = (proof.get("provider") == "vast-local-volume"
+                    and type(proof.get("volume_id")) is int and proof["volume_id"] > 0
+                    and proof.get("retained_on_instance_destroy") is True
+                    and bool(instance_id_from_env()) and proof.get('instance_id') == instance_id_from_env()
+                    and proof.get('boot_id') == Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+                    and proof.get('root_identity') == [root_stat.st_dev, root_stat.st_ino]
+                    and proof.get("mount") == {key: mount.get(key) for key in keys})
+    except (OSError, KeyError, ValueError, TypeError):
+        pass
+    durable_fs = mount.get("fstype") in {"ext4", "xfs", "btrfs", "zfs"}
+    separate = (bool(mount.get("source") and mount.get("target") and mount.get("maj:min") and mount.get('fsroot'))
+                and mount.get("target") != "/"
+                and (mount.get("maj:min"), mount.get("fsroot")) !=
+                    (system_mount.get("maj:min"), system_mount.get("fsroot")))
+    result["verified_separate_mount"] = bool(durable_fs and separate and proof_ok)
+    protected = {"controller_state": STATE.resolve(), "models": COMFY_MODELS_DIR.resolve(),
+                 "outputs": COMFY_OUTPUT_DIR.resolve(), "inputs": COMFY_INPUT_DIR.resolve()}
     all_on_volume = True
     for name, path in protected.items():
-        p_source, p_target = _mount_info(path if path.exists() else path.parent)
-        same_mount = bool(source and p_source == source)
-        try:
-            under_root = path == root or root in path.parents
-        except Exception:
-            under_root = False
-        ok = same_mount and under_root
-        result["protected_paths"][name] = {
-            "path": str(path),
-            "exists": path.exists(),
-            "mount_source": p_source,
-            "mount_target": p_target,
-            "under_persistent_root": under_root,
-            "verified": ok,
-        }
+        info = _mount_info(path if path.exists() else path.parent)
+        ok = (path.exists() and (path == root or root in path.parents)
+              and bool(mount) and all(info.get(key) == mount.get(key) for key in keys))
+        result["protected_paths"][name] = {"path": str(path), "exists": path.exists(),
+            "mount_source": info.get("source"), "mount_target": info.get("target"),
+            "under_persistent_root": path == root or root in path.parents, "verified": ok}
         all_on_volume = all_on_volume and ok
-
-    result["safe_for_destroy_keep_data"] = (
-        H3_PERSISTENCE_MODE == "volume"
-        and result["verified_separate_mount"]
-        and all_on_volume
-    )
+    result["safe_for_destroy_keep_data"] = bool(H3_PERSISTENCE_MODE == "volume"
+        and result["verified_separate_mount"] and all_on_volume)
     if not result["safe_for_destroy_keep_data"]:
-        if H3_PERSISTENCE_MODE != "volume":
-            result["reason"] = "H3_PERSISTENCE_MODE is not 'volume'"
-        elif not result["verified_separate_mount"]:
-            result["reason"] = "persistent root is not a separately mounted filesystem"
-        elif not all_on_volume:
-            result["reason"] = "state/models/outputs/inputs are not all on the verified persistent volume"
+        result["reason"] = ("Verified retained Vast Local Volume attachment and durable mount required; "
+                            "state/models/outputs/inputs must all exist on that mount")
     return result
 
 

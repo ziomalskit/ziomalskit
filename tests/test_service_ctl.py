@@ -33,6 +33,7 @@ class ServiceControlTests(unittest.TestCase):
         self.commands = []
         worker = f'''#!{sys.executable}
 import json,os,signal,sys,time
+from http.server import HTTPServer,BaseHTTPRequestHandler
 from pathlib import Path
 a=sys.argv[1:]
 if a and a[0].endswith('/process_identity.py'):
@@ -46,16 +47,21 @@ def stop(*args):
  record('stop');sys.exit(0)
 signal.signal(signal.SIGTERM,stop)
 record('start')
-while True:time.sleep(.05)
+class Handler(BaseHTTPRequestHandler):
+ def do_GET(self):
+  self.send_response(401 if service=='panel' else 200);self.end_headers()
+ def log_message(self,*args):pass
+HTTPServer(('127.0.0.1',int(a[a.index('--port')+1])),Handler).serve_forever()
 '''
         python = prefix / "bin/python"
         executable(python, worker)
         tools = self.base / "bin"
-        executable(tools / "curl", "#!/bin/sh\nprintf '401'\n")
+        tools.mkdir()
         self.environment = dict(os.environ, PANEL_ROOT=str(self.panel), COMFY_ROOT=str(self.comfy),
                                 WORKSPACE=str(self.base), PYTHON_BIN=str(python), COMFY_PYTHON=str(python),
+                                PID_DIR=str(self.panel / 'state/pids'),
                                 RUNTIME_ENV=str(self.base / "absent.env"), H3_PANEL_PASSWORD="test-only",
-                                PATH=str(tools) + ":" + os.environ["PATH"])
+                                PATH=str(tools) + ":" + os.environ["PATH"], H3_READINESS_TIMEOUT="3")
 
     def tearDown(self):
         for process in self.commands:

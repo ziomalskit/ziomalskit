@@ -24,7 +24,7 @@ class FallbackNodeTests(unittest.TestCase):
         self.panel = self.base / "panel"
         (self.panel / "scripts").mkdir(parents=True)
         (self.panel / "config").mkdir()
-        for name in ("install_fallback_nodes.sh", "python_env.sh", "runtime_config.py"):
+        for name in ("install_fallback_nodes.sh", "python_env.sh", "runtime_config.py", "deployment.py"):
             shutil.copy2(ROOT / "h3/scripts" / name, self.panel / "scripts" / name)
         self.git_env = dict(os.environ, GIT_AUTHOR_NAME="AJ test", GIT_COMMITTER_NAME="AJ test",
                             GIT_AUTHOR_EMAIL="test@example.invalid", GIT_COMMITTER_EMAIL="test@example.invalid")

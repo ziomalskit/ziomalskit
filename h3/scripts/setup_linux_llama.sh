@@ -53,17 +53,5 @@ else
 fi
 VENDOR="$LLM_NODE/vendor/llama.cpp/$LLAMA_TAG/linux-x64-cuda"
 mkdir -p "$VENDOR"
-cp "$BIN" "$VENDOR/llama-cli"
-chmod +x "$VENDOR/llama-cli"
-"$COMFY_PYTHON" - "$BIN" "$SIGNATURE" "$VENDOR/llama-cli" "$LLAMA_TAG" "$LLAMA_COMMIT" "$CUDA_VERSION" <<'PY'
-from pathlib import Path
-import hashlib,json,subprocess,sys
-binary,signature,vendor=map(Path,sys.argv[1:4])
-version=subprocess.check_output([str(vendor),'--version'],text=True,stderr=subprocess.STDOUT,timeout=30)
-if sys.argv[5][:7] not in version: raise SystemExit('llama.cpp runtime commit failed verification')
-meta={'tag':sys.argv[4],'commit':sys.argv[5],'cuda':sys.argv[6],'arch':'120',
-      'sha256':hashlib.sha256(binary.read_bytes()).hexdigest()}
-signature.write_text(json.dumps(meta))
-vendor.with_suffix('.build.json').write_text(json.dumps(meta))
-PY
+"$COMFY_PYTHON" "$PANEL_ROOT/scripts/install_llama.py" "$BIN" "$SIGNATURE" "$VENDOR/llama-cli" "$LLAMA_TAG" "$LLAMA_COMMIT" "$CUDA_VERSION"
 "$COMFY_PYTHON" "$PANEL_ROOT/scripts/llama_runtime.py" "$LLM_NODE"

@@ -235,9 +235,12 @@ if a[:2]==['-m','comfy_cli']:
 if a and a[0]=='-c' and 'print(sys.prefix)' in a[1]:print({str(prefix)!r});sys.exit(0)
 if a and a[0]=='-c' and 'import torch' in a[1]:sys.exit(0)
 if a[:2]==['-m','uvicorn']:
- import time
+ from http.server import HTTPServer,BaseHTTPRequestHandler
  Path(os.environ['TEST_RESTART_LOG']).write_text(json.dumps([os.environ['RENDER_RESTART_CMD'],os.environ['PROMPT_RESTART_CMD']]))
- time.sleep(15);sys.exit(0)
+ class Handler(BaseHTTPRequestHandler):
+  def do_GET(self):self.send_response(401);self.end_headers()
+  def log_message(self,*args):pass
+ HTTPServer(('127.0.0.1',int(a[a.index('--port')+1])),Handler).serve_forever()
 os.execv({sys.executable!r},[{sys.executable!r},*a])
 '''
         executable(fake_python, wrapper)
@@ -314,6 +317,7 @@ if '--build' in a:
         environment['PYTHON_BIN']=environment['COMFY_PYTHON']
         environment['H3_PANEL_PASSWORD']='test-password'
         environment['TEST_RESTART_LOG']=str(self.base/'restart.json')
+        (self.base/'inert-bin/curl').unlink()
         command=['bash',str(package/'scripts/service_ctl.sh')]
         try:
             result=subprocess.run(command+['start','panel'],env=environment,text=True,capture_output=True,timeout=10)

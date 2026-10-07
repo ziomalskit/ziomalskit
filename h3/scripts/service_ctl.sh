@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 PANEL_ROOT="${PANEL_ROOT:-/workspace/H3_VAST_MOBILE}"
 RUNTIME_ENV="${RUNTIME_ENV:-$PANEL_ROOT/runtime.env}"
@@ -19,16 +20,21 @@ h3_select_python
 RENDER_PORT="${RENDER_PORT:-8188}"
 PROMPT_PORT="${PROMPT_PORT:-8189}"
 PANEL_PORT="${H3_PANEL_PORT:-7860}"
-PID_DIR="${PID_DIR:-$PANEL_ROOT/state/pids}"
+PID_DIR="${PID_DIR:-$WORKSPACE/.h3-service-pids}"
 mkdir -p "$PID_DIR" "$WORKSPACE"
 
 [[ -x "$COMFY_PYTHON" ]] || { echo "ComfyUI interpreter missing: $COMFY_PYTHON" >&2; exit 1; }
+
+"$COMFY_PYTHON" "$PANEL_ROOT/scripts/process_identity.py" migrate \
+  --pid-dir "$PID_DIR" --legacy-dir "${H3_LEGACY_PID_DIR:-$SCRIPT_ROOT/state/pids}" || {
+  echo "Unable to import existing service ownership; no service action dispatched" >&2; exit 1;
+}
 
 # All invocations share one lock, including 'all'. Do not unlink this file:
 # waiters must continue locking the same inode. Workers close this fd below.
 exec 9>"$PID_DIR/service_ctl.lock"
 flock -x 9
-"$COMFY_PYTHON" "$PANEL_ROOT/scripts/process_identity.py" support || {
+"$COMFY_PYTHON" "$PANEL_ROOT/scripts/process_identity.py" support 9>&- || {
   echo "Safe service control requires Linux pidfd support" >&2; exit 1;
 }
 
@@ -41,11 +47,12 @@ process_identity(){
   case "$service" in render) port="$RENDER_PORT";; prompt) port="$PROMPT_PORT";; panel) port="$PANEL_PORT";; *) return 1;; esac
   "$COMFY_PYTHON" "$PANEL_ROOT/scripts/process_identity.py" \
     --pid-file "$(pidfile "$service")" --service "$service" \
-    --python "$COMFY_PYTHON" --comfy-root "$COMFY_ROOT" --panel-root "$PANEL_ROOT" --port "$port" "$@"
+    --python "$COMFY_PYTHON" --comfy-root "$COMFY_ROOT" --panel-root "$PANEL_ROOT" --port "$port" \
+    --controller-pid "$$" "$@" 9>&-
 }
 
 alive(){
-  if owned_pid="$(process_identity "$1" check)"; then
+  if owned_pid="$(exec 9>&-; process_identity "$1" check)"; then
     identity_state=0
     return 0
   else
@@ -55,10 +62,15 @@ alive(){
 }
 
 wait_http(){
-  local url="$1"
-  for _ in $(seq 1 180); do
-    curl -fsS "$url" >/dev/null 2>&1 && return 0
-    sleep 1
+  local svc="$1" url="$2" expected="$3" code deadline
+  deadline=$((SECONDS + ${H3_READINESS_TIMEOUT:-180}))
+  while (( SECONDS < deadline )); do
+    if process_identity "$svc" listener; then
+      code="$(exec 9>&-; curl --connect-timeout 1 --max-time 2 -sS -o /dev/null -w '%{http_code}' "$url" 9>&- 2>/dev/null || true)"
+      if [[ "$code" == "$expected" ]] && process_identity "$svc" listener; then return 0; fi
+    fi
+    if ! alive "$svc"; then return 1; fi
+    sleep 0.1 9>&-
   done
   return 1
 }
@@ -66,6 +78,7 @@ wait_http(){
 start_one(){
   local svc="$1"
   if alive "$svc"; then
+    process_identity "$svc" desired || { echo "$svc configuration changed; restart required" >&2; return 1; }
     echo "$svc already running (pid $owned_pid)"
     return 0
   elif [[ "$identity_state" != 1 ]]; then
@@ -76,7 +89,7 @@ start_one(){
     echo "Unable to establish an unused $svc port; PID record preserved" >&2
     return 1
   fi
-  rm -f "$(pidfile "$svc")"
+  rm -f "$(pidfile "$svc")" 9>&-
 
   case "$svc" in
     render)
@@ -128,7 +141,7 @@ start_one(){
     *) echo "unknown service: $svc" >&2; exit 2;;
   esac
 
-  sleep 0.5
+  sleep 0.5 9>&-
   if alive "$svc"; then
     :
   elif [[ "$identity_state" == 1 ]]; then
@@ -140,18 +153,12 @@ start_one(){
     return 1
   fi
   case "$svc" in
-    render) wait_http "http://127.0.0.1:$RENDER_PORT/system_stats" || { echo "render HTTP readiness timeout" >&2; exit 1; } ;;
-    prompt) wait_http "http://127.0.0.1:$PROMPT_PORT/system_stats" || { echo "prompt HTTP readiness timeout" >&2; exit 1; } ;;
-    panel)
-      # An auth challenge proves the panel listens, without placing its password in argv.
-      for _ in $(seq 1 30); do
-        code="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PANEL_PORT/" 2>/dev/null || true)"
-        [[ "$code" == 401 ]] && break
-        sleep 1
-      done
-      [[ "$code" == 401 ]] || { echo "panel authenticated HTTP readiness timeout" >&2; exit 1; }
-      ;;
+    render) url="http://127.0.0.1:$RENDER_PORT/system_stats"; expected=200 ;;
+    prompt) url="http://127.0.0.1:$PROMPT_PORT/system_stats"; expected=200 ;;
+    panel) url="http://127.0.0.1:$PANEL_PORT/"; expected=401 ;;
   esac
+  wait_http "$svc" "$url" "$expected" || { echo "$svc owned HTTP readiness timeout" >&2; return 1; }
+
   if ! alive "$svc"; then
     echo "Unable to confirm $svc ownership after HTTP readiness; PID record preserved" >&2
     return 1
@@ -165,60 +172,18 @@ stop_one(){
   if alive "$svc"; then
     :
   elif [[ "$identity_state" == 1 ]]; then
-    rm -f "$f"
+    rm -f "$f" 9>&-
     echo "$svc already stopped"
     return 0
   else
     echo "Unable to establish $svc ownership; PID record preserved" >&2
     return 1
   fi
-  # The helper rechecks the record AFTER opening a pidfd and signals that fd.
-  # PID reuse between this check and signalling can never hit the replacement.
-  if process_identity "$svc" signal --signal TERM; then
-    :
-  else
-    signal_state=$?
-    if [[ "$signal_state" != 1 ]]; then
-      echo "Unable to signal owned $svc process; PID record preserved" >&2
-      return 1
-    fi
+  if process_identity "$svc" stop; then
+    echo "$svc stopped"
+    return 0
   fi
-  for _ in $(seq 1 40); do
-    if alive "$svc"; then
-      :
-    elif [[ "$identity_state" == 1 ]]; then
-      rm -f "$f"
-      echo "$svc stopped"
-      return 0
-    else
-      echo "Unable to establish $svc ownership after TERM; PID record preserved" >&2
-      return 1
-    fi
-    sleep 0.5
-  done
-  if process_identity "$svc" signal --signal KILL; then
-    :
-  else
-    signal_state=$?
-    if [[ "$signal_state" != 1 ]]; then
-      echo "Unable to kill owned $svc process; PID record preserved" >&2
-      return 1
-    fi
-  fi
-  for _ in $(seq 1 10); do
-    if alive "$svc"; then
-      :
-    elif [[ "$identity_state" == 1 ]]; then
-      rm -f "$f"
-      echo "$svc killed after timeout"
-      return 0
-    else
-      echo "Unable to establish $svc ownership after KILL; PID record preserved" >&2
-      return 1
-    fi
-    sleep 0.1
-  done
-  echo "$svc did not exit; PID record preserved" >&2
+  echo "Unable to stop owned $svc group; PID record preserved" >&2
   return 1
 }
 
