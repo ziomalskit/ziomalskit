@@ -41,6 +41,7 @@ class SpawnCleanupTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def command(self, ignore_term=False):
+        self.ignore_term = ignore_term
         ready = self.root / "ready"
         ready.unlink(missing_ok=True)
         (self.root / "main.py").write_text("import signal,time\nfrom pathlib import Path\n" +
@@ -49,13 +50,13 @@ class SpawnCleanupTests(unittest.TestCase):
         return [sys.executable, "main.py", "--port", "8188"]
 
     def spawn(self, *args, **kwargs):
+        # Registration now precedes execution of main.py. Exercise ignored
+        # TERM on the actual gated child rather than waiting for the service
+        # to execute before durable ownership exists.
+        if self.ignore_term:
+            kwargs["preexec_fn"] = lambda: signal.signal(signal.SIGTERM, signal.SIG_IGN)
         child = self.real_popen(*args, **kwargs)
         self.children.append(child)
-        deadline = time.monotonic() + 5
-        while not (self.root / "ready").exists():
-            if time.monotonic() >= deadline:
-                self.fail("owned child did not install its signal handler")
-            time.sleep(.01)
         return child
 
     def send(self, child, sig):
@@ -118,6 +119,9 @@ class SpawnCleanupTests(unittest.TestCase):
             self.children.append(child)
             return child
         def capture(pid):
+            # A gated service cannot execute the former fast-exit target
+            # before registration. Make the owned gate exit at capture instead.
+            self.real_send(self.children[-1], signal.SIGKILL)
             deadline = time.monotonic() + 5
             while True:
                 raw = Path(f"/proc/{pid}/stat").read_text()
@@ -368,6 +372,10 @@ class SpawnCleanupTests(unittest.TestCase):
             process_identity.launch_process(self.args, self.command())
         lower_cleanup.assert_not_called()
         child = self.children[-1]
+        deadline = time.monotonic() + 5
+        while not (self.root / "ready").exists():
+            self.assertLess(time.monotonic(), deadline)
+            time.sleep(.01)
         self.assertIsNone(child.poll())
         pid, descriptor = process_identity.checked_pidfd(self.args)
         try:
@@ -420,11 +428,8 @@ ready=root/'ready';ready.unlink(missing_ok=True)
  ('signal.signal(signal.SIGTERM,signal.SIG_IGN)\n' if ignore else '')+
  f'Path({str(ready)!r}).touch()\ntime.sleep(60)\n')
 def spawn(*a,**kw):
+ if ignore:kw['preexec_fn']=lambda:__import__('signal').signal(__import__('signal').SIGTERM,__import__('signal').SIG_IGN)
  child=real_spawn(*a,**kw);children.append(child)
- deadline=time.monotonic()+5
- while not ready.exists():
-  assert time.monotonic()<deadline
-  time.sleep(.01)
  return child
 def capture(pid):
  if pid==os.getpid():return real_capture(pid)

@@ -25,7 +25,7 @@ class AdversarialProcessIdentityTests(unittest.TestCase):
             try:
                 process_identity.process_snapshot(self.foreign.pid)
                 break
-            except ProcessLookupError:
+            except (ProcessLookupError, process_identity.IndeterminateIdentity):
                 if time.monotonic() >= deadline:
                     raise
                 time.sleep(0.01)

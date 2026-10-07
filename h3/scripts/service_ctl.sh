@@ -45,7 +45,13 @@ process_identity(){
 }
 
 alive(){
-  owned_pid="$(process_identity "$1" check)"
+  if owned_pid="$(process_identity "$1" check)"; then
+    identity_state=0
+    return 0
+  else
+    identity_state=$?
+    return "$identity_state"
+  fi
 }
 
 wait_http(){
@@ -62,6 +68,13 @@ start_one(){
   if alive "$svc"; then
     echo "$svc already running (pid $owned_pid)"
     return 0
+  elif [[ "$identity_state" != 1 ]]; then
+    echo "Unable to establish $svc ownership; PID record preserved" >&2
+    return 1
+  fi
+  if ! process_identity "$svc" port-free; then
+    echo "Unable to establish an unused $svc port; PID record preserved" >&2
+    return 1
   fi
   rm -f "$(pidfile "$svc")"
 
@@ -116,10 +129,15 @@ start_one(){
   esac
 
   sleep 0.5
-  if ! alive "$svc"; then
+  if alive "$svc"; then
+    :
+  elif [[ "$identity_state" == 1 ]]; then
     case "$svc" in render|prompt) failure_log="$(logfile "comfyui-$svc")" ;; panel) failure_log="$(logfile h3-mobile)";; esac
     echo "$svc failed to start; see $failure_log" >&2
     exit 1
+  else
+    echo "Unable to establish launched $svc ownership; PID record preserved" >&2
+    return 1
   fi
   case "$svc" in
     render) wait_http "http://127.0.0.1:$RENDER_PORT/system_stats" || { echo "render HTTP readiness timeout" >&2; exit 1; } ;;
@@ -134,40 +152,69 @@ start_one(){
       [[ "$code" == 401 ]] || { echo "panel authenticated HTTP readiness timeout" >&2; exit 1; }
       ;;
   esac
+  if ! alive "$svc"; then
+    echo "Unable to confirm $svc ownership after HTTP readiness; PID record preserved" >&2
+    return 1
+  fi
   echo "$svc started (pid $owned_pid)"
 }
 
 stop_one(){
   local svc="$1" f
   f="$(pidfile "$svc")"
-  if ! alive "$svc"; then
+  if alive "$svc"; then
+    :
+  elif [[ "$identity_state" == 1 ]]; then
     rm -f "$f"
     echo "$svc already stopped"
     return 0
+  else
+    echo "Unable to establish $svc ownership; PID record preserved" >&2
+    return 1
   fi
   # The helper rechecks the record AFTER opening a pidfd and signals that fd.
   # PID reuse between this check and signalling can never hit the replacement.
-  if ! process_identity "$svc" signal --signal TERM && alive "$svc"; then
-    echo "Unable to signal owned $svc process; PID record preserved" >&2
-    return 1
+  if process_identity "$svc" signal --signal TERM; then
+    :
+  else
+    signal_state=$?
+    if [[ "$signal_state" != 1 ]]; then
+      echo "Unable to signal owned $svc process; PID record preserved" >&2
+      return 1
+    fi
   fi
   for _ in $(seq 1 40); do
-    if ! alive "$svc"; then
+    if alive "$svc"; then
+      :
+    elif [[ "$identity_state" == 1 ]]; then
       rm -f "$f"
       echo "$svc stopped"
       return 0
+    else
+      echo "Unable to establish $svc ownership after TERM; PID record preserved" >&2
+      return 1
     fi
     sleep 0.5
   done
-  if ! process_identity "$svc" signal --signal KILL && alive "$svc"; then
-    echo "Unable to kill owned $svc process; PID record preserved" >&2
-    return 1
+  if process_identity "$svc" signal --signal KILL; then
+    :
+  else
+    signal_state=$?
+    if [[ "$signal_state" != 1 ]]; then
+      echo "Unable to kill owned $svc process; PID record preserved" >&2
+      return 1
+    fi
   fi
   for _ in $(seq 1 10); do
-    if ! alive "$svc"; then
+    if alive "$svc"; then
+      :
+    elif [[ "$identity_state" == 1 ]]; then
       rm -f "$f"
       echo "$svc killed after timeout"
       return 0
+    else
+      echo "Unable to establish $svc ownership after KILL; PID record preserved" >&2
+      return 1
     fi
     sleep 0.1
   done
@@ -177,7 +224,14 @@ stop_one(){
 
 status_one(){
   local svc="$1"
-  if alive "$svc"; then echo "$svc RUNNING pid=$owned_pid"; else echo "$svc STOPPED"; fi
+  if alive "$svc"; then
+    echo "$svc RUNNING pid=$owned_pid"
+  elif [[ "$identity_state" == 1 ]]; then
+    echo "$svc STOPPED"
+  else
+    echo "$svc UNKNOWN; PID record preserved" >&2
+    return 1
+  fi
 }
 
 cmd="${1:-status}"

@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio, base64, hashlib, hmac, json, math, os, shutil, subprocess, sys, time, uuid
+import asyncio, base64, errno, hashlib, hmac, json, math, os, shutil, signal, subprocess, sys, time, uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlencode
@@ -650,21 +650,78 @@ def restart_cmd(service: str) -> str:
     return PROMPT_RESTART_CMD if service == "prompt" else RENDER_RESTART_CMD
 
 
-async def _terminate_subprocess(process) -> None:
+async def _terminate_subprocess(process, *, drain_streams=(), grace_seconds: float = 5,
+                                reap_seconds: float = 5) -> None:
     if process.returncode is not None:
         return
-    try:
-        process.terminate()
-    except ProcessLookupError:
-        pass
-    try:
-        await asyncio.wait_for(process.wait(), timeout=5)
-    except asyncio.TimeoutError:
+
+    async def cleanup() -> list[BaseException]:
+        errors: list[BaseException] = []
+        # Callers supply only streams whose earlier reader has finished. A
+        # watcher already owns a stderr drainer, so it supplies stdout alone.
+        drainers = [asyncio.create_task(_drain_pipe(stream)) for stream in drain_streams if stream is not None]
+
+        def send(method) -> None:
+            try:
+                method()
+            except ProcessLookupError:
+                pass
+            except BaseException as error:
+                errors.append(error)
+
+        async def wait(timeout: float, *, escalate: bool = False) -> None:
+            try:
+                await asyncio.wait_for(process.wait(), timeout=timeout)
+            except asyncio.TimeoutError as error:
+                if not escalate:
+                    errors.append(error)
+            except BaseException as error:
+                errors.append(error)
+
+        send(process.terminate)
+        await wait(grace_seconds, escalate=True)
+        # TERM or wait errors must not bypass KILL. Retry an unsuccessful KILL
+        # once while the original asyncio child remains owned and unreaped.
+        for _attempt in range(2):
+            if process.returncode is not None:
+                break
+            send(process.kill)
+            await wait(reap_seconds)
         try:
-            process.kill()
-        except ProcessLookupError:
-            pass
-        await asyncio.wait_for(process.wait(), timeout=5)
+            results = await asyncio.wait_for(asyncio.gather(*drainers, return_exceptions=True), timeout=reap_seconds)
+            errors.extend(error for error in results if isinstance(error, BaseException))
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            for drainer in drainers:
+                drainer.cancel()
+            await asyncio.gather(*drainers, return_exceptions=True)
+        return errors
+
+    owned_cleanup = asyncio.create_task(cleanup())
+    cancellation = None
+    while True:
+        try:
+            errors = await asyncio.shield(owned_cleanup)
+            break
+        except asyncio.CancelledError as error:
+            # Repeated shutdown cancellation cannot abandon an owned child
+            # between TERM and KILL or before its pipes are drained and reaped.
+            cancellation = cancellation or error
+            if owned_cleanup.done():
+                try:
+                    errors = owned_cleanup.result()
+                except BaseException as cleanup_error:
+                    errors = [cleanup_error]
+                break
+    if cancellation is not None:
+        for error in errors:
+            cancellation.add_note(f"Subprocess cleanup failed: {error!r}")
+        raise cancellation
+    if errors:
+        for error in errors[1:]:
+            errors[0].add_note(f"Subprocess cleanup failed: {error!r}")
+        raise errors[0]
 
 
 async def _drain_pipe(stream) -> None:
@@ -685,7 +742,13 @@ async def run_cli_envelope(service: str, *args: str) -> dict:
     try:
         out, err = await proc.communicate()
     finally:
-        await _terminate_subprocess(proc)
+        primary_error = sys.exception()
+        try:
+            await _terminate_subprocess(proc, drain_streams=(proc.stdout, proc.stderr))
+        except BaseException as cleanup_error:
+            if primary_error is None:
+                raise
+            primary_error.add_note(f"CLI cleanup failed: {cleanup_error!r}")
     if proc.returncode != 0:
         raise RuntimeError(err.decode(errors="replace") or f"comfy-cli exited {proc.returncode}")
     lines = [x for x in out.decode(errors="replace").splitlines() if x.strip()]
@@ -714,11 +777,159 @@ async def cancel_prompt(service: str, prompt_id: str) -> bool:
     return result["cancelled"]
 
 
+_RESTART_GATE = """import os, sys
+if sys.stdin.buffer.read(1) != b'G':
+    sys.exit(0)
+os.close(0)
+os.open(os.devnull, os.O_RDONLY)
+os.execvp(sys.argv[1], sys.argv[1:])
+"""
+_PIDFD_SIGNAL_PROCESS_GROUP = 4
+
+
+def _require_restart_group_control() -> None:
+    """Check the atomic group primitive before launching a restart command."""
+    descriptor = os.pidfd_open(os.getpid())
+    primary = None
+    try:
+        try:
+            signal.pidfd_send_signal(descriptor, 0, None, _PIDFD_SIGNAL_PROCESS_GROUP)
+        except OSError as error:
+            # The flag is validated before group lookup. A controller which
+            # is not its group's leader has no PID-as-PGID to signal, so ESRCH
+            # also proves the primitive is supported without touching a peer.
+            if error.errno != errno.ESRCH:
+                raise RuntimeError("Safe service restart requires Linux pidfd process-group signalling (kernel >= 6.9)") from error
+    except BaseException as error:
+        primary = error
+        raise
+    finally:
+        try:
+            os.close(descriptor)
+        except BaseException as error:
+            if primary is None:
+                raise
+            primary.add_note(f"Restart capability descriptor close failed: {error!r}")
+
+
+async def _cleanup_owned_restart(proc, descriptor: int | None, communication: asyncio.Task | None) -> list[BaseException]:
+    errors: list[BaseException] = []
+
+    def send(sig: int) -> bool:
+        try:
+            if descriptor is not None:
+                # The fd identifies the original group even after its leader
+                # has exited. Never signal a possibly reused numeric PGID.
+                signal.pidfd_send_signal(descriptor, sig, None, _PIDFD_SIGNAL_PROCESS_GROUP)
+            elif sig == signal.SIGTERM:
+                proc.terminate()
+            else:
+                proc.kill()
+        except ProcessLookupError:
+            pass
+        except BaseException as error:
+            errors.append(error)
+            return False
+        return True
+
+    if descriptor is None:
+        # Capture failed before the gate was released; no restart command or
+        # descendants can exist. Closing stdin also makes the gate exit.
+        try:
+            proc.stdin.close()
+        except BaseException as error:
+            errors.append(error)
+    send(signal.SIGTERM)
+    try:
+        await asyncio.to_thread(proc.wait, timeout=2)
+    except subprocess.TimeoutExpired:
+        pass
+    except BaseException as error:
+        errors.append(error)
+    # A shell can exit on TERM while a descendant ignores it. Always address
+    # the original group again, rather than testing only the shell returncode.
+    if not send(signal.SIGKILL):
+        # A transient signalling error cannot consume the only KILL attempt.
+        send(signal.SIGKILL)
+    try:
+        await asyncio.to_thread(proc.wait, timeout=5)
+    except BaseException as error:
+        errors.append(error)
+    if communication is not None:
+        try:
+            await asyncio.wait_for(asyncio.shield(communication), timeout=5)
+        except BaseException as error:
+            errors.append(error)
+    return errors
+
+
+async def _run_owned_restart(command: list[str]) -> tuple[int, bytes, bytes]:
+    _require_restart_group_control()
+    proc = None
+    descriptor = None
+    communication = None
+    primary = None
+    try:
+        # Popen is kept unreaped until synchronous pidfd capture. The gate
+        # cannot execute the command before capture, and exits on parent EOF.
+        proc = subprocess.Popen([sys.executable, "-c", _RESTART_GATE, *command],
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                start_new_session=True, close_fds=True)
+        descriptor = os.pidfd_open(proc.pid)
+        communication = asyncio.create_task(asyncio.to_thread(proc.communicate, b"G"))
+        out, err = await asyncio.shield(communication)
+        return proc.returncode, out, err
+    except BaseException as error:
+        primary = error
+        raise
+    finally:
+        if proc is not None:
+            cleanup = asyncio.create_task(_cleanup_owned_restart(proc, descriptor, communication))
+            cleanup_cancellation = None
+            while True:
+                try:
+                    errors = await asyncio.shield(cleanup)
+                    break
+                except asyncio.CancelledError as error:
+                    # shutdown() must not finish while a queued restart can
+                    # still acquire flock, even if cancellation is repeated.
+                    cleanup_cancellation = cleanup_cancellation or error
+                    if cleanup.done():
+                        try:
+                            errors = cleanup.result()
+                        except BaseException as cleanup_error:
+                            errors = [cleanup_error]
+                        break
+                except BaseException as error:
+                    errors = [error]
+                    break
+            for resource in (proc.stdin, proc.stdout, proc.stderr):
+                try:
+                    resource.close()
+                except BaseException as error:
+                    errors.append(error)
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except BaseException as error:
+                    errors.append(error)
+            authoritative = primary or cleanup_cancellation
+            if authoritative is not None:
+                for error in errors:
+                    if error is not authoritative:
+                        authoritative.add_note(f"Restart cleanup failed: {error!r}")
+                if primary is None:
+                    raise authoritative
+            elif errors:
+                for error in errors[1:]:
+                    errors[0].add_note(f"Restart cleanup failed: {error!r}")
+                raise errors[0]
+
+
 async def restart_comfy(service: str) -> None:
-    proc = await asyncio.create_subprocess_shell(restart_cmd(service))
-    await proc.communicate()
-    if proc.returncode != 0:
-        raise RuntimeError(f"{service} restart failed with exit code {proc.returncode}")
+    returncode, _out, _err = await _run_owned_restart(["/bin/sh", "-c", restart_cmd(service)])
+    if returncode != 0:
+        raise RuntimeError(f"{service} restart failed with exit code {returncode}")
 
 
 async def fetch_history(service: str, prompt_id: str, *, retries: int = 8, delay: float = 0.4) -> dict:
@@ -927,6 +1138,29 @@ def normalize_output_url(url: str, service: str) -> str:
 
 
 async def watch_prompt(job: dict, prompt_id: str, service: str) -> dict:
+    watchdog_id = f"{service}_watchdog_prompt_id"
+    progress_at = f"{service}_watchdog_last_progress_at"
+    timeout_id = f"{service}_timeout_prompt_id"
+    hard_deadline_key = f"{service}_hard_timeout_deadline"
+    cancel_state_key = f"{service}_timeout_cancel_state"
+    restart_state_key = f"{service}_hard_restart_state"
+    if job.get(watchdog_id) != prompt_id:
+        job[watchdog_id] = prompt_id
+        job[progress_at] = time.time()
+        save_state()
+    stored_progress = job.get(progress_at)
+    if type(stored_progress) not in (int, float) or not math.isfinite(stored_progress):
+        raise RuntimeError("Stored watchdog progress time is invalid; manual reconciliation required")
+    hard_deadline = None
+    if job.get(timeout_id) == prompt_id:
+        stored_deadline = job.get(hard_deadline_key)
+        if type(stored_deadline) not in (int, float) or not math.isfinite(stored_deadline):
+            raise RuntimeError("Stored watchdog deadline is invalid; manual reconciliation required")
+        # Retain the durable deadline across watchers and controller restarts.
+        # Wall-clock adjustments during this watcher cannot extend its budget.
+        hard_deadline = time.monotonic() + max(0.0, stored_deadline - time.time())
+        if job.get(restart_state_key) in {"attempting", "completed", "uncertain"}:
+            return {"ok": False, "uncertain": True, "error": "hard_restart_already_attempted"}
     env = os.environ.copy()
     env["COMFY_LOCAL_URL"] = service_url(service)
     env["COMFY_WHERE"] = "local"
@@ -938,13 +1172,56 @@ async def watch_prompt(job: dict, prompt_id: str, service: str) -> dict:
     )
     stderr_task = asyncio.create_task(_drain_pipe(watcher.stderr))
     try:
-        last_progress = time.monotonic()
+        last_progress = time.monotonic() - max(0.0, time.time() - stored_progress)
         soft = job["context"]["soft_timeout_minutes"] * 60
         outputs: list[str] = []
 
         while True:
+            if hard_deadline is not None and time.monotonic() >= hard_deadline:
+                # A lost cancel reply can race a successful render. Reconcile
+                # before restarting a service and possibly discarding its history.
+                try:
+                    entry = await asyncio.wait_for(fetch_history(service, prompt_id, retries=1), timeout=5)
+                    if _apply_history_outcome(job, service, entry):
+                        return {"ok": _history_outcome(entry) == "success", "settled": True, "outputs": outputs}
+                    remote_queue = await asyncio.wait_for(fetch_service_queue(service), timeout=5)
+                    if not isinstance(remote_queue, dict) or not all(
+                        isinstance(remote_queue.get(key), list) for key in ("queue_running", "queue_pending")
+                    ):
+                        raise RuntimeError("invalid queue response")
+                except Exception as error:
+                    _preserve_recovery(job, service, f"Hard timeout ownership reconciliation failed: {error}")
+                    return {"ok": False, "uncertain": True}
+                if not _contains_prompt_id(remote_queue, prompt_id):
+                    _preserve_recovery(job, service, "Hard timeout id is absent from queue; waiting for execution history")
+                    return {"ok": False, "uncertain": True}
+                job["status"] = "hard_timeout_restarting_comfy"
+                # Commit before the restart side effect. An interrupted or
+                # unacknowledged restart is reconciled, never automatically retried.
+                job[restart_state_key] = "attempting"
+                try:
+                    save_state()
+                except BaseException:
+                    # This live process knows restart dispatch never began.
+                    # Storage repair may retry escalation against the same deadline.
+                    job.pop(restart_state_key, None)
+                    raise
+                try:
+                    await restart_comfy(service)
+                except BaseException as error:
+                    job[restart_state_key] = "uncertain"
+                    job["restart_warning"] = repr(error)
+                    try:
+                        save_state()
+                    except Exception as write_error:
+                        error.add_note(f"Restart outcome persistence failed: {write_error!r}")
+                    raise
+                job[restart_state_key] = "completed"
+                save_state()
+                return {"ok": False, "stuck": True, "error": "stuck_timeout", "outputs": outputs}
             try:
-                line = await asyncio.wait_for(watcher.stdout.readline(), timeout=5)
+                read_timeout = 5 if hard_deadline is None else min(5, max(0.001, hard_deadline - time.monotonic()))
+                line = await asyncio.wait_for(watcher.stdout.readline(), timeout=read_timeout)
             except asyncio.TimeoutError:
                 line = b""
 
@@ -965,6 +1242,7 @@ async def watch_prompt(job: dict, prompt_id: str, service: str) -> dict:
                                 if nid is not None and str(nid) not in job["cached_node_ids"]:
                                     job["cached_node_ids"].append(str(nid))
                         job["last_progress_at"] = time.time()
+                        job[progress_at] = job["last_progress_at"]
                         if ev.get("node") is not None:
                             job["current_node"] = ev.get("title") or ev.get("node")
                         save_state()
@@ -984,29 +1262,76 @@ async def watch_prompt(job: dict, prompt_id: str, service: str) -> dict:
             if watcher.returncode is not None:
                 break
 
-            if time.monotonic() - last_progress > soft:
+            if hard_deadline is None and time.monotonic() - last_progress > soft:
                 job["status"] = "soft_timeout_cancelling"
-                save_state()
                 job[f"{service}_cancel_reason"] = "timeout"
-                confirmed = await cancel_prompt(service, prompt_id)
-                _record_cancel_confirmation(job, service, prompt_id, confirmed)
+                job[timeout_id] = prompt_id
+                job[f"{service}_timeout_started_at"] = time.time()
+                budget = job["context"]["hard_restart_after_seconds"]
+                job[hard_deadline_key] = time.time() + budget
+                hard_deadline = time.monotonic() + budget
+                job[cancel_state_key] = "attempting"
+                job.pop(restart_state_key, None)
+                save_state()
                 try:
-                    await asyncio.wait_for(watcher.wait(), timeout=job["context"]["hard_restart_after_seconds"])
-                except asyncio.TimeoutError:
-                    job["status"] = "hard_timeout_restarting_comfy"
+                    confirmed = await asyncio.wait_for(
+                        cancel_prompt(service, prompt_id), timeout=max(0.001, hard_deadline - time.monotonic())
+                    )
+                except Exception as error:
+                    job[cancel_state_key] = "failed"
+                    job["cancel_warning"] = repr(error)
+                    try:
+                        save_state()
+                    except Exception as write_error:
+                        error.add_note(f"Cancellation warning persistence failed: {write_error!r}")
+                        raise error from write_error
+                else:
+                    job[cancel_state_key] = "acknowledged"
+                    _record_cancel_confirmation(job, service, prompt_id, confirmed)
                     save_state()
-                    watcher.kill()
-                    await watcher.wait()
-                    await restart_comfy(service)
-                return {"ok": False, "stuck": True, "error": "stuck_timeout", "outputs": outputs}
+                # Cancellation is best-effort cleanup. Keep observing against
+                # the original deadline even if it failed or its reply was lost.
 
         return {"ok": False, "uncertain": True, "error": "watcher_exited_without_terminal_envelope", "outputs": outputs}
     finally:
+        primary_error = sys.exc_info()[1]
         try:
-            await _terminate_subprocess(watcher)
+            await _terminate_subprocess(watcher, drain_streams=(watcher.stdout,))
+        except BaseException as cleanup_error:
+            if primary_error is not None:
+                primary_error.add_note(f"Watcher cleanup failed: {cleanup_error!r}")
+            elif isinstance(cleanup_error, asyncio.CancelledError):
+                # Shutdown must still propagate after the owned watcher has
+                # been reaped, including when history already proved success.
+                raise
+            elif job.get(f"{service}_submission_state") == "settled":
+                job["watcher_cleanup_warning"] = repr(cleanup_error)
+                try:
+                    save_state()
+                except Exception:
+                    # The authoritative remote result is already retained in
+                    # RAM and queue persistence remains blocked until repaired.
+                    pass
+            else:
+                raise
         finally:
             stderr_task.cancel()
-            await asyncio.gather(stderr_task, return_exceptions=True)
+            authoritative_error = primary_error or sys.exception()
+            stderr_join = asyncio.gather(stderr_task, return_exceptions=True)
+            join_cancellation = None
+            while True:
+                try:
+                    await asyncio.shield(stderr_join)
+                    break
+                except asyncio.CancelledError as error:
+                    join_cancellation = join_cancellation or error
+                    if stderr_join.done():
+                        break
+            if join_cancellation is not None:
+                if authoritative_error is not None:
+                    authoritative_error.add_note(f"Watcher stderr cleanup cancelled: {join_cancellation!r}")
+                else:
+                    raise join_cancellation
 
 
 async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelope: dict | None = None) -> Any:
@@ -1072,16 +1397,29 @@ async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
     if service == "prompt" and job.get("review_required") and vast_control.get("plan") in {"stop_after_queue", "destroy_after_queue_keep_data"}:
         raise SubmissionSkippedForShutdown("unsubmitted review prompt skipped while draining queue")
 
-    # Save the id and the possibility of acceptance BEFORE the network operation.
-    # A timeout/crash must never create a second paid request with a fresh id.
+    # Keep a local-only preparation snapshot until the dispatch arm is durable.
+    # A failed arm write cannot have sent a request in this live process, even
+    # when replace succeeded and the directory fsync failed. On restart that
+    # armed disk record remains conservatively uncertain.
+    job[f"{service}_submission_state"] = "prepared"
+    prepared_job = dict(job)
     prompt_id = str(uuid.uuid4())
     job[f"{service}_prompt_id"] = prompt_id
     job["prompt_id"] = prompt_id
     job["active_service"] = service
     job[f"{service}_submission_attempted"] = True
-    job[f"{service}_submission_state"] = "attempting"
+    job[f"{service}_submission_state"] = "armed"
     job["status"] = f"{service}_submitting"
-    save_state()
+    try:
+        save_state()
+    except Exception:
+        job.clear()
+        job.update(prepared_job)
+        raise
+    # No await separates the durable arm and entering the submission boundary.
+    # The legacy attempted flag in the armed record also protects older state
+    # readers; prepared/armed/attempting distinguishes the live-process phases.
+    job[f"{service}_submission_state"] = "attempting"
     try:
         accepted_id = await _dispatch_prepared_workflow(prepared, workflow, service, prompt_id)
         if accepted_id != prompt_id:
@@ -1138,6 +1476,8 @@ async def submit_and_watch(job: dict, workflow: Path, service: str, approved_pro
 
 
 async def _finish_watched_job(job: dict, service: str, result: dict) -> None:
+    if result.get("settled"):
+        return
     if result.get("deferred") or result.get("cancelled") or result.get("uncertain"):
         if result.get("uncertain"):
             _preserve_recovery(job, service, result.get("error") or job.get("recovery_warning") or "Execution outcome is unknown")
@@ -1478,12 +1818,8 @@ def _schedule_instance_action(action: str, delay: float = 1.5) -> None:
 async def restart_local_service(service: str) -> None:
     if service not in ("render", "prompt"):
         raise ValueError(service)
-    proc = await asyncio.create_subprocess_exec(
-        "bash", SERVICE_CTL, "restart", service,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
-    out, err = await proc.communicate()
-    if proc.returncode != 0:
+    returncode, out, err = await _run_owned_restart(["bash", SERVICE_CTL, "restart", service])
+    if returncode != 0:
         raise RuntimeError(err.decode(errors="replace") or out.decode(errors="replace"))
 
 
@@ -1617,7 +1953,18 @@ async def render_job(job: dict) -> None:
 
 def _handle_worker_error(job: dict, service: str, error: Exception) -> None:
     try:
-        if job.get(f"{service}_submission_state") in {"attempting", "accepted", "uncertain"}:
+        submission_state = job.get(f"{service}_submission_state")
+        if submission_state == "prepared":
+            # Only the pre-dispatch arm write can fail in this phase. Retain the
+            # known absence of HTTP side effects while local persistence heals.
+            job["status"] = "cancelled" if job.get("cancel_requested") else (
+                "prompt_queued" if service == "prompt" else (
+                    "render_queued_review" if job.get("approved_final_prompt") else "render_queued_auto"
+                )
+            )
+            job["persistence_warning"] = str(error)
+            save_state()
+        elif submission_state in {"armed", "attempting", "accepted", "uncertain"}:
             _preserve_recovery(job, service, f"Execution outcome could not be confirmed: {error}")
         else:
             job["status"] = "cancelled" if job.get("cancel_requested") else f"{service}_failed"
@@ -1743,13 +2090,18 @@ async def _recover_one_job_impl(job: dict, service: str) -> None:
         return
 
     if job.get(f"{service}_cancel_confirmed") is True and job.get(f"{service}_cancel_confirmed_id") == pid:
-        job["status"] = "cancelled" if job.get("cancel_requested") else (
-            f"{service}_stuck_skipped" if job.get(f"{service}_cancel_reason") == "timeout" else "cancelled"
-        )
-        job[f"{service}_submission_state"] = "settled"
-        job["finished_at"] = time.time()
-        job.pop("recovery_warning", None)
-        save_state()
+        # Cancellation may only have signalled a running job. It can finish
+        # successfully between the history and queue reads, so absence plus an
+        # acknowledgement is not terminal proof. Reconcile a fresh history.
+        try:
+            entry = await fetch_history(service, pid, retries=2, delay=0.2)
+        except Exception as error:
+            _preserve_recovery(job, service, f"Post-cancellation history unavailable; recovery will retry: {error}")
+            return
+        if _history_outcome(entry) is not None:
+            job["recovered_at"] = time.time()
+        if not _apply_history_outcome(job, service, entry):
+            _preserve_recovery(job, service, "Cancellation acknowledged, but execution has no settled history; recovery will retry")
         return
 
     # History may have expired or been reset after a completed paid render.

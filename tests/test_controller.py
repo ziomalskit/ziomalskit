@@ -587,7 +587,7 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(dispatched.await_count, 1)
                         self.assertEqual(job["status"], "prompt_running")
 
-    async def test_confirmed_targeted_cancel_can_settle_absent_pending_job(self):
+    async def test_confirmed_targeted_cancel_without_history_remains_in_recovery(self):
         for confirmed in (True, False):
             with self.subTest(confirmed=confirmed):
                 job = self.job(pid="known")
@@ -595,9 +595,9 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
                 self.m._record_cancel_confirmation(job, "render", "known", confirmed)
                 self.remote()
                 await self.m._recover_one_job(job, "render")
-                self.assertEqual(job["status"], "cancelled" if confirmed else "recovery_render")
-                if confirmed:
-                    self.assertFalse(self.m.current_work_running())
+                self.assertEqual(job["status"], "recovery_render")
+                self.assertTrue(self.m.current_work_running())
+                self.assertNotIn("finished_at", job)
 
     async def test_confirmation_for_an_old_id_cannot_settle_new_submission(self):
         job = self.job(pid="new-id")
@@ -724,9 +724,7 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.m.vast_control["plan"], "blocked_unsafe_persistence")
 
     async def test_restart_failure_is_not_reported_as_success(self):
-        process = Mock(returncode=1)
-        process.communicate = AsyncMock(return_value=(b"", b"failure"))
-        with patch.object(self.m.asyncio, "create_subprocess_shell", AsyncMock(return_value=process)):
+        with patch.object(self.m, "_run_owned_restart", AsyncMock(return_value=(1, b"", b"failure"))):
             with self.assertRaisesRegex(RuntimeError, "restart failed"):
                 await self.m.restart_comfy("render")
 
