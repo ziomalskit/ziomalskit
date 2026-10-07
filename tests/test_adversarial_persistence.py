@@ -7,6 +7,7 @@ import errno
 import io
 import json
 import unittest
+import uuid
 from contextlib import redirect_stdout
 from unittest.mock import AsyncMock, patch
 
@@ -26,7 +27,7 @@ class AdversarialPersistenceTests(unittest.IsolatedAsyncioTestCase):
         model = self.m.model_path_for_preset("native_int8")
         model.parent.mkdir(parents=True)
         model.write_bytes(b"CPU fixture")
-        self.request = self.m.BatchRequest(prompt="inert reference scene", pictures=names)
+        self.request = self.m.BatchRequest(request_id=uuid.uuid4(), prompt="inert reference scene", pictures=names)
         self.tasks = []
 
     async def asyncTearDown(self):
@@ -42,7 +43,7 @@ class AdversarialPersistenceTests(unittest.IsolatedAsyncioTestCase):
                "batch_seq": 1, "candidate_index": 6, "created_at": 1,
                "review_required": True, "final_h3_prompt": "prior candidate",
                "render_seed": 1, "analysis_seed": 2, "prompt_seed": 3,
-               "context": self.request.model_dump()}
+               "context": self.request.model_dump(mode="json")}
         self.m.queue.append(job)
         self.m.batches.append({"id": "prior-batch", "seq": 1})
         self.m.save_state()
@@ -138,9 +139,8 @@ class AdversarialPersistenceTests(unittest.IsolatedAsyncioTestCase):
         if not approval:
             self.assertEqual(self.m.batches[-1]["seq"], 2)
         else:
-            with self.assertRaises(self.m.HTTPException) as error:
-                await invoke()
-            self.assertEqual(error.exception.status_code, 409)
+            self.assertEqual(await invoke(), {"ok": True, "priority": "top"})
+            self.assertEqual(len([pid for service, pid in calls if service == "render"]), expected)
         self.assertTrue(self.m.state_diagnostics()["ready"])
 
     async def test_create_one_shot_enospc_retry_runs_only_five_durable_renders(self):
@@ -204,25 +204,17 @@ class AdversarialPersistenceTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(error.exception.status_code, 409)
                 self.assertEqual(self.m.queue, before)
 
-    async def test_failed_marker_cleanup_does_not_publish_and_live_retry_restores_prior_state(self):
+    async def test_legacy_interrupted_publication_marker_still_blocks_boot(self):
         before = copy.deepcopy(self.m.queue)
-        real_unlink = type(self.m.QUEUE_PUBLICATION_FILE).unlink
-
-        def unlink(path, *args, **kwargs):
-            if path == self.m.QUEUE_PUBLICATION_FILE:
-                raise OSError(errno.EIO, "marker removal failed")
-            return real_unlink(path, *args, **kwargs)
-        with patch("pathlib.Path.unlink", side_effect=unlink, autospec=True):
-            with self.assertRaises(OSError):
-                await self.m.create_batches(self.request)
+        self.m.QUEUE_PUBLICATION_FILE.write_text('{"pending":true}')
+        self.m.load_state()
         self.assertEqual(self.m.queue, before)
         self.assertFalse(self.m.state_diagnostics()["ready"])
         self.assertTrue(self.m.QUEUE_PUBLICATION_FILE.exists())
-        await self.m.create_batches(self.request)
-        self.assertEqual(len(self.m.queue), 10)
-        self.assertEqual(len(self.m.batches), 1)
+        with self.assertRaises(RuntimeError):
+            self.m.save_state()
 
-    async def test_ambiguous_post_replace_failure_blocks_boot_for_create_and_approval(self):
+    async def test_ambiguous_post_replace_failure_boot_replays_committed_create_and_approval(self):
         job = self.review_job()
         for approval in (False, True):
             with self.subTest(approval=approval):
@@ -240,16 +232,19 @@ class AdversarialPersistenceTests(unittest.IsolatedAsyncioTestCase):
                         else:
                             await self.m.create_batches(self.request)
                 self.assertEqual(self.m.queue, before)
-                self.assertTrue(self.m.QUEUE_PUBLICATION_FILE.exists())
+                self.assertFalse(self.m.QUEUE_PUBLICATION_FILE.exists())
                 disk = self.m.QUEUE_FILE.read_bytes()
                 with load_controller() as restarted:
                     restarted.QUEUE_FILE = self.m.QUEUE_FILE
                     restarted.QUEUE_PUBLICATION_FILE = self.m.QUEUE_PUBLICATION_FILE
                     restarted.load_state()
-                    self.assertFalse(restarted.state_diagnostics()["ready"])
-                    self.assertEqual(restarted.queue, [])
-                    with self.assertRaises(RuntimeError):
-                        restarted.save_state()
+                    self.assertTrue(restarted.state_diagnostics()["ready"])
+                    if approval:
+                        self.assertEqual(await restarted.approve(job["id"], restarted.ApprovalRequest()), {"ok": True, "priority": "top"})
+                    else:
+                        result = await restarted.create_batches(self.request)
+                        self.assertEqual(result, restarted.request_results[str(self.request.request_id)]["result"])
+                    self.assertEqual(len(restarted.queue), 1 if approval else 11)
                 self.assertEqual(self.m.QUEUE_FILE.read_bytes(), disk)
                 # A live repair writes only the original published snapshot.
                 self.m._resume_queue_persistence()
@@ -377,7 +372,7 @@ class AdversarialPersistenceTests(unittest.IsolatedAsyncioTestCase):
                                 self.m.save_state()
                         if repair:
                             self.m.save_state()
-                            self.assertTrue(self.m.state_diagnostics()["ready"])
+                            self.assertFalse(self.m.state_diagnostics()["ready"])
                     with patch.object(self.m.asyncio, "sleep", side_effect=delay), \
                          patch.object(self.m, "instance_id_from_env", return_value="inert-instance"), \
                          patch.object(self.m, "run_vast_cli", AsyncMock()) as cli:

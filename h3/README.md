@@ -32,3 +32,30 @@ bash <PANEL_ROOT>/scripts/smoke_test.sh
 Do not start a real H3 render until both pass.
 
 See `FULL_PRE_RENTAL_AUDIT.md` for the complete audit and remaining live-only risks.
+
+Batch API retries require a client-generated UUID `request_id` in the JSON body.
+Reuse the same UUID and exact body after an uncertain response, including after
+a controller restart. The committed response and key live in the same atomic
+queue snapshot as the jobs and batches. A committed key returns its original
+`created_batches`; reuse with a different body returns 409. Missing keys fail
+closed with 400. New intentional requests, including identical content, use new
+UUIDs. AJ keeps an unconfirmed body/key in browser localStorage before submission
+and reuses it after reload; the separate new-request action asks the user to
+confirm creating another operation. Keep the queue snapshot and its request
+ledger together; deleting old ledger entries loses their retry guarantees.
+
+Review approval is one operation per job. Its result and approved prompt are
+committed with that job; retrying the same approval returns the original result
+even after rendering, while changing an already approved prompt returns 409.
+AJ preserves the approval body for retries. Cancel/reject cannot create paid
+submissions and retain their existing terminal-state checks.
+
+A queue persistence failure invalidates an already armed STOP/DESTROY plan.
+Storage recovery does not re-arm it, and controller restart interrupts old armed
+or executing plans. Explicit re-arm is required. Confirmed remote terminal
+results survive local write failures in memory, block dispatch while degraded,
+and resume through persistence recovery without another remote submit.
+
+Service control launches and registers each child in the same parent so PID
+reuse cannot occur before pidfd capture. Failed registration reaps that exact
+child via pidfd TERM, then KILL if necessary, and removes the failed PID record.

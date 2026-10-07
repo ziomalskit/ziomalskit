@@ -7,6 +7,8 @@ import json
 import os
 from pathlib import Path
 import signal
+import select
+import subprocess
 import tempfile
 import time
 
@@ -54,8 +56,27 @@ def expected_service(snapshot: dict, args) -> bool:
     )
 
 
+def terminate_owned_process(descriptor: int) -> None:
+    """Wait for this process instance to exit, escalating through the same fd."""
+    poll = select.poll()
+    poll.register(descriptor, select.POLLIN)
+    try:
+        signal.pidfd_send_signal(descriptor, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    if poll.poll(2000):
+        return
+    try:
+        signal.pidfd_send_signal(descriptor, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    if not poll.poll(2000):
+        raise RuntimeError("Owned child did not exit after pidfd SIGKILL")
+
+
 def record_process(args) -> None:
     descriptor = os.pidfd_open(args.pid)
+    temporary = None
     try:
         deadline = time.monotonic() + 5
         while True:
@@ -74,29 +95,34 @@ def record_process(args) -> None:
             time.sleep(0.02)
         record = {key: snapshot[key] for key in ("pid", "start_time", "boot_id", "command_sha256")}
         record["service"] = args.service
-        temporary = None
+        fd, temporary = tempfile.mkstemp(prefix=".service-pid-", dir=args.pid_file.parent)
+        with os.fdopen(fd, "w") as handle:
+            json.dump(record, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, args.pid_file)
+        directory = os.open(args.pid_file.parent, os.O_RDONLY)
         try:
-            fd, temporary = tempfile.mkstemp(prefix=".service-pid-", dir=args.pid_file.parent)
-            with os.fdopen(fd, "w") as handle:
-                json.dump(record, handle)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary, args.pid_file)
-            directory = os.open(args.pid_file.parent, os.O_RDONLY)
-            try:
-                os.fsync(directory)
-            finally:
-                os.close(directory)
-        except Exception:
-            # The fd still refers to the process opened above, even if its PID
-            # is reused. Never leave an untracked worker after a failed record.
-            signal.pidfd_send_signal(descriptor, signal.SIGTERM)
-            raise
+            os.fsync(directory)
         finally:
-            if temporary is not None and os.path.exists(temporary):
-                os.unlink(temporary)
+            os.close(directory)
+    except BaseException:
+        # From pidfd_open until durable registration, every failure owns this
+        # cleanup obligation, including /proc reads and identity validation.
+        try:
+            terminate_owned_process(descriptor)
+        finally:
+            args.pid_file.unlink(missing_ok=True)
+        raise
     finally:
-        os.close(descriptor)
+        try:
+            if temporary is not None:
+                try:
+                    os.unlink(temporary)
+                except FileNotFoundError:
+                    pass
+        finally:
+            os.close(descriptor)
 
 
 def checked_pidfd(args) -> tuple[int, int]:
@@ -119,9 +145,30 @@ def checked_pidfd(args) -> tuple[int, int]:
     return pid, descriptor
 
 
+def launch_process(args, command: list[str]) -> None:
+    """Keep the spawned child unreaped until registration opens its pidfd.
+
+    Looking up a shell's old $! in a later helper could open a reused PID.
+    This parent owns the Popen child and never polls/waits before pidfd_open,
+    so even a child that exits immediately still pins its PID as a zombie.
+    """
+    if not command:
+        raise ValueError("missing service command")
+    cwd = args.panel_root if args.service == "panel" else args.comfy_root
+    with args.log_file.open("wb") as log:
+        child = subprocess.Popen(command, cwd=cwd, stdout=log, stderr=subprocess.STDOUT,
+                                 start_new_session=True, close_fds=True)
+    args.pid = child.pid
+    try:
+        record_process(args)
+    except BaseException:
+        child.wait(timeout=5)
+        raise
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("support", "record", "check", "signal"))
+    parser.add_argument("command", choices=("support", "launch", "record", "check", "signal"))
     parser.add_argument("--pid-file", type=Path)
     parser.add_argument("--pid", type=int)
     parser.add_argument("--service", choices=("render", "prompt", "panel"))
@@ -129,11 +176,19 @@ def main() -> int:
     parser.add_argument("--panel-root")
     parser.add_argument("--python")
     parser.add_argument("--port", type=int)
+    parser.add_argument("--log-file", type=Path)
     parser.add_argument("--signal", choices=("TERM", "KILL"), default="TERM")
-    args = parser.parse_args()
+    args, command = parser.parse_known_args()
+    if command and command[0] == "--":
+        command = command[1:]
+    if command and args.command != "launch":
+        parser.error("unexpected service command")
     try:
         require_pidfd()
         if args.command == "support":
+            return 0
+        if args.command == "launch":
+            launch_process(args, command)
             return 0
         if args.command == "record":
             record_process(args)

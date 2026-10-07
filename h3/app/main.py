@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio, base64, hmac, json, math, os, shutil, subprocess, sys, time, uuid
+import asyncio, base64, hashlib, hmac, json, math, os, shutil, subprocess, sys, time, uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlencode
@@ -90,6 +90,7 @@ class LoraSetting(BaseModel):
 
 
 class BatchRequest(BaseModel):
+    request_id: uuid.UUID | None = None
     prompt: str
     model: str = "native_int8"
     batches: int = Field(1, ge=1, le=100)
@@ -119,6 +120,7 @@ class VastActionRequest(BaseModel):
 
 queue: list[dict[str, Any]] = []
 batches: list[dict[str, Any]] = []
+request_results: dict[str, dict[str, Any]] = {}
 queue_lock = asyncio.Lock()
 prompt_worker_task: asyncio.Task | None = None
 render_worker_task: asyncio.Task | None = None
@@ -133,6 +135,7 @@ state_load_error: str | None = None
 queue_persistence_error: str | None = None
 queue_persistence_epoch = 0
 controller_started = False
+ARMED_LIFECYCLE_PLANS = {"stop_after_current", "stop_after_queue", "destroy_after_queue_keep_data"}
 vast_control_load_error: str | None = None
 last_busy_at = time.time()
 
@@ -260,15 +263,18 @@ def load_vast_control() -> dict[str, Any]:
             if key in data and (not isinstance(data[key], (int, float)) or isinstance(data[key], bool) or not math.isfinite(data[key]) or data[key] < 0):
                 raise ValueError(f"invalid lifecycle field: {key}")
         default.update(data)
+        if "armed_generation" in data and data["armed_generation"] is not None and (
+            type(data["armed_generation"]) is not int or data["armed_generation"] < 0
+        ):
+            raise ValueError("invalid lifecycle safety generation")
+        if default["plan"] in ARMED_LIFECYCLE_PLANS or default["plan"].startswith("executing_"):
+            default.update(plan="action_interrupted", reason="Controller restarted; explicitly re-arm the lifecycle plan")
     except Exception as error:
         vast_control_load_error = f"Lifecycle state could not be loaded; existing file preserved: {error}"
     return default
 
 
 vast_control: dict[str, Any] = load_vast_control()
-if str(vast_control.get("plan", "")).startswith("executing_"):
-    vast_control["reason"] = "previous lifecycle action was interrupted or controller restarted"
-    vast_control["plan"] = "action_interrupted"
 
 
 def _atomic_json_write(path: Path, payload: Any) -> None:
@@ -311,24 +317,24 @@ def _record_queue_persistence_failure(error: Exception) -> None:
     global queue_persistence_error, queue_persistence_epoch
     queue_persistence_error = f"Queue state write failed; dispatch is blocked: {error!r}"
     queue_persistence_epoch += 1
+    if vast_control.get("plan") in ARMED_LIFECYCLE_PLANS or str(vast_control.get("plan", "")).startswith("executing_"):
+        _lifecycle_failure("Queue persistence failed after lifecycle arm; explicit re-arm is required")
 
 
-def _persist_queue_snapshot(next_queue: list[dict], next_batches: list[dict], *, publication: bool = False) -> None:
+def _persist_queue_snapshot(next_queue: list[dict], next_batches: list[dict], *, publication: bool = False,
+                            next_requests: dict | None = None) -> None:
     global queue_persistence_error
     if state_load_error:
         raise RuntimeError(state_load_error)
     try:
-        if publication:
-            # A failure after replace but before directory fsync is ambiguous.
-            # This durable marker prevents boot from dispatching an unpublished
-            # request. A live retry first restores the published memory snapshot.
-            _atomic_json_write(QUEUE_PUBLICATION_FILE, {"pending": True})
-        _atomic_json_write(QUEUE_FILE, {"queue": next_queue, "batches": next_batches})
-        if QUEUE_PUBLICATION_FILE.exists():
-            QUEUE_PUBLICATION_FILE.unlink()
-        # Marker deletion need not be crash-durable: if it reappears after a
-        # power loss, boot conservatively requires manual reconciliation.
-        # The queue itself has already passed file AND directory fsync.
+        if publication and next_requests is None:
+            raise ValueError("A published mutation requires its durable idempotency state")
+        # One atomic document is the commit boundary, including the response.
+        # A crash can expose either snapshot; a retry of a committed key can
+        # never create another batch. Legacy publication markers fail closed.
+        _atomic_json_write(QUEUE_FILE, {"queue": next_queue, "batches": next_batches,
+                                      "requests": request_results if next_requests is None else next_requests,
+                                      "safety_generation": queue_persistence_epoch})
     except Exception as error:
         _record_queue_persistence_failure(error)
         raise
@@ -346,7 +352,7 @@ def _resume_queue_persistence() -> None:
 
 
 def load_state() -> None:
-    global queue, batches, state_load_error
+    global queue, batches, request_results, state_load_error, queue_persistence_epoch
     state_load_error = None
     if QUEUE_PUBLICATION_FILE.exists():
         state_load_error = "Queue publication was interrupted; manual reconciliation is required; existing files preserved"
@@ -357,15 +363,31 @@ def load_state() -> None:
         raw = json.loads(QUEUE_FILE.read_text(encoding="utf-8"))
         if isinstance(raw, list):
             loaded_queue, loaded_batches = raw, []
+            loaded_requests, generation = {}, 0
         else:
             if not isinstance(raw, dict) or not isinstance(raw.get("queue"), list) or not isinstance(raw.get("batches"), list):
                 raise ValueError("queue state must contain queue and batches arrays")
             loaded_queue, loaded_batches = raw["queue"], raw["batches"]
+            loaded_requests, generation = raw.get("requests", {}), raw.get("safety_generation", 0)
         if not all(isinstance(job, dict) and isinstance(job.get("id"), str) and job["id"] and isinstance(job.get("status"), str) for job in loaded_queue):
             raise ValueError("queue contains an invalid job record")
         if not all(isinstance(batch, dict) for batch in loaded_batches):
             raise ValueError("batches contains an invalid record")
+        if type(generation) is not int or generation < 0 or not isinstance(loaded_requests, dict):
+            raise ValueError("invalid queue idempotency/safety state")
+        batch_ids = {batch.get("id") for batch in loaded_batches if isinstance(batch.get("id"), str)}
+        for key, record in loaded_requests.items():
+            if str(uuid.UUID(key)) != key or not isinstance(record, dict) or not isinstance(record.get("request_hash"), str):
+                raise ValueError("invalid idempotency record")
+            if len(record["request_hash"]) != 64 or any(c not in "0123456789abcdef" for c in record["request_hash"]):
+                raise ValueError("invalid idempotency fingerprint")
+            result = record.get("result")
+            if not isinstance(result, dict) or not isinstance(result.get("created_batches"), list) or not result["created_batches"] or any(
+                not isinstance(batch_id, str) or batch_id not in batch_ids for batch_id in result["created_batches"]
+            ):
+                raise ValueError("idempotency result refers to an unavailable batch")
         queue, batches = loaded_queue, loaded_batches
+        request_results, queue_persistence_epoch = loaded_requests, generation
         for j in queue:
             old_status = j.get("status")
             if old_status in {"prompt_running", "prompt_preparing", "prompt_submitting", "prompt_submission_uncertain"}:
@@ -832,7 +854,14 @@ def _apply_history_outcome(job: dict, service: str, entry: dict) -> bool:
         job["finished_at"] = time.time()
     job[f"{service}_submission_state"] = "settled"
     job.pop("recovery_warning", None)
-    save_state()
+    try:
+        save_state()
+    except Exception as error:
+        # Remote execution is already settled. Keep this exact result for the
+        # local persistence retry, instead of treating EIO as execution failure.
+        job["persistence_warning"] = str(error)
+        if not queue_persistence_error:
+            _record_queue_persistence_failure(error)
     return True
 
 
@@ -1417,7 +1446,7 @@ async def delayed_instance_action(action: str, delay: float = 2.0, *, require_pe
             return
         # A settings write or queue failure can happen while the delay or
         # mount inspection awaits. Fail closed at the final dispatch boundary.
-        if epoch != queue_persistence_epoch or not state_diagnostics()["ready"]:
+        if epoch != queue_persistence_epoch or vast_control.get("armed_generation", epoch) != epoch or not state_diagnostics()["ready"]:
             _lifecycle_failure("Controller state became unavailable; lifecycle was not dispatched")
             return
         vast_control["last_action"] = action
@@ -1442,7 +1471,7 @@ def _schedule_instance_action(action: str, delay: float = 1.5) -> None:
         raise HTTPException(409, "a lifecycle action is already executing")
     lifecycle_action_task = asyncio.create_task(delayed_instance_action(
         action, delay, require_persistence=bool(vast_control.get("require_persistence")),
-        persistence_epoch=queue_persistence_epoch,
+        persistence_epoch=vast_control.get("armed_generation", queue_persistence_epoch),
     ))
 
 
@@ -1470,6 +1499,10 @@ async def vast_guard_worker() -> None:
             # The guard survives lifecycle failures. It never auto-retries a
             # failed/destructive action, or dispatches a second executing one.
             if lifecycle_dispatch_blocked() or not submissions_allowed():
+                await asyncio.sleep(10)
+                continue
+            if plan in ARMED_LIFECYCLE_PLANS and vast_control.get("armed_generation") != queue_persistence_epoch:
+                _lifecycle_failure("Lifecycle safety generation changed; explicit re-arm is required")
                 await asyncio.sleep(10)
                 continue
 
@@ -1504,6 +1537,7 @@ async def vast_guard_worker() -> None:
             if idle_minutes > 0 and not busy:
                 if time.time() - last_busy_at >= idle_minutes * 60:
                     vast_control["plan"] = "executing_idle_stop"
+                    vast_control["armed_generation"] = queue_persistence_epoch
                     vast_control["reason"] = f"idle for {idle_minutes} min"
                     save_vast_control()
                     _schedule_instance_action("stop")
@@ -1514,6 +1548,7 @@ async def vast_guard_worker() -> None:
                 est = st.get("estimated_session_compute_usd")
                 if est is not None and est >= guard and vast_control.get("plan") in ("none", None) and not lifecycle_dispatch_blocked():
                     vast_control["plan"] = "stop_after_current"
+                    vast_control["armed_generation"] = queue_persistence_epoch
                     vast_control["reason"] = f"estimated session compute cost reached ${est:.2f}"
                     vast_control["armed_at"] = time.time()
                     save_vast_control()
@@ -1597,12 +1632,12 @@ def _handle_worker_error(job: dict, service: str, error: Exception) -> None:
 async def _wait_for_queue_persistence() -> bool:
     if not queue_persistence_error:
         return False
+    await asyncio.sleep(0.75)
     try:
         _resume_queue_persistence()
     except Exception:
         # Error state remains visible; only retry the local published snapshot,
         # never a ComfyUI submission or an uncertain Vast operation.
-        await asyncio.sleep(0.75)
         return True
     return False
 
@@ -1680,9 +1715,9 @@ async def _recover_one_job_impl(job: dict, service: str) -> None:
     except Exception as error:
         _preserve_recovery(job, service, f"History unavailable; recovery will retry: {error}")
         return
-    if _apply_history_outcome(job, service, entry):
+    if _history_outcome(entry) is not None:
         job["recovered_at"] = time.time()
-        save_state()
+    if _apply_history_outcome(job, service, entry):
         return
     try:
         remote_queue = await fetch_service_queue(service)
@@ -1871,7 +1906,7 @@ async def api_vast_action(req: VastActionRequest):
         raise HTTPException(409, "Lifecycle actions are disabled in this CPU development environment")
 
     if action == "cancel_plan":
-        vast_control.update({"plan":"none","reason":None,"armed_at":None,"require_persistence":False})
+        vast_control.update({"plan":"none","reason":None,"armed_at":None,"require_persistence":False,"armed_generation":None})
         save_vast_control()
         return {"ok": True, "plan": vast_control}
 
@@ -1886,13 +1921,13 @@ async def api_vast_action(req: VastActionRequest):
         return {"ok": True, "plan": vast_control}
 
     if action == "stop_after_current":
-        vast_control.update({"plan":"stop_after_current","armed_at":time.time(),"reason":"user"})
+        vast_control.update({"plan":"stop_after_current","armed_at":time.time(),"reason":"user","armed_generation":queue_persistence_epoch})
         save_vast_control()
         return {"ok": True, "plan": vast_control}
 
     if action == "stop_after_queue":
         skipped = skip_unstarted_review_prompts_for_shutdown()
-        vast_control.update({"plan":"stop_after_queue","armed_at":time.time(),"reason":f"user; skipped {skipped} unstarted review prompts"})
+        vast_control.update({"plan":"stop_after_queue","armed_at":time.time(),"reason":f"user; skipped {skipped} unstarted review prompts","armed_generation":queue_persistence_epoch})
         save_vast_control()
         return {"ok": True, "plan": vast_control}
 
@@ -1906,6 +1941,7 @@ async def api_vast_action(req: VastActionRequest):
         skipped = skip_unstarted_review_prompts_for_shutdown()
         vast_control.update({
             "plan":"destroy_after_queue_keep_data",
+            "armed_generation": queue_persistence_epoch,
             "require_persistence": True,
             "armed_at":time.time(),
             "reason":f"user; skipped {skipped} unstarted review prompts"
@@ -1916,7 +1952,7 @@ async def api_vast_action(req: VastActionRequest):
     if action == "stop_now":
         if req.confirm != "STOP":
             raise HTTPException(400, "Type STOP to confirm")
-        vast_control.update({"plan":"executing_stop","armed_at":time.time(),"reason":"user immediate","require_persistence":False})
+        vast_control.update({"plan":"executing_stop","armed_at":time.time(),"reason":"user immediate","require_persistence":False,"armed_generation":queue_persistence_epoch})
         save_vast_control()
         _schedule_instance_action("stop", 2.0)
         return {"ok": True, "message":"Instance stop scheduled. This panel will disconnect."}
@@ -1924,7 +1960,7 @@ async def api_vast_action(req: VastActionRequest):
     if action == "destroy_now":
         if req.confirm != "DESTROY":
             raise HTTPException(400, "Type DESTROY to confirm")
-        vast_control.update({"plan":"executing_destroy","armed_at":time.time(),"reason":"user immediate","require_persistence":False})
+        vast_control.update({"plan":"executing_destroy","armed_at":time.time(),"reason":"user immediate","require_persistence":False,"armed_generation":queue_persistence_epoch})
         save_vast_control()
         _schedule_instance_action("destroy", 2.0)
         return {
@@ -1957,20 +1993,29 @@ async def upload(file: UploadFile = File(...)):
 
 @app.post("/api/batches")
 async def create_batches(req: BatchRequest):
-    _resume_queue_persistence()
-    if shutdown_armed():
-        raise HTTPException(409, "shutdown plan is armed; cancel it before creating a new batch")
-    if not req.prompt.strip():
-        raise HTTPException(400, "scene prompt is empty")
-    pictures, audio = validate_requested_assets(req)
-    created_batches = []
-    base_render_seed = req.seed if req.seed is not None else int(time.time_ns() & 0x7FFFFFFF)
-    base_prompt_seed = int((time.time_ns() >> 8) & 0x7FFFFFFF)
-    base_analysis_seed = int((time.time_ns() >> 16) & 0x7FFFFFFF)
-
     async with queue_lock:
+        _resume_queue_persistence()
+        if state_load_error:
+            raise HTTPException(503, state_load_error)
+        request_key = str(req.request_id) if req.request_id is not None else None
+        request_hash = hashlib.sha256(json.dumps(req.model_dump(mode="json", exclude={"request_id"}),
+                                                sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        previous = request_results.get(request_key)
+        if previous:
+            if previous["request_hash"] != request_hash:
+                raise HTTPException(409, "request_id was already used for a different request")
+            return {"created_batches": list(previous["result"]["created_batches"])}
         if shutdown_armed():
             raise HTTPException(409, "shutdown plan is armed; cancel it before creating a new batch")
+        if request_key is None:
+            raise HTTPException(400, "A client-generated UUID request_id is required; reuse it when retrying")
+        if not req.prompt.strip():
+            raise HTTPException(400, "scene prompt is empty")
+        pictures, audio = validate_requested_assets(req)
+        created_batches = []
+        base_render_seed = req.seed if req.seed is not None else int(time.time_ns() & 0x7FFFFFFF)
+        base_prompt_seed = int((time.time_ns() >> 8) & 0x7FFFFFFF)
+        base_analysis_seed = int((time.time_ns() >> 16) & 0x7FFFFFFF)
         next_queue, next_batches = list(queue), list(batches)
         batch_seq_start = max([b.get("seq", 0) for b in batches] or [0]) + 1
 
@@ -2022,11 +2067,15 @@ async def create_batches(req: BatchRequest):
                     "render_priority": None,
                     "context": context,
                 })
-        _persist_queue_snapshot(next_queue, next_batches, publication=True)
+        result = {"created_batches": created_batches}
+        next_requests = {**request_results, request_key: {"request_hash": request_hash, "result": result}}
+        _persist_queue_snapshot(next_queue, next_batches, publication=True, next_requests=next_requests)
         # No await separates the durable commit and publication. Existing job
         # identities are preserved for active watchers and recovery tasks.
         queue[:] = next_queue
         batches[:] = next_batches
+        request_results.clear()
+        request_results.update(next_requests)
 
     return {"created_batches": created_batches}
 
@@ -2066,18 +2115,22 @@ async def prompts(controller_job_id: str):
 async def approve(controller_job_id: str, req: ApprovalRequest):
     async with queue_lock:
         _resume_queue_persistence()
+        job = find_job(controller_job_id)
+        final_prompt = req.final_prompt if req.final_prompt is not None else job.get("final_h3_prompt")
+        if job.get("approval_result"):
+            if str(final_prompt) != job.get("approved_final_prompt"):
+                raise HTTPException(409, "job was already approved with a different final prompt")
+            return dict(job["approval_result"])
         if shutdown_armed():
             raise HTTPException(409, "shutdown plan is armed; cancel it before approving review prompts")
-        job = find_job(controller_job_id)
         if job.get("status") != "pending_review":
             raise HTTPException(409, f"job is {job.get('status')}, not pending_review")
-        final_prompt = req.final_prompt if req.final_prompt is not None else job.get("final_h3_prompt")
         if not final_prompt or not str(final_prompt).strip():
             raise HTTPException(400, "final prompt is empty")
         staged_job = dict(job, approved_final_prompt=str(final_prompt), approved_at=time.time(),
-                          render_priority=0, status="render_queued_review")
+                          render_priority=0, status="render_queued_review", approval_result={"ok": True, "priority": "top"})
         staged_queue = [staged_job if existing is job else existing for existing in queue]
-        _persist_queue_snapshot(staged_queue, batches, publication=True)
+        _persist_queue_snapshot(staged_queue, batches, publication=True, next_requests=request_results)
         job.clear()
         job.update(staged_job)
     return {"ok": True, "priority": "top"}

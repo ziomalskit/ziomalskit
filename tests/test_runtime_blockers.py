@@ -44,6 +44,7 @@ class RuntimeBlockerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_guard_survives_permanent_write_failure_without_scheduling(self):
         self.m.vast_control["plan"] = "stop_after_current"
+        self.m.vast_control["armed_generation"] = self.m.queue_persistence_epoch
         with patch.object(self.m, "_atomic_json_write", side_effect=OSError("ENOSPC")), \
              patch.object(self.m, "_schedule_instance_action") as schedule:
             await self.guard_ticks()
@@ -53,6 +54,7 @@ class RuntimeBlockerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_guard_survives_one_write_failure_until_explicit_cancel(self):
         self.m.vast_control["plan"] = "stop_after_current"
+        self.m.vast_control["armed_generation"] = self.m.queue_persistence_epoch
         calls = 0
 
         def write(*_args):

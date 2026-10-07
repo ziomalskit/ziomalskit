@@ -85,7 +85,8 @@ a{color:#9ecbff}
 </div>
 <div class="tiny" style="margin-top:10px">Każdy batch: 10 promptów. #1–5 lecą automatycznie. #6–10 trafiają do Review.</div>
 <details><summary>LoRAs</summary><div id="loras"></div></details>
-<button onclick="generate()">GENERATE BATCH</button>
+<button id="generateBatch" onclick="generate()">GENERATE BATCH</button>
+<button id="newBatch" onclick="newBatch()" hidden>NOWE OSOBNE ZLECENIE</button>
 </div>
 
 <div class="card">
@@ -107,8 +108,30 @@ a{color:#9ecbff}
 
 <script>
 let loras=[], selected=null, lastJobs=[];
+let batchInFlight=false, approvalInFlight=new Set();
+const pendingBatchKey='h3.pendingBatch';
+function batchButtonState(){
+  const pending=!!localStorage.getItem(pendingBatchKey);
+  document.getElementById('generateBatch').textContent=pending?'PONÓW NIEPOTWIERDZONE ZLECENIE':'GENERATE BATCH';
+  document.getElementById('generateBatch').disabled=batchInFlight;
+  document.getElementById('newBatch').hidden=!pending;
+  document.getElementById('newBatch').disabled=batchInFlight;
+}
+function requestUUID(){
+  if(crypto.randomUUID)return crypto.randomUUID();
+  const bytes=crypto.getRandomValues(new Uint8Array(16));
+  bytes[6]=(bytes[6]&15)|64; bytes[8]=(bytes[8]&63)|128;
+  const hex=[...bytes].map(x=>x.toString(16).padStart(2,'0')).join('');
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+}
+function newBatch(){
+  if(batchInFlight)return;
+  if(!confirm('Poprzednie zlecenie mogło zostać przyjęte. Utworzyć osobne nowe zlecenie?'))return;
+  localStorage.removeItem(pendingBatchKey); batchButtonState(); generate();
+}
 
 async function init(){
+  batchButtonState();
   const c=await fetch('/api/config').then(r=>r.json());
   loras=c.loras||[];
   document.getElementById('loras').innerHTML=loras.map((x,i)=>
@@ -123,7 +146,11 @@ async function up(f){
   return (await r.json()).filename;
 }
 async function generate(){
+  if(batchInFlight)return;
+  batchInFlight=true; batchButtonState();
   try{
+    let body=JSON.parse(localStorage.getItem(pendingBatchKey)||'null');
+    if(!body){
     let pics=[];
     let p=document.getElementById('pic').files[0];
     let refs=[...document.getElementById('refs').files];
@@ -134,17 +161,27 @@ async function generate(){
     let aud=[];
     for(let f of document.getElementById('audio').files) aud.push(await up(f));
     let ls=loras.map((x,i)=>({name:x.lora,enabled:document.getElementById('le'+i).checked,strength:+document.getElementById('ls'+i).value}));
-    let body={
+    body={
+      request_id:requestUUID(),
       prompt:document.getElementById('prompt').value,
       model:document.getElementById('model').value,
       batches:+document.getElementById('batches').value,
       soft_timeout_minutes:+document.getElementById('timeout').value,
       pictures:pics,audio:aud,loras:ls
     };
+    // Persist the UUID AND exact uploaded filenames/body before any submit.
+    // Reloads and retries reuse this operation, even if the form has changed.
+    localStorage.setItem(pendingBatchKey,JSON.stringify(body));
+    }
+    if(!body.request_id)throw new Error('Nieprawidłowe zapisane zlecenie. Wybierz nowe osobne zlecenie.');
     let r=await fetch('/api/batches',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
     if(!r.ok) throw new Error(await r.text());
-    await refresh();
+    const result=await r.json();
+    if(!Array.isArray(result.created_batches)||!result.created_batches.length)throw new Error('Brak potwierdzenia batcha.');
+    if(localStorage.getItem(pendingBatchKey)===JSON.stringify(body))localStorage.removeItem(pendingBatchKey);
+    try{await refresh()}catch(e){alert('Zlecenie przyjęte; nie udało się odświeżyć listy: '+e)}
   }catch(e){alert(e)}
+  finally{batchInFlight=false; batchButtonState()}
 }
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
 async function selectJob(id){selected=id; await refreshPrompts(); renderJobs();}
@@ -160,11 +197,24 @@ async function refreshPrompts(){
   document.getElementById('p4').textContent=p.approved_final_prompt||p.final_h3_prompt||'—';
 }
 async function approve(id){
+  if(approvalInFlight.has(id))return;
   const j=lastJobs.find(x=>x.id===id); if(!j)return;
-  let txt=prompt("Final prompt (możesz edytować):", j.final_h3_prompt||"");
-  if(txt===null)return;
-  let r=await fetch('/api/jobs/'+id+'/approve',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({final_prompt:txt})});
-  if(!r.ok) alert(await r.text()); await refresh();
+  const key='h3.pendingApproval.'+id;
+  approvalInFlight.add(id);
+  try{
+    let body=JSON.parse(localStorage.getItem(key)||'null');
+    if(!body){
+      let txt=prompt("Final prompt (możesz edytować):", j.final_h3_prompt||"");
+      if(txt===null)return;
+      body={final_prompt:txt}; localStorage.setItem(key,JSON.stringify(body));
+    }
+    let r=await fetch('/api/jobs/'+id+'/approve',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok)throw new Error(await r.text());
+    if((await r.json()).ok!==true)throw new Error('Brak potwierdzenia zatwierdzenia.');
+    if(localStorage.getItem(key)===JSON.stringify(body))localStorage.removeItem(key);
+    try{await refresh()}catch(e){alert('Prompt zatwierdzony; nie udało się odświeżyć listy: '+e)}
+  }catch(e){alert(e)}
+  finally{approvalInFlight.delete(id)}
 }
 async function reject(id){
   let r=await fetch('/api/jobs/'+id+'/reject',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({reason:null})});

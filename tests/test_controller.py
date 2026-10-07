@@ -631,7 +631,8 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.m.current_work_running())
 
     async def test_guard_survives_failed_action_and_resumes_cost_checks_after_cancel(self):
-        self.m.vast_control.update({"plan": "stop_after_current", "cost_guard_usd": 1})
+        self.m.vast_control.update({"plan": "stop_after_current", "cost_guard_usd": 1,
+                                    "armed_generation": self.m.queue_persistence_epoch})
         self.m.queue[:] = []
         sleeps = 0
 

@@ -39,9 +39,9 @@ process_identity(){
   local service="$1" port
   shift
   case "$service" in render) port="$RENDER_PORT";; prompt) port="$PROMPT_PORT";; panel) port="$PANEL_PORT";; *) return 1;; esac
-  "$COMFY_PYTHON" "$PANEL_ROOT/scripts/process_identity.py" "$@" \
+  "$COMFY_PYTHON" "$PANEL_ROOT/scripts/process_identity.py" \
     --pid-file "$(pidfile "$service")" --service "$service" \
-    --python "$COMFY_PYTHON" --comfy-root "$COMFY_ROOT" --panel-root "$PANEL_ROOT" --port "$port"
+    --python "$COMFY_PYTHON" --comfy-root "$COMFY_ROOT" --panel-root "$PANEL_ROOT" --port "$port" "$@"
 }
 
 alive(){
@@ -68,7 +68,7 @@ start_one(){
   case "$svc" in
     render)
       cd "$COMFY_ROOT"
-      nohup "$COMFY_PYTHON" main.py \
+      process_identity "$svc" launch --log-file "$(logfile comfyui-render)" -- "$COMFY_PYTHON" main.py \
         --listen 127.0.0.1 --port "$RENDER_PORT" \
         --models-directory "$COMFY_ROOT/models" \
         --input-directory "$COMFY_ROOT/input" \
@@ -76,13 +76,12 @@ start_one(){
         --temp-directory "$COMFY_ROOT/temp-render" \
         --user-directory "$COMFY_ROOT/user-render" \
         --database-url "sqlite:///$COMFY_ROOT/user-render/comfyui.db" \
-        --highvram 9>&- >"$(logfile comfyui-render)" 2>&1 &
-      process_identity "$svc" record --pid "$!"
+        --highvram
       ;;
     prompt)
       cd "$COMFY_ROOT"
       # DynamicVRAM is intentional: render throughput has priority.
-      nohup "$COMFY_PYTHON" main.py \
+      process_identity "$svc" launch --log-file "$(logfile comfyui-prompt)" -- "$COMFY_PYTHON" main.py \
         --listen 127.0.0.1 --port "$PROMPT_PORT" \
         --models-directory "$COMFY_ROOT/models" \
         --input-directory "$COMFY_ROOT/input" \
@@ -90,8 +89,7 @@ start_one(){
         --temp-directory "$COMFY_ROOT/temp-prompt" \
         --user-directory "$COMFY_ROOT/user-prompt" \
         --database-url "sqlite:///$COMFY_ROOT/user-prompt/comfyui.db" \
-        --vram-headroom 6 9>&- >"$(logfile comfyui-prompt)" 2>&1 &
-      process_identity "$svc" record --pid "$!"
+        --vram-headroom 6
       ;;
     panel)
       cd "$PANEL_ROOT"
@@ -111,9 +109,8 @@ start_one(){
       export H3_PERSISTENT_ROOT="${H3_PERSISTENT_ROOT:-}"
       export H3_PERSISTENCE_MODE="${H3_PERSISTENCE_MODE:-}"
       # Panel must be externally reachable through Vast port mapping; Basic Auth protects it.
-      nohup "$PYTHON_BIN" -m uvicorn app.main:app \
-        --host 0.0.0.0 --port "$PANEL_PORT" 9>&- >"$(logfile h3-mobile)" 2>&1 &
-      process_identity "$svc" record --pid "$!"
+      process_identity "$svc" launch --log-file "$(logfile h3-mobile)" -- "$PYTHON_BIN" -m uvicorn app.main:app \
+        --host 0.0.0.0 --port "$PANEL_PORT"
       ;;
     *) echo "unknown service: $svc" >&2; exit 2;;
   esac
