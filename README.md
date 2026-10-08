@@ -15,11 +15,12 @@ To oznacza **CPU/runtime acceptance PASS**. Nie oznacza jeszcze pełnego GPU acc
 
 ## Od czego zacząć
 
-1. [Finalne CPU/runtime acceptance](docs/FINAL_CPU_ACCEPTANCE_2026-10-08.md) — kanoniczny stan po merge.
-2. [Przygotowanie i acceptance na Vast GPU](docs/GPU_ACCEPTANCE.md) — aktualna kolejność pierwszego deploymentu.
-3. [H3 Vast Mobile](h3/README.md) — wymagania runtime, persistent volume i sterowanie usługami.
-4. [Historyczny audyt z 6 października](docs/AUDIT_2026-10-06.md) — źródło wcześniejszych blockerów; nie jest już aktualnym statusem produkcyjnym.
-5. [Oryginalny stan projektu](migration/00_START_HERE/CURRENT_STATE.md) — materiał migracyjny i historia decyzji.
+1. [Roadmap produktu i aktualny scope](docs/ROADMAP.md) — kanoniczny plan dalszych etapów i rzeczy świadomie odłożonych.
+2. [Finalne CPU/runtime acceptance](docs/FINAL_CPU_ACCEPTANCE_2026-10-08.md) — kanoniczny stan po merge.
+3. [Przygotowanie i acceptance na Vast GPU](docs/GPU_ACCEPTANCE.md) — aktualna kolejność pierwszego deploymentu.
+4. [H3 Vast Mobile](h3/README.md) — wymagania runtime, persistent volume i sterowanie usługami.
+5. [Historyczny audyt z 6 października](docs/AUDIT_2026-10-06.md) — źródło wcześniejszych blockerów; nie jest już aktualnym statusem produkcyjnym.
+6. [Oryginalny stan projektu](migration/00_START_HERE/CURRENT_STATE.md) — materiał migracyjny i historia decyzji.
 
 Materiały pod `migration/` i `archive/` są baseline'em historycznym. Ich stare oznaczenia PASS/FAIL nie zastępują aktualnego stanu na `main`.
 
