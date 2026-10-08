@@ -57,6 +57,7 @@ def remote(m, calls):
     async def terminal(service, _pid, **_options):
         return history(video=True) if service == "render" else {
             "status": {"status_str": "success", "completed": True},
+            "prompt": {"5732": {"class_type": "PreviewAny", "inputs": {}}},
             "outputs": {"5732": {"text": ["confirmed terminal prompt"]}}}
 
     stack.enter_context(patch.object(m, "_prepare_workflow_api", AsyncMock(return_value={})))

@@ -89,6 +89,7 @@ class AdversarialPersistenceTests(unittest.IsolatedAsyncioTestCase):
             if service == "render":
                 return history(video=True)
             return {"status": {"status_str": "success", "completed": True},
+                    "prompt": {"5732": {"class_type": "PreviewAny", "inputs": {}}},
                     "outputs": {"5732": {"text": ["generated candidate"]}}}
 
         return calls, [patch.object(self.m, "_prepare_workflow_api", AsyncMock(return_value={})),

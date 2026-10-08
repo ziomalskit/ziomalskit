@@ -48,6 +48,7 @@ class PredispatchPersistenceTests(unittest.IsolatedAsyncioTestCase):
 
                 result = history(video=True) if service == "render" else {
                     "status": {"status_str": "success", "completed": True},
+                    "prompt": {"5732": {"class_type": "PreviewAny", "inputs": {}}},
                     "outputs": {"5732": {"text": ["generated reference scene"]}},
                 }
                 with patch.object(os, "fsync", side_effect=fsync), \

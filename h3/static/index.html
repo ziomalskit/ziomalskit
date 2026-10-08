@@ -42,28 +42,28 @@ a{color:#9ecbff}
   </div>
   <div style="margin-top:10px" class="tiny" id="vastPlan">Shutdown plan: none</div>
   <div class="vastactions">
-    <button class="secondary" onclick="vastAction('stop_after_current')">STOP AFTER CURRENT</button>
-    <button class="secondary" onclick="vastAction('stop_after_queue')">STOP AFTER QUEUE</button>
-    <button class="safe" id="destroyKeepBtn" onclick="vastAction('destroy_after_queue_keep_data')">FINISH QUEUE & DESTROY COMPUTE</button>
-    <button class="secondary" onclick="vastAction('cancel_plan')">CANCEL SHUTDOWN PLAN</button>
+    <button class="secondary" data-lifecycle-control onclick="vastAction('stop_after_current')">STOP AFTER CURRENT</button>
+    <button class="secondary" data-lifecycle-control onclick="vastAction('stop_after_queue')">STOP AFTER QUEUE</button>
+    <button class="safe" id="destroyKeepBtn" data-lifecycle-control onclick="vastAction('destroy_after_queue_keep_data')">FINISH QUEUE & DESTROY COMPUTE</button>
+    <button class="secondary" data-lifecycle-control onclick="vastAction('cancel_plan')">CANCEL SHUTDOWN PLAN</button>
   </div>
   <details>
     <summary>Guards & service controls</summary>
     <div class="row">
-      <div><label>Idle stop (minutes, 0=off)</label><input id="idleMin" type="number" value="0" min="0"></div>
-      <div><label>Session cost guard $ (0=off)</label><input id="costGuard" type="number" value="0" min="0" step="0.25"></div>
+      <div><label>Idle stop (minutes, 0=off)</label><input id="idleMin" type="number" value="0" min="0" oninput="guardEdited()"></div>
+      <div><label>Session cost guard $ (0=off)</label><input id="costGuard" type="number" value="0" min="0" step="0.25" oninput="guardEdited()"></div>
     </div>
-    <button class="secondary" onclick="saveGuards()">SAVE GUARDS</button>
+    <button class="secondary" data-lifecycle-control onclick="saveGuards()">SAVE GUARDS</button>
     <div class="vastactions">
-      <button class="secondary" onclick="restartService('render')">RESTART RENDER COMFY</button>
-      <button class="secondary" onclick="restartService('prompt')">RESTART PROMPT COMFY</button>
+      <button class="secondary" id="restart-render" onclick="restartService('render')">RESTART RENDER COMFY</button>
+      <button class="secondary" id="restart-prompt" onclick="restartService('prompt')">RESTART PROMPT COMFY</button>
     </div>
   </details>
   <details>
     <summary>Danger zone</summary>
     <div class="tiny">STOP disconnects this panel. It cannot start itself again; use the Vast console to START.</div>
-    <button class="danger" onclick="stopNow()">STOP INSTANCE NOW</button>
-    <button class="danger" onclick="destroyNow()">DESTROY INSTANCE NOW</button>
+    <button class="danger" data-lifecycle-control onclick="stopNow()">STOP INSTANCE NOW</button>
+    <button class="danger" data-lifecycle-control onclick="destroyNow()">DESTROY INSTANCE NOW</button>
   </details>
 </div>
 
@@ -109,6 +109,10 @@ a{color:#9ecbff}
 <script>
 let loras=[], selected=null, lastJobs=[];
 let batchInFlight=false, approvalInFlight=new Set();
+let jobsGeneration=0, promptsGeneration=0, vastGeneration=0;
+let lifecycleInFlight=false, lifecycleToken=null, backendVast=null;
+let guardsDirty=false, guardEditGeneration=0, guardBaseToken=null;
+const restartInFlight=new Set();
 const pendingBatchKey='h3.pendingBatch';
 function batchButtonState(){
   const pending=!!localStorage.getItem(pendingBatchKey);
@@ -136,7 +140,7 @@ async function init(){
   loras=c.loras||[];
   document.getElementById('loras').innerHTML=loras.map((x,i)=>
     `<label><input style="width:auto" type="checkbox" id="le${i}" ${x.on?'checked':''}> ${x.lora}</label>
-     <input id="ls${i}" type="number" step="0.05" value="${x.strength}">`).join('');
+     <input id="ls${i}" type="number" min="-2" max="2" step="0.05" value="${x.strength}">`).join('');
   await refresh(); setInterval(refresh,2500);
 }
 async function up(f){
@@ -184,11 +188,20 @@ async function generate(){
   finally{batchInFlight=false; batchButtonState()}
 }
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
-async function selectJob(id){selected=id; await refreshPrompts(); renderJobs();}
+async function selectJob(id){
+  if(selected!==id){
+    selected=id;
+    document.getElementById('selectedStatus').textContent='loading…';
+    for(let key of ['p0','p1','p2','p3','p4'])document.getElementById(key).textContent='…';
+  }
+  await refreshPrompts(); renderJobs();
+}
 async function refreshPrompts(){
   if(!selected)return;
-  let r=await fetch('/api/jobs/'+selected+'/prompts'); if(!r.ok)return;
+  const id=selected, generation=++promptsGeneration;
+  let r=await fetch('/api/jobs/'+id+'/prompts'); if(!r.ok)return;
   let p=await r.json();
+  if(generation!==promptsGeneration || selected!==id)return;
   document.getElementById('selectedStatus').textContent=`B${p.batch_seq} #${p.candidate_index} • ${p.status}`;
   document.getElementById('p0').textContent=p.visual_facts||'—';
   document.getElementById('p1').textContent=p.expanded_intent||'—';
@@ -201,6 +214,7 @@ async function approve(id){
   const j=lastJobs.find(x=>x.id===id); if(!j)return;
   const key='h3.pendingApproval.'+id;
   approvalInFlight.add(id);
+  approvalButtonState(id,true);
   try{
     let body=JSON.parse(localStorage.getItem(key)||'null');
     if(!body){
@@ -209,12 +223,21 @@ async function approve(id){
       body={final_prompt:txt}; localStorage.setItem(key,JSON.stringify(body));
     }
     let r=await fetch('/api/jobs/'+id+'/approve',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
-    if(!r.ok)throw new Error(await r.text());
+    if(!r.ok){
+      // Only definitive rejection releases the immutable retry payload.
+      if([400,404,409,422].includes(r.status) && localStorage.getItem(key)===JSON.stringify(body))localStorage.removeItem(key);
+      throw new Error(await r.text());
+    }
     if((await r.json()).ok!==true)throw new Error('Brak potwierdzenia zatwierdzenia.');
     if(localStorage.getItem(key)===JSON.stringify(body))localStorage.removeItem(key);
     try{await refresh()}catch(e){alert('Prompt zatwierdzony; nie udało się odświeżyć listy: '+e)}
   }catch(e){alert(e)}
-  finally{approvalInFlight.delete(id)}
+  finally{approvalInFlight.delete(id);approvalButtonState(id,false)}
+}
+function approvalButtonState(id,busy){
+  for(const button of document.querySelectorAll?.('[data-approval-id]')||[]){
+    if(button.dataset.approvalId===id)button.disabled=busy;
+  }
 }
 async function reject(id){
   let r=await fetch('/api/jobs/'+id+'/reject',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({reason:null})});
@@ -228,8 +251,8 @@ function renderReview(){
       <div class="tiny">prompt seed ${j.prompt_seed} • render seed ${j.render_seed ?? j.seed}</div>
       <div style="margin-top:8px">${esc((j.final_h3_prompt||'').slice(0,500))}${(j.final_h3_prompt||'').length>500?'…':''}</div>
       <div class="reviewactions">
-        <button onclick="approve('${j.id}')">✓ APPROVE</button>
-        <button class="reject" onclick="reject('${j.id}')">✕ REJECT</button>
+        <button data-approval-id="${j.id}" ${approvalInFlight.has(j.id)?'disabled':''} onclick="approve('${j.id}')">✓ APPROVE</button>
+        <button data-approval-id="${j.id}" ${approvalInFlight.has(j.id)?'disabled':''} class="reject" onclick="reject('${j.id}')">✕ REJECT</button>
       </div>
       <button class="secondary" onclick="selectJob('${j.id}')">VIEW FULL PROMPT</button>
     </div>`).join(''):'—';
@@ -246,27 +269,76 @@ function renderJobs(){
     </div>`}).join(''):'—';
 }
 async function refresh(){
-  let d=await fetch('/api/jobs').then(r=>r.json());
-  lastJobs=d.jobs||[];
+  const generation=++jobsGeneration;
+  let r=await fetch('/api/jobs');
+  if(!r.ok)throw new Error(await r.text());
+  let d=await r.json();
+  if(generation!==jobsGeneration)return;
+  if(!Array.isArray(d.jobs))throw new Error('Invalid jobs response');
+  lastJobs=d.jobs;
   if(!selected && lastJobs.length) selected=lastJobs[lastJobs.length-1].id;
   renderReview(); renderJobs(); await refreshPrompts();
 }
 
+function lifecycleButtonState(){
+  for(const button of document.querySelectorAll?.('[data-lifecycle-control]')||[]){
+    button.disabled=lifecycleInFlight || (button.id==='destroyKeepBtn' && !backendVast?.persistence?.safe_for_destroy_keep_data);
+  }
+}
+async function performVastAction(action,extra,token){
+  if(!token)throw new Error('Odśwież status przed zmianą ustawień.');
+  const r=await fetch('/api/vast/action',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action,...extra,control_token:token})});
+  if(!r.ok){const error=new Error(await r.text());error.status=r.status;throw error}
+  const result=await r.json();
+  if(result.ok!==true || typeof result.control_token!=='string')throw new Error('Brak potwierdzenia zmiany ustawień.');
+  ++vastGeneration;
+  lifecycleToken=result.control_token;
+  return result.control_token;
+}
 async function vastAction(action, extra={}){
-  let r=await fetch('/api/vast/action',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action,...extra})});
-  if(!r.ok){alert(await r.text());return}
-  await refreshVast();
+  if(lifecycleInFlight)return;
+  lifecycleInFlight=true; lifecycleButtonState();
+  const token=lifecycleToken;
+  try{await performVastAction(action,extra,token);await refreshVast()}
+  catch(e){alert(e);await refreshVast()}
+  finally{lifecycleInFlight=false;lifecycleButtonState()}
+}
+function guardEdited(){
+  if(!guardsDirty)guardBaseToken=lifecycleToken;
+  guardsDirty=true; ++guardEditGeneration;
 }
 async function saveGuards(){
+  if(lifecycleInFlight)return;
+  lifecycleInFlight=true; lifecycleButtonState();
+  const generation=guardEditGeneration, token=guardsDirty?guardBaseToken:lifecycleToken;
   let idle=+document.getElementById('idleMin').value;
   let cost=+document.getElementById('costGuard').value;
-  await vastAction('set_idle_timer',{idle_minutes:idle||null});
-  await vastAction('set_cost_guard',{cost_guard_usd:cost||null});
+  try{
+    let next=await performVastAction('set_idle_timer',{idle_minutes:idle||null},token);
+    guardBaseToken=next;
+    next=await performVastAction('set_cost_guard',{cost_guard_usd:cost||null},next);
+    guardBaseToken=next;
+    if(generation===guardEditGeneration){guardsDirty=false;guardBaseToken=null}
+    await refreshVast();
+  }catch(e){
+    alert(e);await refreshVast();
+    // A conflict requires another explicit SAVE. Preserve the draft, but bind
+    // that new decision to the refreshed generation; never automatically retry.
+    if(e.status===409 && guardsDirty)guardBaseToken=lifecycleToken;
+  }
+  finally{lifecycleInFlight=false;lifecycleButtonState()}
 }
 async function restartService(service){
+  if(restartInFlight.has(service))return;
   if(!confirm('Restart '+service+' service?')) return;
-  let r=await fetch('/api/services/'+service+'/restart',{method:'POST'});
-  if(!r.ok) alert(await r.text());
+  restartInFlight.add(service);
+  const button=document.getElementById('restart-'+service);if(button)button.disabled=true;
+  try{
+    let r=await fetch('/api/services/'+service+'/restart',{method:'POST'});
+    if(!r.ok)throw new Error(await r.text());
+    if((await r.json()).ok!==true)throw new Error('Brak potwierdzenia restartu.');
+  }catch(e){alert(e)}
+  finally{restartInFlight.delete(service);if(button)button.disabled=false}
 }
 async function stopNow(){
   let x=prompt('Type STOP to stop the Vast instance now. The panel will disconnect.');
@@ -279,8 +351,14 @@ async function destroyNow(){
   await vastAction('destroy_now',{confirm:x});
 }
 async function refreshVast(){
+  const generation=++vastGeneration;
   try{
-    let s=await fetch('/api/vast/status').then(r=>r.json());
+    let r=await fetch('/api/vast/status');
+    if(!r.ok)throw new Error(await r.text());
+    let s=await r.json();
+    if(generation!==vastGeneration)return;
+    backendVast=s;
+    lifecycleToken=typeof s.control_token==='string'?s.control_token:null;
     let inst=s.instance||{};
     document.getElementById('vastState').textContent=inst.actual_status||s.error||'unknown';
     let g=s.gpu||{};
@@ -294,14 +372,18 @@ async function refreshVast(){
     document.getElementById('vastDisk').textContent=d.free_gb!=null?d.free_gb+' GB free':'—';
     let p=s.persistence||{};
     document.getElementById('vastPersist').textContent=p.safe_for_destroy_keep_data?'persistent data VERIFIED':('NOT SAFE: '+(p.reason||'persistent data not verified'));
-    document.getElementById('destroyKeepBtn').disabled=!p.safe_for_destroy_keep_data;
+    document.getElementById('destroyKeepBtn').disabled=lifecycleInFlight || !p.safe_for_destroy_keep_data;
     document.getElementById('destroyKeepBtn').title=p.safe_for_destroy_keep_data?'':'Configure H3_PERSISTENT_ROOT on a separate mounted Vast volume first';
     let plan=s.plan||{};
     document.getElementById('vastPlan').textContent='Shutdown plan: '+(plan.plan||'none')+(plan.reason?' • '+plan.reason:'');
-    document.getElementById('idleMin').value=plan.idle_minutes||0;
-    document.getElementById('costGuard').value=plan.cost_guard_usd||0;
+    const editing=guardsDirty || ['idleMin','costGuard'].some(id=>document.activeElement===document.getElementById(id));
+    if(!editing){
+      document.getElementById('idleMin').value=plan.idle_minutes||0;
+      document.getElementById('costGuard').value=plan.cost_guard_usd||0;
+    }
+    lifecycleButtonState();
   }catch(e){
-    document.getElementById('vastState').textContent='status error';
+    if(generation===vastGeneration)document.getElementById('vastState').textContent='status error';
   }
 }
 setInterval(refreshVast,5000);

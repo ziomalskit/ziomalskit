@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import base64, importlib.util, json, os, py_compile, subprocess, tempfile
+import base64, json, os, py_compile, subprocess, sys, tempfile
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
 os.environ["H3_PANEL_PASSWORD"]="selftest-pass"
-spec=importlib.util.spec_from_file_location("h3main",ROOT/"app/main.py")
-m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+sys.path.insert(0, str(ROOT))
+from app import main as m
 
 def all_nodes(doc):
     for n in doc.get("nodes",[]): yield n

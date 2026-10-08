@@ -9,7 +9,8 @@ import uuid
 import httpx
 
 from tests.helpers import load_controller
-from tests.test_workflows import APPROVED, CATALOG, exact_convert
+from tests.test_workflows import APPROVED, exact_convert
+from tests.step3_helpers import ADAPTER_CATALOG as CATALOG
 
 REAL_ASYNC_CLIENT = httpx.AsyncClient
 
@@ -47,7 +48,7 @@ class SubmissionAdapterTests(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(200, json=CATALOG)
             job = fixture_job(module)
             workflow = module.patch_workflow(job, module.MASTER, approved_prompt=APPROVED)
-            converted = exact_convert(json.loads(workflow.read_text()))
+            converted = exact_convert(json.loads(workflow.read_text()), CATALOG)
             cli = AsyncMock(side_effect=[
                 {"data": {"status": "preview", "workflow": "filename.json", "prompt": converted}},
                 {"data": {"valid": True, "error_count": 0, "spends_credits": False, "partner_nodes": []}},
@@ -82,7 +83,7 @@ class SubmissionAdapterTests(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(503, json={"error": "not ready"})
             job = fixture_job(module)
             path = module.patch_workflow(job, module.MASTER, approved_prompt=APPROVED)
-            cli = AsyncMock(return_value={"data": {"status": "preview", "prompt": exact_convert(json.loads(path.read_text()))}})
+            cli = AsyncMock(return_value={"data": {"status": "preview", "prompt": exact_convert(json.loads(path.read_text()), CATALOG)}})
             with patch.object(module, "run_cli_envelope", cli), patch.object(
                 module.httpx, "AsyncClient", side_effect=client_factory(respond)
             ):
@@ -162,7 +163,7 @@ class SubmissionAdapterTests(unittest.IsolatedAsyncioTestCase):
         with load_controller() as module:
             job = fixture_job(module)
             path = module.patch_workflow(job, module.MASTER, approved_prompt=APPROVED)
-            preview = {"data": {"status": "preview", "prompt": exact_convert(json.loads(path.read_text()))}}
+            preview = {"data": {"status": "preview", "prompt": exact_convert(json.loads(path.read_text()), CATALOG)}}
             def respond(request):
                 self.assertEqual(request.method, "GET")
                 return httpx.Response(200, json=CATALOG)

@@ -9,9 +9,11 @@ if sys.version_info < (3, 11):
 
 import httpx
 from fastapi import FastAPI, File, HTTPException, UploadFile, Request
-from fastapi.responses import FileResponse, StreamingResponse, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import FileResponse, Response, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "static"
@@ -54,6 +56,23 @@ app = FastAPI(title="H3 Mobile Controller", version="1.0.0-pre-rental-final-rc4"
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
+def finite_json(value):
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: finite_json(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [finite_json(item) for item in value]
+    return value
+
+
+@app.exception_handler(RequestValidationError)
+async def invalid_request(_request, error):
+    # The default validation response echoes the offending input. Bare JSON
+    # NaN/Infinity or overflowing numbers must yield 422, not a JSON encoder 500.
+    return JSONResponse(status_code=422, content={"detail": finite_json(jsonable_encoder(error.errors()))})
+
+
 def _authorized(auth_header: str | None) -> bool:
     if not PANEL_AUTH_PASSWORD:
         return False
@@ -89,7 +108,17 @@ async def require_panel_auth(request: Request, call_next):
 class LoraSetting(BaseModel):
     name: str
     enabled: bool
-    strength: float
+    # Project-approved inclusive range, within ComfyUI v0.38's loader bounds.
+    strength: float = Field(ge=-2, le=2, allow_inf_nan=False)
+
+    @field_validator("name")
+    @classmethod
+    def canonical_name(cls, value: str) -> str:
+        # Canonical identifiers, never local paths. Reject prefixes rather than
+        # validating a basename and later patching a different identifier.
+        if not value or value != Path(value).name or "/" in value or "\\" in value or value in {".", ".."}:
+            raise ValueError("LoRA name must be a canonical filename")
+        return value
 
 
 class BatchRequest(BaseModel):
@@ -116,9 +145,10 @@ class RejectRequest(BaseModel):
 
 class VastActionRequest(BaseModel):
     action: str
+    control_token: str | None = None
     confirm: str | None = None
     idle_minutes: int | None = Field(None, ge=1, le=1440)
-    cost_guard_usd: float | None = Field(None, ge=0.01, le=10000)
+    cost_guard_usd: float | None = Field(None, ge=0.01, le=10000, allow_inf_nan=False)
 
 
 queue: list[dict[str, Any]] = []
@@ -134,6 +164,10 @@ lifecycle_action_task: asyncio.Task | None = None
 recovery_task: asyncio.Task | None = None
 recovering_services: set[str] = set()
 recovery_counts: dict[str, int] = {}
+service_restart_locks = {service: asyncio.Lock() for service in ("prompt", "render")}
+service_maintenance: dict[str, str] = {}
+service_maintenance_epochs = {service: 0 for service in ("prompt", "render")}
+LIFECYCLE_CONTROL_EPOCH = uuid.uuid4().hex
 state_load_error: str | None = None
 queue_persistence_error: str | None = None
 queue_persistence_epoch = 0
@@ -156,7 +190,7 @@ class SubmissionCancelled(RuntimeError):
 
 
 class SubmissionDeferred(RuntimeError):
-    """Shutdown was armed during preparation; keep the job queued."""
+    """Shutdown or service maintenance interrupted preparation; keep it queued."""
 
 
 class SubmissionSkippedForShutdown(RuntimeError):
@@ -233,6 +267,7 @@ def state_diagnostics() -> dict[str, Any]:
         "worker_error": worker_error,
         "workers": workers,
         "lifecycle_error": lifecycle_error,
+        "service_maintenance": dict(service_maintenance),
     }
 
 
@@ -247,6 +282,7 @@ def load_vast_control() -> dict[str, Any]:
         "reason": None,
         "last_action": None,
         "last_action_at": None,
+        "control_generation": 0,
     }
     if not VAST_CONTROL_FILE.exists():
         return default
@@ -266,6 +302,8 @@ def load_vast_control() -> dict[str, Any]:
             if key in data and (not isinstance(data[key], (int, float)) or isinstance(data[key], bool) or not math.isfinite(data[key]) or data[key] < 0):
                 raise ValueError(f"invalid lifecycle field: {key}")
         default.update(data)
+        if type(default["control_generation"]) is not int or default["control_generation"] < 0:
+            raise ValueError("invalid lifecycle control generation")
         if "armed_generation" in data and data["armed_generation"] is not None and (
             type(data["armed_generation"]) is not int or data["armed_generation"] < 0
         ):
@@ -280,12 +318,27 @@ def load_vast_control() -> dict[str, Any]:
 vast_control: dict[str, Any] = load_vast_control()
 
 
+def lifecycle_control_token() -> str:
+    # The epoch rejects tokens from an earlier controller process; the durable
+    # monotonic generation orders accepted client decisions within this process.
+    return f"{LIFECYCLE_CONTROL_EPOCH}:{vast_control['control_generation']}"
+
+
+def save_lifecycle_decision() -> None:
+    vast_control["control_generation"] += 1
+    save_vast_control()
+
+
+def lifecycle_decision_response(**fields) -> dict:
+    return {"ok": True, "control_token": lifecycle_control_token(), **fields}
+
+
 def _atomic_json_write(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
         with tmp.open("w", encoding="utf-8") as stream:
-            json.dump(payload, stream, ensure_ascii=False, indent=2)
+            json.dump(payload, stream, ensure_ascii=False, indent=2, allow_nan=False)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(tmp, path)
@@ -364,6 +417,9 @@ def load_state() -> None:
         return
     try:
         raw = json.loads(QUEUE_FILE.read_text(encoding="utf-8"))
+        # Reject both explicit NaN/Infinity and numeric overflow (e.g. 1e400)
+        # before publishing any loaded records to HTTP or worker state.
+        json.dumps(raw, allow_nan=False)
         if isinstance(raw, list):
             loaded_queue, loaded_batches = raw, []
             loaded_requests, generation = {}, 0
@@ -414,10 +470,10 @@ def find_job(job_id: str) -> dict:
 
 
 def node_by_id(wf: dict, node_id: int) -> dict:
-    for n in wf["nodes"]:
-        if n.get("id") == node_id:
-            return n
-    raise KeyError(node_id)
+    matches = [node for node in wf["nodes"] if node.get("id") == node_id]
+    if len(matches) != 1:
+        raise ValueError(f"Expected exactly one UI node at {node_id}, found {len(matches)}")
+    return matches[0]
 
 
 def iter_all_nodes(doc: dict):
@@ -479,9 +535,17 @@ def validate_requested_assets(req: BatchRequest) -> tuple[list[str], list[str]]:
     if not model_path.is_file():
         raise HTTPException(409, f"selected render model is not installed: {model_path.name}")
 
+    if len({lora.name for lora in req.loras}) != len(req.loras):
+        raise HTTPException(400, "Duplicate LoRA settings are ambiguous")
+    from .workflow_validation import lora_slots
+    supported = [item["lora"] for item in MAP["nodes"]["first_pass_loras"]["entries"]]
+    for template in (MASTER, PROMPT_ONLY):
+        slots = lora_slots(json.loads(template.read_text(encoding="utf-8")), supported)
+        if any(lora.name not in slots for lora in req.loras):
+            raise HTTPException(400, "Requested LoRA does not have a supported template slot")
     for lora in req.loras:
         if lora.enabled:
-            lp = COMFY_MODELS_DIR / "loras" / Path(lora.name).name
+            lp = COMFY_MODELS_DIR / "loras" / lora.name
             if not lp.is_file():
                 raise HTTPException(409, f"enabled LoRA is not installed: {lora.name}")
     return pictures, audio
@@ -577,6 +641,8 @@ def patch_llm_pipeline_seeds(wf: dict, analysis_seed: int, prompt_seed: int) -> 
 
 def patch_workflow(job: dict, workflow_template: Path, *, approved_prompt: str | None = None) -> Path:
     wf = json.loads(workflow_template.read_text(encoding="utf-8"))
+    from .workflow_validation import validate_ui_workflow, lora_slots
+    validate_ui_workflow(wf, patch_contract=True)
     ctx = job["context"]
 
     checkpoint = MAP["nodes"]["model_loader"]["alternatives"].get(ctx["model"])
@@ -623,17 +689,23 @@ def patch_workflow(job: dict, workflow_template: Path, *, approved_prompt: str |
 
     if ctx.get("loras"):
         n = node_by_id(wf, 6164)
-        byname = {x["name"]: x for x in ctx["loras"]}
-        for key, item in n.get("widgets_values_named", {}).items():
-            if key.startswith("lora_") and isinstance(item, dict) and item.get("lora") in byname:
-                u = byname[item["lora"]]
-                item["on"] = bool(u["enabled"])
-                item["strength"] = float(u["strength"])
-        for item in n.get("widgets_values", []):
-            if isinstance(item, dict) and item.get("lora") in byname:
-                u = byname[item["lora"]]
-                item["on"] = bool(u["enabled"])
-                item["strength"] = float(u["strength"])
+        settings = [LoraSetting.model_validate(value) for value in ctx["loras"]]
+        if len({setting.name for setting in settings}) != len(settings):
+            raise ValueError("Duplicate LoRA settings")
+        supported = [item["lora"] for item in MAP["nodes"]["first_pass_loras"]["entries"]]
+        slots = lora_slots(wf, supported)
+        for setting in settings:
+            if setting.name not in slots:
+                raise ValueError(f"Unsupported LoRA: {setting.name}")
+            _, named = slots[setting.name]
+            rows = [item for item in n["widgets_values"] if isinstance(item, dict) and item.get("lora") == setting.name]
+            if len(rows) != 1:
+                raise ValueError(f"Ambiguous positional LoRA slot: {setting.name}")
+            for item in (named, rows[0]):
+                item.update(on=setting.enabled, strength=setting.strength)
+        lora_slots(wf, supported)
+
+    validate_ui_workflow(wf, patch_contract=True)
 
     phase = "prompt" if workflow_template == PROMPT_ONLY else "render"
     out = STATE / f"job_{job['id']}_{phase}.json"
@@ -1057,13 +1129,19 @@ def _apply_history_outcome(job: dict, service: str, entry: dict) -> bool:
         job["execution_status"] = entry.get("status")
         job["finished_at"] = time.time()
     elif service == "prompt":
-        job.update(extract_prompt_texts(entry))
+        capture_error = None
+        try:
+            captured = extract_prompt_texts(entry)
+        except ValueError as error:
+            captured = {key: None for key in ("visual_facts", "expanded_intent", "reference_map", "creative_plan", "final_h3_prompt")}
+            capture_error = f"Prompt capture failed: {error}"
+        job.update(captured)
         if job.get("cancel_requested"):
             job["status"] = "cancelled"
             job["finished_at"] = time.time()
-        elif not job.get("final_h3_prompt"):
+        elif not (job.get("final_h3_prompt") or "").strip():
             job["status"] = "prompt_failed"
-            job["error"] = "successful prompt execution did not capture a final H3 prompt"
+            job["error"] = capture_error or "successful prompt execution did not capture a final H3 prompt"
             job["finished_at"] = time.time()
         else:
             job["status"] = "pending_review" if job.get("review_required") else "render_queued_auto"
@@ -1124,22 +1202,38 @@ def extract_prompt_texts(entry: dict) -> dict[str, str | None]:
         capture["step4_final_prompt_title"]: "final_h3_prompt",
     }
     result = {v: None for v in wanted.values()}
-    for node_id, out in outputs.items():
-        if not isinstance(out, dict) or "text" not in out:
+    sources = {title: [] for title in wanted}
+    for node_id, node in graph.items():
+        if not isinstance(node, dict):
             continue
+        title = _title_for_api_node(node)
+        if title in sources:
+            sources[title].append(str(node_id))
+    for title, ids in sources.items():
+        if len(ids) > 1:
+            raise ValueError(f"Ambiguous prompt capture title: {title}")
+    for title, ids in sources.items():
+        if not ids:
+            continue
+        node_id = ids[0]
+        if graph[node_id].get("class_type") != "PreviewAny":
+            raise ValueError(f"Unexpected prompt capture type: {title}")
+        out = outputs.get(node_id)
+        if not isinstance(out, dict) or "text" not in out or out["text"] is None:
+            raise ValueError(f"Missing prompt capture output: {title}")
         raw = out["text"]
         value = "\n".join(str(x) for x in raw) if isinstance(raw, list) else str(raw)
-        api_node = graph.get(str(node_id), {}) if isinstance(graph, dict) else {}
-        title = _title_for_api_node(api_node) if isinstance(api_node, dict) else ""
-        if title in wanted:
-            result[wanted[title]] = value
+        result[wanted[title]] = value
 
     # Conversion normally preserves the top-level PreviewAny id. Use it as a
     # final-prompt fallback if subgraph title metadata was not retained.
     fallback_id = str(capture.get("fallback_top_level_final_node_id", ""))
-    if not result.get("final_h3_prompt") and fallback_id:
+    if not sources[capture["step4_final_prompt_title"]] and fallback_id:
+        node = graph.get(fallback_id)
+        if not isinstance(node, dict) or node.get("class_type") != "PreviewAny":
+            raise ValueError("Final prompt fallback identity/type is unavailable")
         out = outputs.get(fallback_id, {})
-        if isinstance(out, dict) and "text" in out:
+        if isinstance(out, dict) and "text" in out and out["text"] is not None:
             raw = out["text"]
             result["final_h3_prompt"] = "\n".join(str(x) for x in raw) if isinstance(raw, list) else str(raw)
     return result
@@ -1356,6 +1450,9 @@ async def watch_prompt(job: dict, prompt_id: str, service: str) -> dict:
 async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelope: dict | None = None) -> Any:
     """Convert without submitting, then validate/prune against this worker."""
     from .workflow_conversion import prepare_api_prompt
+    from .workflow_validation import validate_ui_workflow, validate_converted_widgets
+    ui_workflow = json.loads(workflow.read_text(encoding="utf-8"))
+    validate_ui_workflow(ui_workflow, patch_contract=True)
 
     envelope = preview_envelope if preview_envelope is not None else await run_cli_envelope(
         service, "run", "--workflow", str(workflow), "--print-prompt"
@@ -1367,9 +1464,10 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
         response = await client.get(f"{service_url(service)}/object_info")
         response.raise_for_status()
         catalog = response.json()
+    validate_ui_workflow(ui_workflow, catalog, patch_contract=True)
+    validate_converted_widgets(ui_workflow, data["prompt"], catalog)
     approved = None
     if service == "render":
-        ui_workflow = json.loads(workflow.read_text(encoding="utf-8"))
         override = node_by_id(ui_workflow, 2632)
         approved = override.get("widgets_values_named", {}).get("positive")
         if approved is None:
@@ -1408,7 +1506,17 @@ async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
         raise RuntimeError("Stored controller state is unavailable; submission is blocked")
     if not submissions_allowed():
         raise SubmissionRejected("Submissions are disabled in this CPU development environment")
-    prepared = await _prepare_workflow_api(workflow, service)
+    maintenance_epoch = service_maintenance_epochs[service]
+    if service in service_maintenance:
+        raise SubmissionDeferred("service maintenance is in progress")
+    try:
+        prepared = await _prepare_workflow_api(workflow, service)
+    except Exception as error:
+        if service in service_maintenance or maintenance_epoch != service_maintenance_epochs[service]:
+            raise SubmissionDeferred("service restarted during preparation") from error
+        raise
+    if service in service_maintenance or maintenance_epoch != service_maintenance_epochs[service]:
+        raise SubmissionDeferred("service restarted during preparation")
     if job.get("cancel_requested"):
         raise SubmissionCancelled("job cancelled during preparation")
     if lifecycle_dispatch_blocked() or vast_control.get("plan") == "stop_after_current":
@@ -1727,6 +1835,7 @@ async def vast_instance_status() -> dict[str, Any]:
         "session_started_at": SESSION_STARTED_AT,
         "session_hours": round((time.time() - SESSION_STARTED_AT) / 3600, 3),
         "plan": dict(vast_control),
+        "control_token": lifecycle_control_token(),
         "persistence": persistence,
         "disk": disk,
         "gpu": gpu,
@@ -1744,6 +1853,9 @@ async def vast_instance_status() -> dict[str, Any]:
             data = data[0]
         if not isinstance(data, dict):
             data = {}
+        # Untrusted telemetry can contain nonfinite nested numbers as well as
+        # malformed prices. Preserve the rest of the diagnostic response.
+        data = finite_json(data)
         base["instance"] = data
         base["vast_states"] = {
             "intended_status": data.get("intended_status"),
@@ -1751,15 +1863,16 @@ async def vast_instance_status() -> dict[str, Any]:
             "cur_state": data.get("cur_state"),
             "next_state": data.get("next_state"),
         }
-        dph = data.get("dph_total") or data.get("dph_base") or data.get("price")
+        dph = next((data[key] for key in ("dph_total", "dph_base", "price") if data.get(key) is not None), None)
         try:
             dph = float(dph) if dph is not None else None
+            if dph is not None and not math.isfinite(dph):
+                dph = None
         except Exception:
             dph = None
         base["hourly_usd"] = dph
-        base["estimated_session_compute_usd"] = (
-            round(dph * base["session_hours"], 3) if dph is not None else None
-        )
+        estimate = dph * base["session_hours"] if dph is not None else None
+        base["estimated_session_compute_usd"] = round(estimate, 3) if estimate is not None and math.isfinite(estimate) else None
     except Exception as e:
         base["error"] = repr(e)
     return base
@@ -1827,9 +1940,23 @@ def _schedule_instance_action(action: str, delay: float = 1.5) -> None:
 async def restart_local_service(service: str) -> None:
     if service not in ("render", "prompt"):
         raise ValueError(service)
-    returncode, out, err = await _run_owned_restart(["bash", SERVICE_CTL, "restart", service])
-    if returncode != 0:
-        raise RuntimeError(err.decode(errors="replace") or out.decode(errors="replace"))
+    lock = service_restart_locks[service]
+    if lock.locked():
+        raise HTTPException(409, "service restart is already in progress")
+    async with lock:
+        service_maintenance[service] = "restarting"
+        service_maintenance_epochs[service] += 1
+        try:
+            returncode, out, err = await _run_owned_restart(["bash", SERVICE_CTL, "restart", service])
+            if returncode != 0:
+                raise RuntimeError(err.decode(errors="replace") or out.decode(errors="replace"))
+        except BaseException:
+            # A failed/cancelled restart cannot establish worker availability.
+            # A successful explicit restart releases this per-service barrier.
+            service_maintenance[service] = "unavailable"
+            raise
+        else:
+            service_maintenance.pop(service, None)
 
 
 async def vast_guard_worker() -> None:
@@ -1904,7 +2031,7 @@ async def vast_guard_worker() -> None:
 
 
 def pick_next_prompt_job() -> dict | None:
-    if lifecycle_dispatch_blocked() or service_recovering("prompt"):
+    if "prompt" in service_maintenance or lifecycle_dispatch_blocked() or service_recovering("prompt"):
         return None
     if vast_control.get("plan") in {"stop_after_current", "stop_after_queue", "destroy_after_queue_keep_data"}:
         # auto prompts may already be queued for stop-after-queue, but review generation is intentionally skipped when armed.
@@ -1929,7 +2056,7 @@ def pick_next_prompt_job() -> dict | None:
 
 
 def pick_next_render_job() -> dict | None:
-    if lifecycle_dispatch_blocked() or service_recovering("render") or vast_control.get("plan") == "stop_after_current":
+    if "render" in service_maintenance or lifecycle_dispatch_blocked() or service_recovering("render") or vast_control.get("plan") == "stop_after_current":
         return None
     candidates = [j for j in queue if j.get("status") in ("render_queued_review", "render_queued_auto")]
     if not candidates:
@@ -2223,24 +2350,8 @@ async def proxy_comfy(service: str, path: str, request: Request):
     if request.headers.get("range"):
         forwarded["Range"] = request.headers["range"]
 
-    client = httpx.AsyncClient(timeout=None)
-    stream_ctx = client.stream("GET", target, headers=forwarded)
-    resp = await stream_ctx.__aenter__()
-
-    async def body():
-        try:
-            async for chunk in resp.aiter_raw():
-                yield chunk
-        finally:
-            await resp.aclose()
-            await stream_ctx.__aexit__(None, None, None)
-            await client.aclose()
-
-    headers = {}
-    for h in ("content-type", "content-length", "content-range", "accept-ranges", "content-disposition"):
-        if h in resp.headers:
-            headers[h] = resp.headers[h]
-    return StreamingResponse(body(), status_code=resp.status_code, headers=headers)
+    from .proxy import worker_proxy
+    return await worker_proxy(target, request, forwarded)
 
 
 
@@ -2250,8 +2361,10 @@ async def api_vast_status():
 
 
 @app.post("/api/vast/action")
-async def api_vast_action(req: VastActionRequest):
+async def api_vast_action(req: VastActionRequest, request: Request = None):
     action = req.action
+    if action not in {"cancel_plan", "set_idle_timer", "set_cost_guard", "stop_after_current", "stop_after_queue", "destroy_after_queue_keep_data", "stop_now", "destroy_now"}:
+        raise HTTPException(400, f"Unknown Vast action: {action}")
 
     if action == "stop_now" and req.confirm != "STOP":
         raise HTTPException(400, "Type STOP to confirm")
@@ -2266,31 +2379,39 @@ async def api_vast_action(req: VastActionRequest):
     if action in {"stop_after_current", "stop_after_queue", "destroy_after_queue_keep_data", "stop_now", "destroy_now"} and not submissions_allowed():
         raise HTTPException(409, "Lifecycle actions are disabled in this CPU development environment")
 
+    # HTTP clients must carry the snapshot token captured for their logical
+    # decision. Direct controller calls are trusted internal actions. No await
+    # separates this compare from the durable generation increment below.
+    if request is not None and req.control_token is None:
+        raise HTTPException(428, "A lifecycle control_token from /api/vast/status is required")
+    if req.control_token is not None and req.control_token != lifecycle_control_token():
+        raise HTTPException(409, "Lifecycle controls changed; refresh and make a new decision")
+
     if action == "cancel_plan":
         vast_control.update({"plan":"none","reason":None,"armed_at":None,"require_persistence":False,"armed_generation":None})
-        save_vast_control()
-        return {"ok": True, "plan": vast_control}
+        save_lifecycle_decision()
+        return lifecycle_decision_response(plan=dict(vast_control))
 
     if action == "set_idle_timer":
         vast_control["idle_minutes"] = int(req.idle_minutes or 0)
-        save_vast_control()
-        return {"ok": True, "plan": vast_control}
+        save_lifecycle_decision()
+        return lifecycle_decision_response(plan=dict(vast_control))
 
     if action == "set_cost_guard":
         vast_control["cost_guard_usd"] = float(req.cost_guard_usd or 0)
-        save_vast_control()
-        return {"ok": True, "plan": vast_control}
+        save_lifecycle_decision()
+        return lifecycle_decision_response(plan=dict(vast_control))
 
     if action == "stop_after_current":
         vast_control.update({"plan":"stop_after_current","armed_at":time.time(),"reason":"user","armed_generation":queue_persistence_epoch})
-        save_vast_control()
-        return {"ok": True, "plan": vast_control}
+        save_lifecycle_decision()
+        return lifecycle_decision_response(plan=dict(vast_control))
 
     if action == "stop_after_queue":
         skipped = skip_unstarted_review_prompts_for_shutdown()
         vast_control.update({"plan":"stop_after_queue","armed_at":time.time(),"reason":f"user; skipped {skipped} unstarted review prompts","armed_generation":queue_persistence_epoch})
-        save_vast_control()
-        return {"ok": True, "plan": vast_control}
+        save_lifecycle_decision()
+        return lifecycle_decision_response(plan=dict(vast_control))
 
     if action == "destroy_after_queue_keep_data":
         ps = persistent_storage_status()
@@ -2307,27 +2428,24 @@ async def api_vast_action(req: VastActionRequest):
             "armed_at":time.time(),
             "reason":f"user; skipped {skipped} unstarted review prompts"
         })
-        save_vast_control()
-        return {"ok": True, "plan": vast_control, "persistence": ps}
+        save_lifecycle_decision()
+        return lifecycle_decision_response(plan=dict(vast_control), persistence=ps)
 
     if action == "stop_now":
         if req.confirm != "STOP":
             raise HTTPException(400, "Type STOP to confirm")
         vast_control.update({"plan":"executing_stop","armed_at":time.time(),"reason":"user immediate","require_persistence":False,"armed_generation":queue_persistence_epoch})
-        save_vast_control()
+        save_lifecycle_decision()
         _schedule_instance_action("stop", 2.0)
-        return {"ok": True, "message":"Instance stop scheduled. This panel will disconnect."}
+        return lifecycle_decision_response(message="Instance stop scheduled. This panel will disconnect.")
 
     if action == "destroy_now":
         if req.confirm != "DESTROY":
             raise HTTPException(400, "Type DESTROY to confirm")
         vast_control.update({"plan":"executing_destroy","armed_at":time.time(),"reason":"user immediate","require_persistence":False,"armed_generation":queue_persistence_epoch})
-        save_vast_control()
+        save_lifecycle_decision()
         _schedule_instance_action("destroy", 2.0)
-        return {
-            "ok": True,
-            "message":"Instance destroy scheduled. Instance-local data will be lost; separately mounted persistent volumes are not deleted by this action."
-        }
+        return lifecycle_decision_response(message="Instance destroy scheduled. Instance-local data will be lost; separately mounted persistent volumes are not deleted by this action.")
 
     raise HTTPException(400, f"Unknown Vast action: {action}")
 

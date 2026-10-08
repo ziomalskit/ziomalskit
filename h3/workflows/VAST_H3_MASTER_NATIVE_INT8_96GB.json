@@ -49544,7 +49544,7 @@
               "balanced"
             ],
             "widgets_values_named": {
-              "enabled": false,
+              "enabled": true,
               "blend_weight": 0.5,
               "degree": 4,
               "ridge_lambda": 0.1,
@@ -76556,7 +76556,7 @@
               "balanced"
             ],
             "widgets_values_named": {
-              "enabled": false,
+              "enabled": true,
               "blend_weight": 0.5,
               "degree": 4,
               "ridge_lambda": 0.1,

@@ -25,7 +25,7 @@ CATALOG = json.loads((ROOT / "tests/fixtures/workflow_catalog.json").read_text()
 APPROVED = "subject_definitions: reference person\nsummary: approved candidate\ndetailed_description: test"
 
 
-def exact_convert(workflow):
+def exact_convert(workflow, catalog=None):
     """Load verified upstream pure source without importing the whole CLI."""
     provenance = json.loads((VENDOR / "PROVENANCE.json").read_text())
     for name, digest in provenance["files_sha256"].items():
@@ -57,7 +57,7 @@ def exact_convert(workflow):
             spec.loader.exec_module(module)
             modules[name] = module
         sys.modules["comfy_cli.cql"].promoted = modules["comfy_cli.cql.promoted"]
-        return modules["comfy_cli.workflow_to_api"].convert_ui_to_api(workflow, CATALOG)
+        return modules["comfy_cli.workflow_to_api"].convert_ui_to_api(workflow, CATALOG if catalog is None else catalog)
     finally:
         for k in list(sys.modules):
             if k == "comfy_cli" or k.startswith("comfy_cli."):

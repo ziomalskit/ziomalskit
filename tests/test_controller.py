@@ -20,7 +20,7 @@ def history(*, success=True, video=False, text=False):
         outputs["preview"] = {"text": ["intermediate text"]}
     if video:
         outputs["save"] = {"videos": [{"filename": "result.mp4", "subfolder": "H3", "type": "output"}]}
-    return {"outputs": outputs, "status": {"status_str": "success" if success else "error",
+    return {"prompt": {"5732": {"class_type": "PreviewAny", "inputs": {}}}, "outputs": outputs, "status": {"status_str": "success" if success else "error",
             "completed": success, "messages": [] if success else [["execution_error", {"exception_type": "RuntimeError"}]]}}
 
 
