@@ -423,8 +423,54 @@ def group_members(pid: int) -> list[Path]:
     return members
 
 
-def stop_group(pid: int, descriptor: int) -> None:
+@contextmanager
+def stop_cancellation_window(*, keep_owner: bool):
+    """TERM requests escalation; it cannot release the sole service pidfd."""
+    cancelled = False
+    previous = signal.getsignal(signal.SIGTERM)
+    libc = None
+    previous_parent_signal = ctypes.c_int()
+    parent_signal_set = False
+    def escalate(_signum, _frame):
+        nonlocal cancelled
+        cancelled = True
+    signal.signal(signal.SIGTERM, escalate)
+    try:
+        if keep_owner:
+            # CLI stop owns the record lock and original pidfd. Isolate it from
+            # the outer shell's eventual group KILL, while parent death still
+            # cooperatively requests immediate service escalation.
+            parent = os.getppid()
+            libc = ctypes.CDLL(None, use_errno=True)
+            if libc.prctl(2, ctypes.byref(previous_parent_signal), 0, 0, 0) != 0:
+                error = ctypes.get_errno()
+                raise OSError(error, os.strerror(error))
+            if libc.prctl(1, signal.SIGTERM, 0, 0, 0) != 0:
+                error = ctypes.get_errno()
+                raise OSError(error, os.strerror(error))
+            parent_signal_set = True
+            if os.getsid(0) != os.getpid():
+                os.setsid()
+            if os.getppid() != parent:
+                cancelled = True
+        yield lambda: cancelled
+    finally:
+        try:
+            if parent_signal_set:
+                if libc.prctl(1, previous_parent_signal.value, 0, 0, 0) != 0:
+                    error = ctypes.get_errno()
+                    raise OSError(error, os.strerror(error))
+        finally:
+            signal.signal(signal.SIGTERM, previous)
+
+
+def stop_group(pid: int, descriptor: int, *, keep_owner: bool = False) -> None:
     """Keep the original pidfd through leader death and descendant cleanup."""
+    with stop_cancellation_window(keep_owner=keep_owner) as cancelled:
+        _stop_group(pid, descriptor, cancelled, keep_owner=keep_owner)
+
+
+def _stop_group(pid: int, descriptor: int, cancelled, *, keep_owner: bool) -> None:
     require_group_control()
     snap = process_snapshot(pid)
     if snap['pgid'] != pid or snap['sid'] != pid:
@@ -439,14 +485,20 @@ def stop_group(pid: int, descriptor: int) -> None:
         try:
             signal.pidfd_send_signal(descriptor, sig, None, PIDFD_SIGNAL_PROCESS_GROUP)
         except ProcessLookupError:
-            if not group_members(pid):
-                break
+            try:
+                if not group_members(pid):
+                    break
+            except BaseException as error:
+                errors.append(error)
+                continue  # Unknown membership cannot release the capability.
             errors.append(IndeterminateIdentity('Owned group cannot be addressed'))
         except BaseException as error:
             errors.append(error)
             continue
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
+            if sig == signal.SIGTERM and cancelled():
+                break  # Escalate through this same descriptor, never a PGID.
             try:
                 members = group_members(pid)
             except BaseException as error:
@@ -473,6 +525,26 @@ def stop_group(pid: int, descriptor: int) -> None:
                     raise errors[0]
                 return
             time.sleep(.02)
+    if keep_owner:
+        # A genuinely indeterminate group must not lose its only capability.
+        # Retain this isolated owner and record lock until cleanup is confirmed.
+        # Release inherited pipes so a cancelled controller can finish cleanup.
+        while True:
+            try:
+                if not group_members(pid):
+                    break
+            except Exception:
+                pass
+            for fd in (1, 2):
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            try:
+                signal.pidfd_send_signal(descriptor, signal.SIGKILL, None, PIDFD_SIGNAL_PROCESS_GROUP)
+            except OSError:
+                pass
+            time.sleep(.1)
     if errors:
         for error in errors[1:]:
             errors[0].add_note(f'Group cleanup failed: {error!r}')
@@ -784,7 +856,7 @@ def main() -> int:
             pid, descriptor = checked_pidfd(args, allow_gate=args.command in {"signal", "stop"})
             try:
                 if args.command == "stop":
-                    stop_group(pid, descriptor)
+                    stop_group(pid, descriptor, keep_owner=True)
                     args.pid_file.unlink(missing_ok=True)
                 elif args.command == "listener":
                     require_owned_listener(args, pid, descriptor)

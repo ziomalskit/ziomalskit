@@ -887,7 +887,8 @@ def _require_restart_group_control() -> None:
             primary.add_note(f"Restart capability descriptor close failed: {error!r}")
 
 
-async def _cleanup_owned_restart(proc, descriptor: int | None, communication: asyncio.Task | None) -> list[BaseException]:
+async def _cleanup_owned_restart(proc, descriptor: int | None, communication: asyncio.Task | None,
+                                 cooperative_stop: bool = False) -> list[BaseException]:
     errors: list[BaseException] = []
 
     def send(sig: int) -> bool:
@@ -916,8 +917,13 @@ async def _cleanup_owned_restart(proc, descriptor: int | None, communication: as
             errors.append(error)
     send(signal.SIGTERM)
     try:
-        await asyncio.to_thread(proc.wait, timeout=2)
-    except subprocess.TimeoutExpired:
+        if cooperative_stop and communication is not None:
+            # Shell exit is not helper completion. The stop owner holds these
+            # pipes through TERM->KILL confirmation (two bounded 5s attempts).
+            await asyncio.wait_for(asyncio.shield(communication), timeout=12)
+        else:
+            await asyncio.to_thread(proc.wait, timeout=2)
+    except (subprocess.TimeoutExpired, asyncio.TimeoutError):
         pass
     except BaseException as error:
         errors.append(error)
@@ -938,7 +944,8 @@ async def _cleanup_owned_restart(proc, descriptor: int | None, communication: as
     return errors
 
 
-async def _run_owned_restart(command: list[str], *, preserve_success: bool = False) -> tuple[int, bytes, bytes]:
+async def _run_owned_restart(command: list[str], *, preserve_success: bool = False,
+                             cooperative_stop: bool = False) -> tuple[int, bytes, bytes]:
     _require_restart_group_control()
     proc = None
     descriptor = None
@@ -959,7 +966,7 @@ async def _run_owned_restart(command: list[str], *, preserve_success: bool = Fal
         raise
     finally:
         if proc is not None:
-            cleanup = asyncio.create_task(_cleanup_owned_restart(proc, descriptor, communication))
+            cleanup = asyncio.create_task(_cleanup_owned_restart(proc, descriptor, communication, cooperative_stop))
             cleanup_cancellation = None
             while True:
                 try:
@@ -1018,7 +1025,7 @@ async def _run_owned_restart(command: list[str], *, preserve_success: bool = Fal
 
 
 async def restart_comfy(service: str) -> None:
-    returncode, _out, _err = await _run_owned_restart(["/bin/sh", "-c", restart_cmd(service)])
+    returncode, _out, _err = await _run_owned_restart(["/bin/sh", "-c", restart_cmd(service)], cooperative_stop=True)
     if returncode != 0:
         raise RuntimeError(f"{service} restart failed with exit code {returncode}")
 
@@ -1570,7 +1577,13 @@ async def submit_and_watch(job: dict, workflow: Path, service: str, approved_pro
     job["active_service"] = service
     job["status"] = f"{service}_preparing"
     job[f"{service}_submission_state"] = "preparing"
-    save_state()
+    try:
+        save_state()
+    except Exception:
+        # This queue write precedes even workflow preparation. A later generic
+        # converter/validation error retains 'preparing' and stays terminal.
+        job[f"{service}_submission_state"] = "deferred"
+        raise
     wf_path = patch_workflow(job, workflow, approved_prompt=approved_prompt)
     try:
         prompt_id = await _submit_workflow(job, wf_path, service)
@@ -1582,6 +1595,10 @@ async def submit_and_watch(job: dict, workflow: Path, service: str, approved_pro
         save_state()
         return {"ok": False, "cancelled": True}
     except SubmissionDeferred:
+        # This outcome is authoritative no-dispatch knowledge, unlike a generic
+        # preparation error. Publish it in RAM before the queued snapshot can
+        # fail to persist; the worker must retain it through storage recovery.
+        job[f"{service}_submission_state"] = "deferred"
         job["status"] = "prompt_queued" if service == "prompt" else (
             "render_queued_review" if job.get("approved_final_prompt") else "render_queued_auto"
         )
@@ -1947,7 +1964,7 @@ async def restart_local_service(service: str) -> None:
         service_maintenance[service] = "restarting"
         service_maintenance_epochs[service] += 1
         try:
-            returncode, out, err = await _run_owned_restart(["bash", SERVICE_CTL, "restart", service])
+            returncode, out, err = await _run_owned_restart(["bash", SERVICE_CTL, "restart", service], cooperative_stop=True)
             if returncode != 0:
                 raise RuntimeError(err.decode(errors="replace") or out.decode(errors="replace"))
         except BaseException:
@@ -2090,16 +2107,22 @@ async def render_job(job: dict) -> None:
 def _handle_worker_error(job: dict, service: str, error: Exception) -> None:
     try:
         submission_state = job.get(f"{service}_submission_state")
-        if submission_state == "prepared":
-            # Only the pre-dispatch arm write can fail in this phase. Retain the
-            # known absence of HTTP side effects while local persistence heals.
+        if submission_state in {"prepared", "deferred"}:
+            # Both outcomes prove the absence of remote side effects. Keep the
+            # published RAM snapshot queued until the persistence fence heals.
             job["status"] = "cancelled" if job.get("cancel_requested") else (
                 "prompt_queued" if service == "prompt" else (
                     "render_queued_review" if job.get("approved_final_prompt") else "render_queued_auto"
                 )
             )
             job["persistence_warning"] = str(error)
-            save_state()
+            if submission_state == "deferred":
+                # Do not consume a one-shot fault in the error handler: expose
+                # degraded storage until the worker's normal repair boundary.
+                if not queue_persistence_error:
+                    _record_queue_persistence_failure(error)
+            else:
+                save_state()
         elif submission_state in {"armed", "attempting", "accepted", "uncertain"}:
             _preserve_recovery(job, service, f"Execution outcome could not be confirmed: {error}")
         else:

@@ -150,7 +150,7 @@ class Step3ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_concurrent_restart_is_one_owned_restart_and_inprogress_409(self):
         with load_controller() as m:
             entered, release = asyncio.Event(), asyncio.Event()
-            async def restart(_command):
+            async def restart(_command, **_options):
                 entered.set(); await release.wait(); return 0, b'', b''
             with patch.object(m, '_run_owned_restart', side_effect=restart) as run:
                 async with api(m) as c:
@@ -172,7 +172,7 @@ class Step3ApiTests(unittest.IsolatedAsyncioTestCase):
             job.update(status='render_queued_auto', final_h3_prompt='approved', batch_seq=1, candidate_index=1, created_at=1)
             m.queue[:] = [job]
             entered, release = asyncio.Event(), asyncio.Event()
-            async def restart(_command):
+            async def restart(_command, **_options):
                 entered.set(); await release.wait(); return 0, b'', b''
             async def dispatch(_prepared, _workflow, _service, pid): return pid
             with patch.object(m, '_run_owned_restart', side_effect=restart), \
