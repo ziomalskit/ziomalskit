@@ -1,60 +1,85 @@
 # Live acceptance tests — run in this order
 
-Do not queue a real H3 batch before 1–3 pass.
+Baseline CPU/runtime jest zaakceptowany. Ten dokument dotyczy wyłącznie testów na realnym środowisku GPU/Vast.
+
+Nie uruchamiaj pełnego panelowego batcha przed przejściem kroków 1–3.
 
 ## 1. Infrastructure preflight
+
 ```bash
 bash scripts/preflight.sh
 ```
-Must confirm:
+
+Musi potwierdzić:
 - ComfyUI 0.38.0;
-- comfy-cli 1.21.0 (warning if not exact);
+- comfy-cli 1.21.0 (warning jeśli nie jest dokładnie zgodne);
 - CUDA toolkit >=12.8;
-- all required models/default LoRAs/Bunny model;
+- wszystkie wymagane modele/default LoRAs/Bunny model;
 - Linux llama-cli;
-- both Comfy services;
-- authenticated panel.
+- oba Comfy services;
+- authenticated panel;
+- runtime na Linuxie obsługującym wymagane pidfd process-group signalling.
 
 ## 2. Conversion smoke test — NO REAL RENDER
+
 ```bash
 bash scripts/smoke_test.sh
 ```
-This patches a technical workflow and runs:
-- `comfy validate` on prompt and render services;
-- `comfy run --print-prompt` on both.
 
-`--print-prompt` converts UI -> API and exits without queuing generation.
+Test patchuje techniczny workflow i wykonuje walidację/konwersję obu usług. Ścieżka `--print-prompt` ma zakończyć się bez wysłania generacji.
 
-## 3. Prompt-only acceptance
-Create ONE batch with six small images and no audio.
-Watch prompt service/logs:
-- candidate #1 executes Step 0–4;
-- candidates #2–10 should show substantial cache reuse for Step 0–2;
-- final prompts must differ because Step 3/4 receive different candidate seeds;
-- #1–5 become auto render candidates;
-- #6–10 become pending review.
+Sprawdź również rzeczywiste `/object_info` obu usług i brak UI-only classes w skonwertowanym API graphie.
 
-For this test, cancel/stop before spending time on multiple renders if desired.
+## 3. Prompt-only acceptance — bez render batcha
+
+Nie używaj zwykłego endpointu tworzenia batcha jako pierwszego testu, ponieważ standardowy panelowy flow przygotowuje kandydatów do auto-renderu.
+
+Uruchom oddzielny prompt-only workflow z sześcioma małymi obrazami i bez audio.
+
+Potwierdź:
+- Step 0–4 kończy się sukcesem;
+- finalny prompt zostaje przechwycony;
+- brak POST do render workera;
+- cache Step 0–2 działa tam, gdzie powinien;
+- Step 3/4 dostają candidate seed;
+- prompt worker pozostaje zdrowy po zakończeniu.
 
 ## 4. One native H3 render
-Verify:
-- native INT8 model;
-- active LoRAs;
-- first/second pass;
-- output playback through controller proxy.
+
+Uruchom dokładnie jeden kontrolowany render.
+
+Zweryfikuj:
+- native H3 INT8;
+- właściwe LoRA i model files;
+- właściwy final prompt;
+- dokładnie jeden submission;
+- sukces w `/history`;
+- realny MP4 i playback przez controller proxy;
+- peak VRAM, wall time i brak OOM/restart loop.
+
+Dopiero po tym można uruchomić normalny panelowy batch.
 
 ## 5. Parallel overlap benchmark
-While one H3 render runs, generate the next prompt batch.
-Compare render wall time against render-only baseline.
-If the penalty is material, later switch the prompt worker to prebuffer/idle-only.
 
-## 6. Watchdog
-Use a disposable job and intentionally short timeout.
-Confirm only the affected service is cancelled/restarted and queue continues.
+Podczas jednego H3 renderu przygotuj następny prompt batch.
+
+Porównaj render wall time z render-only baseline. Jeżeli penalty jest istotne, rozważ prebuffer/idle-only dla prompt workera zamiast stałego overlapu.
+
+## 6. Watchdog i recovery
+
+Na disposable jobie:
+- ustaw krótki timeout;
+- potwierdź cancel/restart tylko właściwej usługi;
+- sprawdź continuation kolejki;
+- sprawdź restart panelu i recovery bez duplicate submit.
 
 ## 7. Vast lifecycle
-Only after persistent storage reports VERIFIED:
-- test STOP AFTER CURRENT;
-- start the same instance from Vast console and verify `/root/onstart.sh`;
-- test STOP AFTER QUEUE;
-- leave DESTROY COMPUTE / KEEP DATA until outputs/state are visibly present on the Local Volume.
+
+Tylko gdy persistent storage raportuje VERIFIED i ręcznie potwierdzono Local Volume:
+- STOP AFTER CURRENT;
+- start tej samej instancji z Vast i weryfikacja onstart;
+- STOP AFTER QUEUE;
+- ponowny start i weryfikacja queue/state;
+- DESTROY COMPUTE / KEEP DATA dopiero na końcu, po potwierdzeniu output/state na Local Volume.
+
+Pełna checklista i końcowe kryteria są w `../docs/GPU_ACCEPTANCE.md`.
