@@ -1,51 +1,81 @@
 # AJ — panel mobilny i generowanie wideo H3
 
-Projekt ma przyjmować **6 obrazów i opcjonalnie 1 plik audio**, analizować referencje, przygotowywać 10 wariantów promptu i generować wideo przez ComfyUI na GPU Vast.ai. Produkcyjny model pozostaje native MiniMax H3 INT8; 10Eros to opcjonalny wariant porównawczy.
+Projekt przyjmuje **6 obrazów i opcjonalnie 1 plik audio**, analizuje referencje, przygotowuje 10 wariantów promptu i generuje wideo przez ComfyUI na GPU Vast.ai. Produkcyjny model pozostaje native MiniMax H3 INT8; 10Eros to opcjonalny wariant porównawczy.
 
-**Stan po ponownej analizie, 6 października 2026:** środowisko do rozwijania panelu działa. Oryginalny RC5 ma potwierdzone błędy instalacji, konwersji workflowów i obsługi kolejki. Nie jest jeszcze gotowy do płatnego renderowania.
+**Stan po audycie CPU/runtime, 8 października 2026:** wszystkie znane merge-blocking problemy wykryte w STEP 1–3 i cross-step zostały naprawione, niezależnie zweryfikowane i scalone do `main` w PR #1. Końcowy merge commit to `4ea3fdd1b9d41e2475c52ed5f705b52af35df5b0`.
 
-Nie musisz ręcznie układać plików na GitHubie. Repozytorium zawiera materiały projektu, powtarzalną instalację, lokalny start panelu i testy. Nie zawiera wag modeli ani prawdziwych haseł.
+Aktualny baseline przechodzi:
+- `make setup`;
+- `make test`: **290 testów PASS + 16 HTTP smoke checks**;
+- `make audit`: **290 testów PASS**;
+- finalne targeted suites dla dwóch ostatnich blockerów G/C: **10/5 PASS**;
+- zero failures, errors i skips; bez hung teardown.
+
+To oznacza **CPU/runtime acceptance PASS**. Nie oznacza jeszcze pełnego GPU acceptance: na aktualnym kodzie po merge nie wykonano jeszcze realnej instalacji na docelowym RTX PRO 6000, prawdziwego `/object_info`, prompt-only acceptance, renderu H3, benchmarku VRAM ani lifecycle STOP/DESTROY na wynajętej instancji.
 
 ## Od czego zacząć
 
-1. [Raport działania i kompatybilności](docs/AUDIT_2026-10-06.md) — aktualne ustalenia i kolejność napraw.
-2. [Oryginalny README paczki](migration/00_START_HERE/README_FIRST.md) — opis projektu przekazany z wcześniejszej rozmowy.
-3. [Oryginalny stan projektu](migration/00_START_HERE/CURRENT_STATE.md) — architektura, modele i historia decyzji.
-4. [Przygotowanie do Vast.ai](docs/GPU_ACCEPTANCE.md) — wymagania, których nie można sprawdzić na maszynie bez GPU.
+1. [Finalne CPU/runtime acceptance](docs/FINAL_CPU_ACCEPTANCE_2026-10-08.md) — kanoniczny stan po merge.
+2. [Przygotowanie i acceptance na Vast GPU](docs/GPU_ACCEPTANCE.md) — aktualna kolejność pierwszego deploymentu.
+3. [H3 Vast Mobile](h3/README.md) — wymagania runtime, persistent volume i sterowanie usługami.
+4. [Historyczny audyt z 6 października](docs/AUDIT_2026-10-06.md) — źródło wcześniejszych blockerów; nie jest już aktualnym statusem produkcyjnym.
+5. [Oryginalny stan projektu](migration/00_START_HERE/CURRENT_STATE.md) — materiał migracyjny i historia decyzji.
 
-Załączniki są materiałami źródłowymi. Ich wcześniejsze oznaczenia „PASS” odnoszą się do zakresu dawnych testów; obecny audyt wykazał dodatkowe usterki. Paczka nie zawiera pełnego eksportu czatu „Analiza poprzedniego czatu”.
+Materiały pod `migration/` i `archive/` są baseline'em historycznym. Ich stare oznaczenia PASS/FAIL nie zastępują aktualnego stanu na `main`.
 
 ## Praca lokalna / Codex
 
-Wymagane: Linux, Python 3.12, Git i Bash. Node.js jest opcjonalny i służy do sprawdzania składni JavaScript.
+Wymagane: Linux, Python >=3.11 (development checks używają 3.12), Git i Bash. Node.js jest opcjonalny i służy do sprawdzania składni JavaScript.
 
 ```bash
-make setup     # osobne .venv, zależności z wersjami i sumami SHA256
-make test      # integralność paczki, oryginalne testy, 16 prób HTTP
-make panel     # lokalny panel, logowanie i stan w ignorowanym .local/
+make setup
+make test
+make audit
+make panel
 make status
 make stop
 ```
 
-Panel developerski korzysta z oryginalnego kodu RC5 w kopii `.local/panel/`. Słucha tylko na lokalnym interfejsie, nie instaluje ComfyUI ani modeli i nie ma działającego CLI Vast. Hasło generuje lokalnie w `.local/dev-auth.json`, który jest wykluczony z Git. Procesy trzeba uruchomić ponownie po odtworzeniu środowiska.
+`make test` i `make audit` są teraz oczekiwane jako PASS na baseline po merge. Testy CPU obejmują m.in. persistence/recovery, lifecycle fencing, procesy i pidfd ownership, provisioning/deployment, workflow validation, frontend races, proxy cleanup i HTTP boundaries.
+
+Panel developerski działa lokalnie i nie jest równoważny deploymentowi GPU. CPU PASS nie dowodzi jakości renderu, poprawnego załadowania wag, zachowania VRAM ani prawdziwych operacji Vast.
+
+## Pierwszy deployment Vast
+
+Używaj **aktualnego** instalatora z `h3/INSTALL_ON_VAST.sh`, nie archiwalnej kopii z `migration/`.
+
+Na docelowej instancji:
 
 ```bash
-make audit    # odtwarza znane błędy sterownika; obecnie kończy się kodem 1
+cd h3
+bash INSTALL_ON_VAST.sh
 ```
 
-`make test` potwierdza działanie środowiska CPU i kontraktów objętych testami. Nie dowodzi poprawności renderu, pamięci GPU ani automatycznego wyłączania instancji. `make audit` celowo zgłasza istniejące błędy jako blokery, a nie jako zaliczone testy produkcyjne.
+Po obecności wszystkich wymaganych modeli:
+
+```bash
+bash <PANEL_ROOT>/scripts/preflight.sh
+bash <PANEL_ROOT>/scripts/smoke_test.sh
+```
+
+Nie uruchamiaj pełnego batcha jako pierwszego testu GPU. Po preflight/smoke wykonaj najpierw kontrolowany prompt-only acceptance, a następnie **jeden** natywny render H3. Szczegóły i kryteria zaliczenia są w [docs/GPU_ACCEPTANCE.md](docs/GPU_ACCEPTANCE.md).
 
 ## Układ repozytorium
 
 | Katalog | Zawartość |
 | --- | --- |
-| `migration/` | Wszystkie 66 oryginalnych plików ZIP, zachowane bez zmian |
-| `migration/01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/` | Panel, skrypty, mapowanie API i workflowy RC5 |
-| `archive/` | Sześć otrzymanych załączników; dwa dosłane README są identyczne z wcześniejszymi |
-| `docs/` | Nowy audyt, dowody i wymagania dla testu GPU |
-| `scripts/` | Powtarzalne narzędzia developerskie i testy bez płatnego renderu |
-| `requirements/panel.lock` | Dokładne wersje i sumy kontrolne zależności panelu |
-| `.github/workflows/` | Automatyczne testy CPU na push i pull request |
-| `.local/`, `.venv/` | Lokalny stan, hasła, logi i zależności; poza Git |
+| `h3/` | Aktualny, naprawiony runtime, provisioning, panel i workflowy |
+| `tests/` | CPU/runtime regression suite |
+| `docs/` | Aktualne acceptance, audyty i wymagania GPU |
+| `migration/` | Oryginalne materiały migracyjne zachowane jako baseline |
+| `archive/` | Archiwalne załączniki |
+| `scripts/` | Narzędzia developerskie i testy |
+| `requirements/` | Pinned dependencies / locki |
+| `.github/workflows/` | Definicje automatyzacji repozytorium |
+| `.local/`, `.venv/` | Lokalny stan i zależności; poza Git |
 
-Nie uruchamiaj oryginalnego `INSTALL_ON_VAST.sh` na obecnej maszynie Codex. Jest przeznaczony dla serwera GPU, modyfikuje system i wymaga napraw wskazanych w audycie. Zwykły przycisk tworzenia batcha automatycznie zleca pięć renderów; nie jest testem „prompt-only”.
+## Zasada kosztowa
+
+Przed pierwszym płatnym renderem wymagane są: poprawny persistent volume, poprawne modele i custom nodes, oba ComfyUI workers, panel, `preflight.sh` i `smoke_test.sh`.
+
+Prompt-only acceptance ma być wykonany bez uruchamiania pełnego panelowego batcha renderów. Dopiero po nim uruchamiamy jeden kontrolowany render i weryfikujemy wynik w `/history` oraz plik wideo.
