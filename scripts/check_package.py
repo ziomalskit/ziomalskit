@@ -20,13 +20,13 @@ with zipfile.ZipFile(archive) as source:
         relative = Path(*Path(member.filename).parts[1:])
         assert (ROOT / 'migration' / relative).read_bytes() == source.read(member), relative
         originals += 1
-jsons = list((ROOT / 'migration').rglob('*.json'))
+jsons = list((ROOT / 'migration').rglob('*.json')) + list((ROOT / 'h3').rglob('*.json'))
 for path in jsons:
     json.loads(path.read_text())
-shells = list((ROOT / 'migration').rglob('*.sh')) + list((ROOT / 'scripts').glob('*.sh'))
+shells = list((ROOT / 'migration').rglob('*.sh')) + list((ROOT / 'h3').rglob('*.sh')) + list((ROOT / 'scripts').glob('*.sh'))
 for path in shells:
     subprocess.run(['bash', '-n', str(path)], check=True)
-html = ROOT / 'migration/01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5/static/index.html'
+html = ROOT / 'h3/static/index.html'
 scripts = re.findall(r'<script\b[^>]*>(.*?)</script>', html.read_text(), flags=re.S | re.I)
 if shutil.which('node'):
     with tempfile.TemporaryDirectory() as temporary:

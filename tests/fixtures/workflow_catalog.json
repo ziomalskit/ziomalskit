@@ -1,0 +1,2616 @@
+{
+  "provenance": "Derived from immutable RC5 UI node fields/ports solely for CPU structural conversion tests. Not real object_info and not model/runtime acceptance.",
+  "catalog": {
+    "JWDatetimeString": {
+      "input": {
+        "required": {
+          "format": [
+            "STRING",
+            {
+              "default": "%Y-%m-%d_%H-%M-%S"
+            }
+          ]
+        }
+      },
+      "output": [
+        "STRING"
+      ],
+      "output_node": false
+    },
+    "ResizeImageMaskAlt": {
+      "input": {
+        "required": {
+          "resize_type": [
+            "STRING",
+            {
+              "default": "scale total pixels"
+            }
+          ],
+          "resize_type.aspect_ratio": [
+            "STRING",
+            {
+              "default": "Source (Keep Aspect Ratio)"
+            }
+          ],
+          "resize_type.megapixels": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "resize_type.megapixel_priority": [
+            "FLOAT",
+            {
+              "default": 0.5
+            }
+          ],
+          "resize_type.multiple_of": [
+            "INT",
+            {
+              "default": 32
+            }
+          ],
+          "resize_type.crop": [
+            "STRING",
+            {
+              "default": "center"
+            }
+          ],
+          "scale_method": [
+            "STRING",
+            {
+              "default": "area"
+            }
+          ],
+          "condition": [
+            "STRING",
+            {
+              "default": "always"
+            }
+          ]
+        }
+      },
+      "output": [
+        "IMAGE",
+        "MASK"
+      ],
+      "output_node": false
+    },
+    "LoadAudio": {
+      "input": {
+        "required": {
+          "audio": [
+            "STRING",
+            {
+              "default": "WomanVoice6Sec.mp3"
+            }
+          ]
+        }
+      },
+      "output": [
+        "AUDIO"
+      ],
+      "output_node": false
+    },
+    "PreviewAny": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "STRING"
+      ],
+      "output_node": true
+    },
+    "easy PassOrNone": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "*",
+        "BOOLEAN"
+      ],
+      "output_node": false
+    },
+    "LTXVSeparateAVLatent": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "LATENT",
+        "LATENT"
+      ],
+      "output_node": false
+    },
+    "Bool-\ud83d\udd2c": {
+      "input": {
+        "required": {
+          "value": [
+            "BOOLEAN",
+            {
+              "default": true
+            }
+          ]
+        }
+      },
+      "output": [
+        "BOOLEAN"
+      ],
+      "output_node": false
+    },
+    "ModelPreviewOverrideKJ": {
+      "input": {
+        "required": {
+          "max_resolution": [
+            "INT",
+            {
+              "default": 1024
+            }
+          ],
+          "jpeg_quality": [
+            "INT",
+            {
+              "default": 80
+            }
+          ],
+          "suppress_default_preview": [
+            "BOOLEAN",
+            {
+              "default": true
+            }
+          ],
+          "preview_frames": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "preview_fps": [
+            "INT",
+            {
+              "default": 12
+            }
+          ],
+          "tiny_vae": [
+            "STRING",
+            {
+              "default": "taeh3.safetensors"
+            }
+          ],
+          "preview": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ]
+        }
+      },
+      "output": [
+        "MODEL"
+      ],
+      "output_node": false
+    },
+    "MiniMaxH3RefModsLoader": {
+      "input": {
+        "required": {
+          "show_info": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ],
+          "mod_1": [
+            "STRING",
+            {
+              "default": "(none)"
+            }
+          ],
+          "strength_1": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "copies_1": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "mod_2": [
+            "STRING",
+            {
+              "default": "(none)"
+            }
+          ],
+          "strength_2": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "copies_2": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "mod_3": [
+            "STRING",
+            {
+              "default": "(none)"
+            }
+          ],
+          "strength_3": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "copies_3": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "mod_4": [
+            "STRING",
+            {
+              "default": "(none)"
+            }
+          ],
+          "strength_4": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "copies_4": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "mod_5": [
+            "STRING",
+            {
+              "default": "(none)"
+            }
+          ],
+          "strength_5": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "copies_5": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "mod_6": [
+            "STRING",
+            {
+              "default": "(none)"
+            }
+          ],
+          "strength_6": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "copies_6": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "mod_7": [
+            "STRING",
+            {
+              "default": "(none)"
+            }
+          ],
+          "strength_7": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "copies_7": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "mod_8": [
+            "STRING",
+            {
+              "default": "(none)"
+            }
+          ],
+          "strength_8": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "copies_8": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "max_total_tokens": [
+            "INT",
+            {
+              "default": 0
+            }
+          ],
+          "components_1": [
+            "STRING",
+            {
+              "default": "All"
+            }
+          ],
+          "visual_strength_1": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "audio_strength_1": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "components_2": [
+            "STRING",
+            {
+              "default": "All"
+            }
+          ],
+          "visual_strength_2": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "audio_strength_2": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "components_3": [
+            "STRING",
+            {
+              "default": "All"
+            }
+          ],
+          "visual_strength_3": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "audio_strength_3": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "components_4": [
+            "STRING",
+            {
+              "default": "All"
+            }
+          ],
+          "visual_strength_4": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "audio_strength_4": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "components_5": [
+            "STRING",
+            {
+              "default": "All"
+            }
+          ],
+          "visual_strength_5": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "audio_strength_5": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "components_6": [
+            "STRING",
+            {
+              "default": "All"
+            }
+          ],
+          "visual_strength_6": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "audio_strength_6": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "components_7": [
+            "STRING",
+            {
+              "default": "All"
+            }
+          ],
+          "visual_strength_7": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "audio_strength_7": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "components_8": [
+            "STRING",
+            {
+              "default": "All"
+            }
+          ],
+          "visual_strength_8": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "audio_strength_8": [
+            "INT",
+            {
+              "default": 1
+            }
+          ]
+        }
+      },
+      "output": [
+        "H3_REF_MODS",
+        "STRING"
+      ],
+      "output_node": false
+    },
+    "MiniMaxH3RefModApply": {
+      "input": {
+        "required": {
+          "override": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ],
+          "retention": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "curve_direction": [
+            "STRING",
+            {
+              "default": "constant"
+            }
+          ],
+          "scramble_seed": [
+            "INT",
+            {
+              "default": -1
+            }
+          ],
+          "fixed": [
+            "STRING",
+            {
+              "default": "fixed"
+            }
+          ],
+          "curve_shape": [
+            "STRING",
+            {
+              "default": "linear"
+            }
+          ],
+          "curve_value": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "graph_preset": [
+            "STRING",
+            {
+              "default": "(none)"
+            }
+          ],
+          "scramble_mode": [
+            "STRING",
+            {
+              "default": "shuffle"
+            }
+          ],
+          "scramble_keep": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "max_total_tokens": [
+            "INT",
+            {
+              "default": 0
+            }
+          ],
+          "save_preset_as": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ]
+        }
+      },
+      "output": [
+        "CONDITIONING",
+        "IMAGE"
+      ],
+      "output_node": false
+    },
+    "CreateVideo": {
+      "input": {
+        "required": {
+          "fps": [
+            "INT",
+            {
+              "default": 24
+            }
+          ],
+          "bit_depth": [
+            "INT",
+            {
+              "default": 8
+            }
+          ],
+          "color_space": [
+            "STRING",
+            {
+              "default": "sRGB"
+            }
+          ],
+          "codec": [
+            "STRING",
+            {
+              "default": "none"
+            }
+          ]
+        }
+      },
+      "output": [
+        "VIDEO"
+      ],
+      "output_node": false
+    },
+    "LTXVConcatAVLatent": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "LATENT"
+      ],
+      "output_node": false
+    },
+    "VHS_LoadVideo": {
+      "input": {
+        "required": {
+          "video": [
+            "STRING",
+            {
+              "default": "Dancers.mp4"
+            }
+          ],
+          "force_rate": [
+            "INT",
+            {
+              "default": 24
+            }
+          ],
+          "custom_width": [
+            "INT",
+            {
+              "default": 0
+            }
+          ],
+          "custom_height": [
+            "INT",
+            {
+              "default": 0
+            }
+          ],
+          "frame_load_cap": [
+            "INT",
+            {
+              "default": 0
+            }
+          ],
+          "skip_first_frames": [
+            "INT",
+            {
+              "default": 154
+            }
+          ],
+          "select_every_nth": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "format": [
+            "STRING",
+            {
+              "default": "H3"
+            }
+          ]
+        }
+      },
+      "output": [
+        "IMAGE",
+        "INT",
+        "AUDIO",
+        "VHS_VIDEOINFO"
+      ],
+      "output_node": false
+    },
+    "Power Lora Loader (rgthree)": {
+      "input": {
+        "required": {
+          "\u2795 Add Lora": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ]
+        }
+      },
+      "output": [
+        "MODEL",
+        "CLIP"
+      ],
+      "output_node": false
+    },
+    "Seed (rgthree)": {
+      "input": {
+        "required": {
+          "seed": [
+            "INT",
+            {
+              "default": 105072913195094
+            }
+          ],
+          "\ud83c\udfb2 Randomize Each Time": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ],
+          "\ud83c\udfb2 New Fixed Random": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ],
+          "USE_LAST_SEED": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ]
+        }
+      },
+      "output": [
+        "INT"
+      ],
+      "output_node": false
+    },
+    "easy positive": {
+      "input": {
+        "required": {
+          "positive": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ]
+        }
+      },
+      "output": [
+        "STRING"
+      ],
+      "output_node": false
+    },
+    "StringFormat": {
+      "input": {
+        "required": {
+          "f_string": [
+            "STRING",
+            {
+              "default": "{a}\n\n[INTERNAL VARIATION TOKEN: {b}]\nThe variation token is only a cache-busting/randomization identifier.\nDo not mention it in the final prompt and do not interpret it as scene content."
+            }
+          ]
+        }
+      },
+      "output": [
+        "STRING"
+      ],
+      "output_node": false
+    },
+    "BunnyH3ConditioningBridge": {
+      "input": {
+        "required": {
+          "adapter": [
+            "STRING",
+            {
+              "default": "BUNNY_H3_ActionLogic_Bridge_V1.safetensors"
+            }
+          ],
+          "alpha": [
+            "FLOAT",
+            {
+              "default": 0.1
+            }
+          ],
+          "magnitude_match": [
+            "STRING",
+            {
+              "default": "per_token"
+            }
+          ],
+          "enabled": [
+            "BOOLEAN",
+            {
+              "default": true
+            }
+          ]
+        }
+      },
+      "output": [
+        "CONDITIONING"
+      ],
+      "output_node": false
+    },
+    "LoadImage": {
+      "input": {
+        "required": {
+          "image": [
+            "STRING",
+            {
+              "default": "Screenshot 2026-10-03 174340.png"
+            }
+          ]
+        }
+      },
+      "output": [
+        "IMAGE",
+        "MASK"
+      ],
+      "output_node": false
+    },
+    "SaveVideo": {
+      "input": {
+        "required": {
+          "filename_prefix": [
+            "STRING",
+            {
+              "default": "video/ComfyUI"
+            }
+          ],
+          "format": [
+            "STRING",
+            {
+              "default": "auto"
+            }
+          ],
+          "format.codec": [
+            "STRING",
+            {
+              "default": "auto"
+            }
+          ],
+          "codec": [
+            "STRING",
+            {
+              "default": "auto"
+            }
+          ]
+        }
+      },
+      "output": [
+        "VIDEO"
+      ],
+      "output_node": true
+    },
+    "MinimaxH3LatentUpscaler3D": {
+      "input": {
+        "required": {
+          "model_name": [
+            "STRING",
+            {
+              "default": "minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors"
+            }
+          ],
+          "mode": [
+            "STRING",
+            {
+              "default": "megapixels"
+            }
+          ],
+          "mode.megapixels": [
+            "FLOAT",
+            {
+              "default": 0.8
+            }
+          ],
+          "align": [
+            "INT",
+            {
+              "default": 32
+            }
+          ],
+          "enable_temporal_chunking": [
+            "BOOLEAN",
+            {
+              "default": true
+            }
+          ],
+          "force_unload": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ],
+          "device": [
+            "STRING",
+            {
+              "default": "cuda"
+            }
+          ],
+          "precision": [
+            "STRING",
+            {
+              "default": "fp16"
+            }
+          ]
+        }
+      },
+      "output": [
+        "*"
+      ],
+      "output_node": false
+    },
+    "PrimitiveFloat": {
+      "input": {
+        "required": {
+          "value": [
+            "INT",
+            {
+              "default": 5
+            }
+          ]
+        }
+      },
+      "output": [
+        "FLOAT"
+      ],
+      "output_node": false
+    },
+    "ComfyMathExpression": {
+      "input": {
+        "required": {
+          "expression": [
+            "STRING",
+            {
+              "default": "max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17"
+            }
+          ]
+        }
+      },
+      "output": [
+        "FLOAT",
+        "INT",
+        "BOOLEAN"
+      ],
+      "output_node": false
+    },
+    "PrimitiveInt": {
+      "input": {
+        "required": {
+          "value": [
+            "INT",
+            {
+              "default": 0
+            }
+          ],
+          "fixed": [
+            "STRING",
+            {
+              "default": "fixed"
+            }
+          ]
+        }
+      },
+      "output": [
+        "INT"
+      ],
+      "output_node": false
+    },
+    "easy compare": {
+      "input": {
+        "required": {
+          "comparison": [
+            "STRING",
+            {
+              "default": "a > 0"
+            }
+          ]
+        }
+      },
+      "output": [
+        "BOOLEAN"
+      ],
+      "output_node": false
+    },
+    "ComfySwitchNode": {
+      "input": {
+        "required": {
+          "switch": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ]
+        }
+      },
+      "output": [
+        "INT"
+      ],
+      "output_node": false
+    },
+    "PrimitiveBoolean": {
+      "input": {
+        "required": {
+          "value": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ]
+        }
+      },
+      "output": [
+        "BOOLEAN"
+      ],
+      "output_node": false
+    },
+    "ResolutionSelector": {
+      "input": {
+        "required": {
+          "aspect_ratio": [
+            "STRING",
+            {
+              "default": "16:9 (Widescreen)"
+            }
+          ],
+          "megapixels": [
+            "FLOAT",
+            {
+              "default": 0.4
+            }
+          ],
+          "multiple": [
+            "INT",
+            {
+              "default": 32
+            }
+          ]
+        }
+      },
+      "output": [
+        "INT",
+        "INT"
+      ],
+      "output_node": false
+    },
+    "EmptyImage": {
+      "input": {
+        "required": {
+          "width": [
+            "INT",
+            {
+              "default": 32
+            }
+          ],
+          "height": [
+            "INT",
+            {
+              "default": 32
+            }
+          ],
+          "batch_size": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "color": [
+            "INT",
+            {
+              "default": 0
+            }
+          ]
+        }
+      },
+      "output": [
+        "IMAGE"
+      ],
+      "output_node": false
+    },
+    "Any Switch (rgthree)": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "*"
+      ],
+      "output_node": false
+    },
+    "CustomCombo": {
+      "input": {
+        "required": {
+          "choice": [
+            "STRING",
+            {
+              "default": "LLM does not see video"
+            }
+          ],
+          "index": [
+            "INT",
+            {
+              "default": 0
+            }
+          ],
+          "option1": [
+            "STRING",
+            {
+              "default": "LLM does not see video"
+            }
+          ],
+          "option2": [
+            "STRING",
+            {
+              "default": "LLM sees Video 0"
+            }
+          ],
+          "option3": [
+            "STRING",
+            {
+              "default": "LLM sees Video 1"
+            }
+          ],
+          "option4": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ],
+          "option5": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ]
+        }
+      },
+      "output": [
+        "STRING",
+        "INT"
+      ],
+      "output_node": false
+    },
+    "easy string": {
+      "input": {
+        "required": {
+          "value": [
+            "STRING",
+            {
+              "default": "2"
+            }
+          ]
+        }
+      },
+      "output": [
+        "STRING"
+      ],
+      "output_node": false
+    },
+    "StringConcatenate": {
+      "input": {
+        "required": {
+          "string_a": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ],
+          "string_b": [
+            "STRING",
+            {
+              "default": " (NOT shared as multimodal input to LLM)"
+            }
+          ],
+          "delimiter": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ]
+        }
+      },
+      "output": [
+        "STRING"
+      ],
+      "output_node": false
+    },
+    "easy anythingIndexSwitch": {
+      "input": {
+        "required": {
+          "index": [
+            "INT",
+            {
+              "default": 0
+            }
+          ]
+        }
+      },
+      "output": [
+        "*"
+      ],
+      "output_node": false
+    },
+    "BatchImagesNode": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "IMAGE"
+      ],
+      "output_node": false
+    },
+    "ComfyNotNode": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "BOOLEAN"
+      ],
+      "output_node": false
+    },
+    "GetImageSize": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "INT",
+        "INT",
+        "INT"
+      ],
+      "output_node": false
+    },
+    "PrimitiveStringMultiline": {
+      "input": {
+        "required": {
+          "value": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ]
+        }
+      },
+      "output": [
+        "STRING"
+      ],
+      "output_node": false
+    },
+    "PrimitiveString": {
+      "input": {
+        "required": {
+          "value": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ]
+        }
+      },
+      "output": [
+        "STRING"
+      ],
+      "output_node": false
+    },
+    "RegexReplace": {
+      "input": {
+        "required": {
+          "string": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ],
+          "regex_pattern": [
+            "STRING",
+            {
+              "default": "(?<=\\[Shot 1\\])( (?:00:00\\.000|00\\.000|0\\.000|0\\.00))"
+            }
+          ],
+          "replace": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ],
+          "case_insensitive": [
+            "BOOLEAN",
+            {
+              "default": true
+            }
+          ],
+          "multiline": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ],
+          "dotall": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ],
+          "count": [
+            "INT",
+            {
+              "default": 0
+            }
+          ]
+        }
+      },
+      "output": [
+        "STRING"
+      ],
+      "output_node": false
+    },
+    "LLMTextProcessor": {
+      "input": {
+        "required": {
+          "model": [
+            "STRING",
+            {
+              "default": "MN-Violet-Lotus-12B.Q5_K_M.gguf"
+            }
+          ],
+          "mmproj": [
+            "STRING",
+            {
+              "default": "none"
+            }
+          ],
+          "system_prompt": [
+            "STRING",
+            {
+              "default": "none"
+            }
+          ],
+          "prompt": [
+            "STRING",
+            {
+              "default": "Describe this image in detail."
+            }
+          ],
+          "max_tokens": [
+            "INT",
+            {
+              "default": 3072
+            }
+          ],
+          "temperature": [
+            "FLOAT",
+            {
+              "default": 0.8
+            }
+          ],
+          "top_p": [
+            "FLOAT",
+            {
+              "default": 0.95
+            }
+          ],
+          "top_k": [
+            "INT",
+            {
+              "default": 64
+            }
+          ],
+          "repeat_penalty": [
+            "FLOAT",
+            {
+              "default": 1.05
+            }
+          ],
+          "ctx_size": [
+            "INT",
+            {
+              "default": 16384
+            }
+          ],
+          "memory_mode": [
+            "STRING",
+            {
+              "default": "gpu_layers"
+            }
+          ],
+          "n_gpu_layers": [
+            "INT",
+            {
+              "default": 50
+            }
+          ],
+          "n_cpu_moe_layers": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "seed": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "timeout_seconds": [
+            "INT",
+            {
+              "default": 600
+            }
+          ],
+          "reasoning": [
+            "STRING",
+            {
+              "default": "off"
+            }
+          ],
+          "enable_processing": [
+            "BOOLEAN",
+            {
+              "default": true
+            }
+          ],
+          "extra_args": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ]
+        }
+      },
+      "output": [
+        "STRING",
+        "STRING",
+        "STRING"
+      ],
+      "output_node": false
+    },
+    "ImageFromBatch": {
+      "input": {
+        "required": {
+          "batch_index": [
+            "INT",
+            {
+              "default": 0
+            }
+          ],
+          "length": [
+            "INT",
+            {
+              "default": 1
+            }
+          ]
+        }
+      },
+      "output": [
+        "IMAGE"
+      ],
+      "output_node": false
+    },
+    "ImageCrop": {
+      "input": {
+        "required": {
+          "width": [
+            "INT",
+            {
+              "default": 512
+            }
+          ],
+          "height": [
+            "INT",
+            {
+              "default": 512
+            }
+          ],
+          "x": [
+            "INT",
+            {
+              "default": 0
+            }
+          ],
+          "y": [
+            "INT",
+            {
+              "default": 0
+            }
+          ]
+        }
+      },
+      "output": [
+        "IMAGE"
+      ],
+      "output_node": false
+    },
+    "PreviewImage": {
+      "input": {
+        "required": {}
+      },
+      "output": [],
+      "output_node": true
+    },
+    "CLIPLoader": {
+      "input": {
+        "required": {
+          "clip_name": [
+            "STRING",
+            {
+              "default": "gemma4_12b_uncensored_heretic_int8_convrot.safetensors"
+            }
+          ],
+          "type": [
+            "STRING",
+            {
+              "default": "stable_diffusion"
+            }
+          ],
+          "device": [
+            "STRING",
+            {
+              "default": "default"
+            }
+          ]
+        }
+      },
+      "output": [
+        "CLIP"
+      ],
+      "output_node": false
+    },
+    "TextGenerate": {
+      "input": {
+        "required": {
+          "prompt": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ],
+          "max_length": [
+            "INT",
+            {
+              "default": 512
+            }
+          ],
+          "sampling_mode": [
+            "STRING",
+            {
+              "default": "on"
+            }
+          ],
+          "sampling_mode.temperature": [
+            "FLOAT",
+            {
+              "default": 0.7
+            }
+          ],
+          "sampling_mode.top_k": [
+            "INT",
+            {
+              "default": 64
+            }
+          ],
+          "sampling_mode.top_p": [
+            "FLOAT",
+            {
+              "default": 0.95
+            }
+          ],
+          "sampling_mode.min_p": [
+            "FLOAT",
+            {
+              "default": 0.05
+            }
+          ],
+          "sampling_mode.repetition_penalty": [
+            "FLOAT",
+            {
+              "default": 1.05
+            }
+          ],
+          "sampling_mode.seed": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "sampling_mode.presence_penalty": [
+            "INT",
+            {
+              "default": 0
+            }
+          ],
+          "thinking": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ],
+          "use_default_template": [
+            "BOOLEAN",
+            {
+              "default": true
+            }
+          ],
+          "mtp": [
+            "STRING",
+            {
+              "default": "auto"
+            }
+          ]
+        }
+      },
+      "output": [
+        "STRING",
+        "STRING"
+      ],
+      "output_node": false
+    },
+    "FloatConstant": {
+      "input": {
+        "required": {
+          "value": [
+            "FLOAT",
+            {
+              "default": 1.05
+            }
+          ]
+        }
+      },
+      "output": [
+        "FLOAT"
+      ],
+      "output_node": false
+    },
+    "INTConstant": {
+      "input": {
+        "required": {
+          "value": [
+            "INT",
+            {
+              "default": 64
+            }
+          ]
+        }
+      },
+      "output": [
+        "INT"
+      ],
+      "output_node": false
+    },
+    "RegexExtract": {
+      "input": {
+        "required": {
+          "string": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ],
+          "regex_pattern": [
+            "STRING",
+            {
+              "default": "\\[(?:keyframe|reference|video|audio)[^\\]]*\\]"
+            }
+          ],
+          "mode": [
+            "STRING",
+            {
+              "default": "First Match"
+            }
+          ],
+          "case_insensitive": [
+            "BOOLEAN",
+            {
+              "default": true
+            }
+          ],
+          "multiline": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ],
+          "dotall": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ],
+          "group_index": [
+            "INT",
+            {
+              "default": 0
+            }
+          ]
+        }
+      },
+      "output": [
+        "STRING"
+      ],
+      "output_node": false
+    },
+    "easy forLoopStart": {
+      "input": {
+        "required": {
+          "total": [
+            "INT",
+            {
+              "default": 1
+            }
+          ]
+        }
+      },
+      "output": [
+        "FLOW_CONTROL",
+        "INT",
+        "*",
+        "*"
+      ],
+      "output_node": false
+    },
+    "easy forLoopEnd": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "*",
+        "*"
+      ],
+      "output_node": false
+    },
+    "easy convertAnything": {
+      "input": {
+        "required": {
+          "output_type": [
+            "STRING",
+            {
+              "default": "int"
+            }
+          ]
+        }
+      },
+      "output": [
+        "INT"
+      ],
+      "output_node": false
+    },
+    "MiniMaxChunkFeedForward": {
+      "input": {
+        "required": {
+          "chunks": [
+            "INT",
+            {
+              "default": 4
+            }
+          ],
+          "seq_threshold": [
+            "INT",
+            {
+              "default": 2048
+            }
+          ]
+        }
+      },
+      "output": [
+        "MODEL"
+      ],
+      "output_node": false
+    },
+    "MiniMaxH3SigmaShift": {
+      "input": {
+        "required": {
+          "shift_video": [
+            "INT",
+            {
+              "default": 6
+            }
+          ],
+          "shift_audio": [
+            "INT",
+            {
+              "default": 3
+            }
+          ]
+        }
+      },
+      "output": [
+        "MODEL"
+      ],
+      "output_node": false
+    },
+    "SpectrumApplyMiniMaxH3": {
+      "input": {
+        "required": {
+          "enabled": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ],
+          "blend_weight": [
+            "FLOAT",
+            {
+              "default": 0.5
+            }
+          ],
+          "degree": [
+            "INT",
+            {
+              "default": 4
+            }
+          ],
+          "ridge_lambda": [
+            "FLOAT",
+            {
+              "default": 0.1
+            }
+          ],
+          "window_size": [
+            "INT",
+            {
+              "default": 2
+            }
+          ],
+          "flex_window": [
+            "FLOAT",
+            {
+              "default": 0.75
+            }
+          ],
+          "warmup_steps": [
+            "INT",
+            {
+              "default": 5
+            }
+          ],
+          "tail_actual_steps": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "max_history": [
+            "INT",
+            {
+              "default": 8
+            }
+          ],
+          "debug": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ],
+          "history_storage": [
+            "STRING",
+            {
+              "default": "system_ram"
+            }
+          ],
+          "bootstrap_first_forecast": [
+            "BOOLEAN",
+            {
+              "default": true
+            }
+          ],
+          "anchor_residual_feedback": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ],
+          "selective_rollback_correction": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ],
+          "offline_smoothing_replay": [
+            "BOOLEAN",
+            {
+              "default": true
+            }
+          ],
+          "audio_blend_weight": [
+            "INT",
+            {
+              "default": 0
+            }
+          ],
+          "offline_archive_storage": [
+            "STRING",
+            {
+              "default": "system_ram"
+            }
+          ],
+          "model_aware_mode": [
+            "STRING",
+            {
+              "default": "off"
+            }
+          ],
+          "model_aware_risk_threshold": [
+            "FLOAT",
+            {
+              "default": 0.65
+            }
+          ],
+          "model_aware_trust_shrinkage": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ],
+          "model_aware_replay_generic_correction": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ],
+          "generic_correction_mode": [
+            "STRING",
+            {
+              "default": "coordinate_rls"
+            }
+          ],
+          "generic_correction_limiter": [
+            "STRING",
+            {
+              "default": "hard_clip"
+            }
+          ],
+          "generic_correction_limit": [
+            "FLOAT",
+            {
+              "default": 0.4
+            }
+          ],
+          "generic_correction_attenuation": [
+            "STRING",
+            {
+              "default": "no_attenuation"
+            }
+          ],
+          "sa_pece_forecast_policy": [
+            "STRING",
+            {
+              "default": "balanced"
+            }
+          ]
+        }
+      },
+      "output": [
+        "MODEL"
+      ],
+      "output_node": false
+    },
+    "MiniMaxLowVRAMAttention": {
+      "input": {
+        "required": {
+          "head_chunks": [
+            "INT",
+            {
+              "default": 4
+            }
+          ]
+        }
+      },
+      "output": [
+        "MODEL"
+      ],
+      "output_node": false
+    },
+    "BlockSparseAttention": {
+      "input": {
+        "required": {
+          "selection": [
+            "STRING",
+            {
+              "default": "sol-attn"
+            }
+          ],
+          "selection.tau": [
+            "FLOAT",
+            {
+              "default": 1.3
+            }
+          ],
+          "start_percent": [
+            "FLOAT",
+            {
+              "default": 0.2
+            }
+          ],
+          "end_percent": [
+            "INT",
+            {
+              "default": 1
+            }
+          ],
+          "dense_blocks": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ],
+          "min_tokens": [
+            "INT",
+            {
+              "default": 12288
+            }
+          ],
+          "extra_tokens": [
+            "INT",
+            {
+              "default": 256
+            }
+          ],
+          "sink_conditioning": [
+            "STRING",
+            {
+              "default": "exact_kv_and_rows"
+            }
+          ],
+          "verbose": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ],
+          "selection.keep_percent": [
+            "INT",
+            {
+              "default": 20
+            }
+          ]
+        }
+      },
+      "output": [
+        "MODEL"
+      ],
+      "output_node": false
+    },
+    "UNETLoader": {
+      "input": {
+        "required": {
+          "unet_name": [
+            "STRING",
+            {
+              "default": "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+            }
+          ],
+          "weight_dtype": [
+            "STRING",
+            {
+              "default": "default"
+            }
+          ]
+        }
+      },
+      "output": [
+        "MODEL"
+      ],
+      "output_node": false
+    },
+    "VAELoader": {
+      "input": {
+        "required": {
+          "vae_name": [
+            "STRING",
+            {
+              "default": "minimax_h3_video_vae_fp16.safetensors"
+            }
+          ]
+        }
+      },
+      "output": [
+        "VAE"
+      ],
+      "output_node": false
+    },
+    "easy ifElse": {
+      "input": {
+        "required": {
+          "boolean": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ]
+        }
+      },
+      "output": [
+        "*"
+      ],
+      "output_node": false
+    },
+    "GetImageRangeFromBatch": {
+      "input": {
+        "required": {
+          "start_index": [
+            "INT",
+            {
+              "default": 0
+            }
+          ],
+          "num_frames": [
+            "INT",
+            {
+              "default": 1
+            }
+          ]
+        }
+      },
+      "output": [
+        "IMAGE",
+        "MASK"
+      ],
+      "output_node": false
+    },
+    "TrimAudioDuration": {
+      "input": {
+        "required": {
+          "start_index": [
+            "INT",
+            {
+              "default": 0
+            }
+          ],
+          "duration": [
+            "INT",
+            {
+              "default": 60
+            }
+          ]
+        }
+      },
+      "output": [
+        "AUDIO"
+      ],
+      "output_node": false
+    },
+    "PreviewAnimation": {
+      "input": {
+        "required": {
+          "fps": [
+            "INT",
+            {
+              "default": 24
+            }
+          ]
+        }
+      },
+      "output": [],
+      "output_node": true
+    },
+    "TextOverlay": {
+      "input": {
+        "required": {
+          "text": [
+            "STRING",
+            {
+              "default": "REFERENCE\\n VIDEO"
+            }
+          ],
+          "font_size": [
+            "INT",
+            {
+              "default": 21
+            }
+          ],
+          "color": [
+            "STRING",
+            {
+              "default": "#ffffff"
+            }
+          ],
+          "position": [
+            "STRING",
+            {
+              "default": "top"
+            }
+          ],
+          "align": [
+            "STRING",
+            {
+              "default": "center"
+            }
+          ],
+          "outline": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ]
+        }
+      },
+      "output": [
+        "IMAGE"
+      ],
+      "output_node": false
+    },
+    "ImageStitch": {
+      "input": {
+        "required": {
+          "direction": [
+            "STRING",
+            {
+              "default": "down"
+            }
+          ],
+          "match_image_size": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ],
+          "spacing_width": [
+            "INT",
+            {
+              "default": 0
+            }
+          ],
+          "spacing_color": [
+            "STRING",
+            {
+              "default": "black"
+            }
+          ]
+        }
+      },
+      "output": [
+        "IMAGE"
+      ],
+      "output_node": false
+    },
+    "easy textIndexSwitch": {
+      "input": {
+        "required": {
+          "index": [
+            "INT",
+            {
+              "default": 0
+            }
+          ]
+        }
+      },
+      "output": [
+        "STRING"
+      ],
+      "output_node": false
+    },
+    "ModelAttentionBackend": {
+      "input": {
+        "required": {
+          "attention": [
+            "STRING",
+            {
+              "default": "pytorch attention"
+            }
+          ]
+        }
+      },
+      "output": [
+        "MODEL"
+      ],
+      "output_node": false
+    },
+    "PathchSageAttentionKJ": {
+      "input": {
+        "required": {
+          "sage_attention": [
+            "STRING",
+            {
+              "default": "auto"
+            }
+          ],
+          "allow_compile": [
+            "BOOLEAN",
+            {
+              "default": false
+            }
+          ]
+        }
+      },
+      "output": [
+        "MODEL"
+      ],
+      "output_node": false
+    },
+    "MiniMaxH3MemoryEfficientSageAttentionPatch": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "MODEL"
+      ],
+      "output_node": false
+    },
+    "MiniMaxH3ReferenceToVideo": {
+      "input": {
+        "required": {
+          "prompt": [
+            "STRING",
+            {
+              "default": ""
+            }
+          ],
+          "width": [
+            "INT",
+            {
+              "default": 1344
+            }
+          ],
+          "height": [
+            "INT",
+            {
+              "default": 768
+            }
+          ],
+          "length": [
+            "INT",
+            {
+              "default": 124
+            }
+          ],
+          "ref_image_size": [
+            "STRING",
+            {
+              "default": "max"
+            }
+          ]
+        }
+      },
+      "output": [
+        "CONDITIONING",
+        "LATENT"
+      ],
+      "output_node": false
+    },
+    "CondPassThrough": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "CONDITIONING",
+        "CONDITIONING"
+      ],
+      "output_node": false
+    },
+    "MiniMaxH3AddGuide": {
+      "input": {
+        "required": {
+          "frame_idx": [
+            "INT",
+            {
+              "default": 0
+            }
+          ]
+        }
+      },
+      "output": [
+        "CONDITIONING"
+      ],
+      "output_node": false
+    },
+    "ImagePass": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "IMAGE"
+      ],
+      "output_node": false
+    },
+    "ResizeImageMaskNode": {
+      "input": {
+        "required": {
+          "resize_type": [
+            "STRING",
+            {
+              "default": "match size"
+            }
+          ],
+          "resize_type.crop": [
+            "STRING",
+            {
+              "default": "center"
+            }
+          ],
+          "scale_method": [
+            "STRING",
+            {
+              "default": "area"
+            }
+          ]
+        }
+      },
+      "output": [
+        "IMAGE"
+      ],
+      "output_node": false
+    },
+    "VAEDecodeAudio": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "AUDIO"
+      ],
+      "output_node": false
+    },
+    "VAEDecode": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "IMAGE"
+      ],
+      "output_node": false
+    },
+    "CreateList": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "*"
+      ],
+      "output_node": false
+    },
+    "GetItemFromList": {
+      "input": {
+        "required": {
+          "index": [
+            "INT",
+            {
+              "default": 1
+            }
+          ]
+        }
+      },
+      "output": [
+        "*"
+      ],
+      "output_node": false
+    },
+    "MergeImageBatchAndAudioList": {
+      "input": {
+        "required": {
+          "fps": [
+            "INT",
+            {
+              "default": 24
+            }
+          ],
+          "overlap": [
+            "INT",
+            {
+              "default": 13
+            }
+          ],
+          "overlap_side": [
+            "STRING",
+            {
+              "default": "previous"
+            }
+          ],
+          "overlap_mode": [
+            "STRING",
+            {
+              "default": "linear_blend"
+            }
+          ]
+        }
+      },
+      "output": [
+        "IMAGE",
+        "AUDIO"
+      ],
+      "output_node": false
+    },
+    "ComfyOrNode": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "BOOLEAN"
+      ],
+      "output_node": false
+    },
+    "SamplerCustomAdvanced": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "LATENT",
+        "LATENT"
+      ],
+      "output_node": false
+    },
+    "BasicScheduler": {
+      "input": {
+        "required": {
+          "scheduler": [
+            "STRING",
+            {
+              "default": "simple"
+            }
+          ],
+          "steps": [
+            "INT",
+            {
+              "default": 20
+            }
+          ],
+          "denoise": [
+            "INT",
+            {
+              "default": 1
+            }
+          ]
+        }
+      },
+      "output": [
+        "SIGMAS"
+      ],
+      "output_node": false
+    },
+    "KSamplerSelect": {
+      "input": {
+        "required": {
+          "sampler_name": [
+            "STRING",
+            {
+              "default": "res_multistep"
+            }
+          ]
+        }
+      },
+      "output": [
+        "SAMPLER"
+      ],
+      "output_node": false
+    },
+    "BasicGuider": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "GUIDER"
+      ],
+      "output_node": false
+    },
+    "RandomNoise": {
+      "input": {
+        "required": {
+          "noise_seed": [
+            "INT",
+            {
+              "default": 444
+            }
+          ]
+        }
+      },
+      "output": [
+        "NOISE"
+      ],
+      "output_node": false
+    },
+    "VAEEncodeAudio": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "LATENT"
+      ],
+      "output_node": false
+    },
+    "SolidMask": {
+      "input": {
+        "required": {
+          "value": [
+            "FLOAT",
+            {
+              "default": 0.5
+            }
+          ],
+          "width": [
+            "INT",
+            {
+              "default": 32
+            }
+          ],
+          "height": [
+            "INT",
+            {
+              "default": 32
+            }
+          ]
+        }
+      },
+      "output": [
+        "MASK"
+      ],
+      "output_node": false
+    },
+    "SetLatentNoiseMask": {
+      "input": {
+        "required": {}
+      },
+      "output": [
+        "LATENT"
+      ],
+      "output_node": false
+    }
+  }
+}

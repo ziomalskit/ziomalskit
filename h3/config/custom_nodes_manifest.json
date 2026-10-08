@@ -1,0 +1,41 @@
+{
+  "strategy": "install from workflow metadata with comfy-cli first; explicit IDs are fallback/reference",
+  "registry_ids_seen_in_workflow": [
+    "comfyui-kjnodes",
+    "comfyui-easy-use",
+    "rgthree-comfy",
+    "comfyui-llm-text-processor",
+    "comfyui-essential-er",
+    "comfyui-minimaxh3mod",
+    "comfyui-videohelpersuite",
+    "comfyui-spectrum-minimax-h3",
+    "jameswalker-nodes",
+    "comfyui-logic",
+    "comfyui-minimax-h3-latent-upscaler"
+  ],
+  "notes": [
+    "Primary dependency path is comfy node install-deps --workflow.",
+    "Nodes lacking reliable cnr_id metadata receive explicit Git fallbacks.",
+    "Preflight validates actual /object_info before any paid render."
+  ],
+  "explicit_fallback_git": [
+    {
+      "node_class": "BunnyH3ConditioningBridge",
+      "repo": "https://github.com/aa335615543-ux/BUNNY_H3_Conditioning_Bridge.git",
+      "folder": "BUNNY_H3_Conditioning_Bridge",
+      "revision": "eda12885d461bc52c2361513b7f56b38c03428e4"
+    },
+    {
+      "node_class": "MinimaxH3LatentUpscaler3D",
+      "repo": "https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler.git",
+      "folder": "Comfyui_Minimax_h3_latent_Upscaler",
+      "revision": "40316cf008b2fd8663263270669eb4da23f89d2c"
+    },
+    {
+      "node_class": "MergeImageBatchAndAudioList",
+      "repo": "https://github.com/altoiddealer/comfyui_essential-er.git",
+      "folder": "comfyui_essential-er",
+      "revision": "efe28abad7918f9a260c1cbc4f4c584dd1406d15"
+    }
+  ]
+}
