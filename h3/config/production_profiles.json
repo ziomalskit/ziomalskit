@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "default_profile": "h3_full",
+  "profiles": {
+    "h3_full": {
+      "label": "H3 Full",
+      "user_facing": true,
+      "render_template": "H3_FULL_RENDER.json",
+      "checkpoint": "minimax_h3_ref2va_bf16.safetensors",
+      "encoder": "qwen3vl_32b_minimax_h3_bf16.safetensors",
+      "video_vae": "minimax_h3_video_vae_fp16.safetensors",
+      "audio_vae": "minimax_h3_audio_vae_fp32.safetensors",
+      "writer": "Qwen3.5-4B-Heretic-Q8_0.gguf",
+      "compiler": "profile_writer",
+      "memory_policy": {
+        "label": "Condition first; release encoder; load transformer; release after video",
+        "encoder_release": "after_conditioning",
+        "render_release": "after_video",
+        "sampling_priority": "render",
+        "gpu_validation": "pending"
+      },
+      "overlap_policy": {
+        "label": "Conservative: cold analysis waits; cached analysis permits the small writer during sampling with measured headroom",
+        "cold_analysis_during_sampling": false,
+        "analysis_headroom_mb": 28672,
+        "writer_headroom_mb": 12288,
+        "gpu_validation": "pending"
+      }
+    },
+    "10eros_full": {
+      "label": "10Eros Full",
+      "user_facing": true,
+      "render_template": "10EROS_FULL_RENDER.json",
+      "checkpoint": "10Eros_Max_h3_hybrid_beta5.safetensors",
+      "encoder": "qwen3vl_32b_minimax_h3_bf16.safetensors",
+      "video_vae": "minimax_h3_video_vae_fp16.safetensors",
+      "audio_vae": "minimax_h3_audio_vae_fp32.safetensors",
+      "writer": "Qwen3.5-9B-F451-AND-TRI-Polar-Ultra-Pro-Writer-Uncensored-Heretic-BF16.gguf",
+      "compiler": "profile_writer",
+      "memory_policy": {
+        "label": "Condition first; release encoder; load Beta5 Full; release after video",
+        "encoder_release": "after_conditioning",
+        "render_release": "after_video",
+        "sampling_priority": "render",
+        "gpu_validation": "pending"
+      },
+      "overlap_policy": {
+        "label": "Balanced: analysis or writer overlap during sampling requires measured headroom",
+        "cold_analysis_during_sampling": true,
+        "analysis_headroom_mb": 28672,
+        "writer_headroom_mb": 24576,
+        "gpu_validation": "pending"
+      }
+    }
+  }
+}

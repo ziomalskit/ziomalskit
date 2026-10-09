@@ -13,7 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, Response, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "static"
@@ -25,6 +25,52 @@ STATE.mkdir(exist_ok=True)
 MASTER = WORKFLOWS / "VAST_H3_MASTER_NATIVE_INT8_96GB.json"
 PROMPT_ONLY = WORKFLOWS / "VAST_H3_PROMPT_ONLY_STAGE2.json"
 MAP = json.loads((CONFIG / "VAST_H3_API_MAP.json").read_text(encoding="utf-8"))
+from .production import read_profiles, read_loras, read_bridge, resolve_loras, patch_lora_slots, PROFILE_LABELS
+from .analysis_cache import AnalysisCache, prompt_admission
+from .v20 import compose as compose_v20, set_widget as set_v20_widget
+
+PRODUCTION = read_profiles(CONFIG / "production_profiles.json")
+LORA_REGISTRY = read_loras(CONFIG / "lora_registry.json")
+CONDITIONING_BRIDGE = read_bridge(CONFIG / "lora_registry.json")
+analysis_cache = AnalysisCache()
+overlap_telemetry = {"free_vram_mb": None, "sampled_at": 0.0}
+
+
+def job_profile(job: dict) -> str:
+    profile = job.get("profile")
+    if profile not in PROFILE_LABELS or job.get("context", {}).get("profile") != profile:
+        raise ValueError("job has no consistent persisted production profile; explicit migration is required")
+    identity = job["context"].get("profile_identity")
+    if identity is not None and identity != profile_identity(profile):
+        raise ValueError("persisted profile model routing changed; explicit reconciliation is required")
+    lora_identity = job["context"].get("lora_identity")
+    if lora_identity is not None and any(key not in LORA_REGISTRY or LORA_REGISTRY[key]["filename"] != value for key, value in lora_identity.items()):
+        raise ValueError("persisted LoRA routing changed; explicit reconciliation is required")
+    bridge = job["context"].get("conditioning_bridge")
+    if bridge is not None and (bridge.get("id") != CONDITIONING_BRIDGE["id"] or bridge.get("filename") != CONDITIONING_BRIDGE["filename"]):
+        raise ValueError("persisted conditioning bridge routing changed")
+    return profile
+
+
+def profile_identity(profile: str) -> dict:
+    return {key: PRODUCTION["profiles"][profile][key] for key in
+            ("checkpoint", "writer", "compiler", "encoder", "video_vae", "audio_vae")}
+
+
+def production_workflow(job: dict) -> Path:
+    return WORKFLOWS / PRODUCTION["profiles"][job_profile(job)]["render_template"]
+
+
+def execution_workflow(job: dict, service: str) -> Path:
+    if job.get("profile") in PROFILE_LABELS:
+        return production_workflow(job)
+    if os.getenv("H3_ALLOW_DIAGNOSTIC_SUBMISSIONS", "0") == "1":
+        return PROMPT_ONLY if service == "prompt" else MASTER
+    raise ValueError("legacy job requires explicit diagnostic mode or recreation with a production profile")
+
+
+def batch_for_job(job: dict) -> dict | None:
+    return next((batch for batch in batches if batch.get("id") == job.get("batch_id")), None)
 
 # Stage 3 audited: prompt and render are truly separate ComfyUI services.
 RENDER_COMFY_URL = os.getenv("RENDER_COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
@@ -125,7 +171,8 @@ async def require_panel_auth(request: Request, call_next):
 
 
 class LoraSetting(BaseModel):
-    name: str
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(validation_alias=AliasChoices("id", "name"))
     enabled: bool
     # Project-approved inclusive range, within ComfyUI v0.38's loader bounds.
     strength: float = Field(ge=-2, le=2, allow_inf_nan=False)
@@ -141,9 +188,12 @@ class LoraSetting(BaseModel):
 
 
 class BatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     request_id: uuid.UUID | None = None
     prompt: str
-    model: str = "native_int8"
+    profile: str | None = None
+    model: str | None = None
+    duration_seconds: float = Field(20, ge=1, le=120, allow_inf_nan=False)
     batches: int = Field(1, ge=1, le=100)
     seed: int | None = None
     random_each: bool = True
@@ -454,6 +504,12 @@ def load_state() -> None:
         if type(generation) is not int or generation < 0 or not isinstance(loaded_requests, dict):
             raise ValueError("invalid queue idempotency/safety state")
         batch_ids = {batch.get("id") for batch in loaded_batches if isinstance(batch.get("id"), str)}
+        profiles_by_batch = {}
+        for batch in loaded_batches:
+            if batch.get("profile") is not None:
+                if batch["profile"] not in PROFILE_LABELS or batch.get("context", {}).get("profile") != batch["profile"]:
+                    raise ValueError("batch persisted profile is inconsistent")
+                profiles_by_batch[batch["id"]] = batch["profile"]
         for key, record in loaded_requests.items():
             if str(uuid.UUID(key)) != key or not isinstance(record, dict) or not isinstance(record.get("request_hash"), str):
                 raise ValueError("invalid idempotency record")
@@ -464,9 +520,15 @@ def load_state() -> None:
                 not isinstance(batch_id, str) or batch_id not in batch_ids for batch_id in result["created_batches"]
             ):
                 raise ValueError("idempotency result refers to an unavailable batch")
-        queue, batches = loaded_queue, loaded_batches
-        request_results, queue_persistence_epoch = loaded_requests, generation
-        for j in queue:
+        for j in loaded_queue:
+            # Legacy state remains available for UUID reconciliation. It cannot
+            # acquire a new production identity from a mutable runtime default.
+            if j.get("profile") is not None:
+                job_profile(j)
+                if j.get("batch_id") in profiles_by_batch and profiles_by_batch[j["batch_id"]] != j["profile"]:
+                    raise ValueError("job persisted profile differs from batch")
+            else:
+                j["profile_migration_required"] = True
             old_status = j.get("status")
             if old_status in {"prompt_running", "prompt_preparing", "prompt_submitting", "prompt_submission_uncertain"}:
                 j["status"] = "recovery_prompt"
@@ -477,6 +539,8 @@ def load_state() -> None:
             elif old_status in ("soft_timeout_cancelling", "hard_timeout_restarting_comfy", "cancelling"):
                 j["status"] = "recovery_render" if j.get("active_service") == "render" else "recovery_prompt"
                 j["recovery_from_status"] = old_status
+        queue, batches = loaded_queue, loaded_batches
+        request_results, queue_persistence_epoch = loaded_requests, generation
     except Exception as error:
         state_load_error = f"Queue state could not be loaded; existing file preserved: {error}"
 
@@ -535,6 +599,8 @@ def validate_input_filename(name: str) -> str:
 
 
 def model_path_for_preset(preset: str) -> Path:
+    if preset in PRODUCTION["profiles"]:
+        return COMFY_MODELS_DIR / "diffusion_models" / PRODUCTION["profiles"][preset]["checkpoint"]
     filename = MAP["nodes"]["model_loader"]["alternatives"].get(preset)
     if not filename:
         raise HTTPException(400, f"unknown model preset: {preset}")
@@ -550,21 +616,20 @@ def validate_requested_assets(req: BatchRequest) -> tuple[list[str], list[str]]:
     pictures = [validate_input_filename(x) for x in req.pictures]
     audio = [validate_input_filename(x) for x in req.audio]
 
-    model_path = model_path_for_preset(req.model)
+    model_path = model_path_for_preset(req.profile or req.model or PRODUCTION["default_profile"])
     if not model_path.is_file():
         raise HTTPException(409, f"selected render model is not installed: {model_path.name}")
 
     if len({lora.name for lora in req.loras}) != len(req.loras):
         raise HTTPException(400, "Duplicate LoRA settings are ambiguous")
-    from .workflow_validation import lora_slots
-    supported = [item["lora"] for item in MAP["nodes"]["first_pass_loras"]["entries"]]
-    for template in (MASTER, PROMPT_ONLY):
-        slots = lora_slots(json.loads(template.read_text(encoding="utf-8")), supported)
-        if any(lora.name not in slots for lora in req.loras):
-            raise HTTPException(400, "Requested LoRA does not have a supported template slot")
+    try:
+        resolved = resolve_loras(LORA_REGISTRY, req.profile or req.model or PRODUCTION["default_profile"], [item.model_dump() for item in req.loras])
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
     for lora in req.loras:
         if lora.enabled:
-            lp = COMFY_MODELS_DIR / "loras" / lora.name
+            lp = COMFY_MODELS_DIR / "loras" / next(item["filename"] for key, item in LORA_REGISTRY.items()
+                if key == lora.name or item["filename"] == lora.name)
             if not lp.is_file():
                 raise HTTPException(409, f"enabled LoRA is not installed: {lora.name}")
     return pictures, audio
@@ -659,12 +724,24 @@ def patch_llm_pipeline_seeds(wf: dict, analysis_seed: int, prompt_seed: int) -> 
 
 
 def patch_workflow(job: dict, workflow_template: Path, *, approved_prompt: str | None = None) -> Path:
-    wf = json.loads(workflow_template.read_text(encoding="utf-8"))
+    requested_phase = "prompt" if workflow_template == PROMPT_ONLY else "render"
+    if job.get("profile") in PROFILE_LABELS and workflow_template in (MASTER, PROMPT_ONLY):
+        workflow_template = production_workflow(job)
+    is_production = workflow_template.name in {profile["render_template"] for profile in PRODUCTION["profiles"].values()}
+    if is_production:
+        if workflow_template != production_workflow(job):
+            raise ValueError("workflow does not match job's persisted profile")
+        wf = compose_v20(workflow_template, PRODUCTION, LORA_REGISTRY)
+    else:
+        # These explicitly addressed legacy templates are diagnostic artifacts.
+        # Normal workers always select production_workflow(job).
+        wf = json.loads(workflow_template.read_text(encoding="utf-8"))
     from .workflow_validation import validate_ui_workflow, lora_slots
     validate_ui_workflow(wf, patch_contract=True)
     ctx = job["context"]
 
-    checkpoint = MAP["nodes"]["model_loader"]["alternatives"].get(ctx["model"])
+    checkpoint = (PRODUCTION["profiles"][job_profile(job)]["checkpoint"] if is_production else
+                  MAP["nodes"]["model_loader"]["alternatives"].get(ctx["model"]))
     if not checkpoint:
         raise ValueError(f"Unknown model preset: {ctx['model']}")
     set_named_and_positional(node_by_id(wf, 4595), "unet_name", checkpoint)
@@ -699,14 +776,22 @@ def patch_workflow(job: dict, workflow_template: Path, *, approved_prompt: str |
 
     # One analysis token per batch stabilizes Step 0-2 input text.
     patch_rgthree_seed(wf, 7360, int(job["analysis_seed"]))
-    if workflow_template == PROMPT_ONLY:
+    if workflow_template == PROMPT_ONLY or is_production:
         patch_llm_pipeline_seeds(
             wf,
             int(job["analysis_seed"]),
             int(job["prompt_seed"]),
         )
 
-    if ctx.get("loras"):
+    if is_production:
+        patch_lora_slots(node_by_id(wf, 6164), LORA_REGISTRY,
+                         resolve_loras(LORA_REGISTRY, job_profile(job), ctx.get("loras"), frozen=True))
+        set_v20_widget(node_by_id(wf, 1731), "value", ctx["duration_seconds"])
+        defaults = ctx.get("conditioning_bridge", CONDITIONING_BRIDGE["defaults"][job_profile(job)])
+        set_v20_widget(node_by_id(wf, 7362), "enabled", defaults["enabled"])
+        set_v20_widget(node_by_id(wf, 7362), "alpha", defaults["strength"])
+        wf["extra"]["aj_production"].update(job_id=job["id"], phase=job.get("active_service", requested_phase))
+    elif ctx.get("loras"):
         n = node_by_id(wf, 6164)
         settings = [LoraSetting.model_validate(value) for value in ctx["loras"]]
         if len({setting.name for setting in settings}) != len(settings):
@@ -726,7 +811,7 @@ def patch_workflow(job: dict, workflow_template: Path, *, approved_prompt: str |
 
     validate_ui_workflow(wf, patch_contract=True)
 
-    phase = "prompt" if workflow_template == PROMPT_ONLY else "render"
+    phase = job.get("active_service", requested_phase) if is_production else requested_phase
     out = STATE / f"job_{job['id']}_{phase}.json"
     out.write_text(json.dumps(wf, ensure_ascii=False, indent=2), encoding="utf-8")
     return out
@@ -1215,6 +1300,10 @@ def _apply_history_outcome(job: dict, service: str, entry: dict) -> bool:
             captured = {key: None for key in ("visual_facts", "expanded_intent", "reference_map", "creative_plan", "final_h3_prompt")}
             capture_error = f"Prompt capture failed: {error}"
         job.update(captured)
+        if job.get("profile") in PROFILE_LABELS:
+            batch = batch_for_job(job)
+            if batch is not None:
+                analysis_cache.record(job, batch, captured, execution_epoch=job.get("prompt_cache_epoch", ""))
         if job.get("cancel_requested"):
             job["status"] = "cancelled"
             job["finished_at"] = time.time()
@@ -1437,6 +1526,9 @@ async def watch_prompt(job: dict, prompt_id: str, service: str) -> dict:
                         job[progress_at] = job["last_progress_at"]
                         if ev.get("node") is not None:
                             job["current_node"] = ev.get("title") or ev.get("node")
+                            if service == "render" and job.get("profile") in PROFILE_LABELS:
+                                from .production_api import event_phase
+                                job["render_phase"] = event_phase(str(ev["node"]), job.get("render_phase_nodes", {}))
                         save_state()
 
                     if typ == "output" and ev.get("url"):
@@ -1552,6 +1644,27 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
         if approved is None:
             approved = override["widgets_values"][0]
     prepared = prepare_api_prompt(data["prompt"], catalog, phase=service, approved_prompt=approved)
+    production = ui_workflow.get("extra", {}).get("aj_production")
+    if production:
+        job = find_job(production["job_id"])
+        profile = job_profile(job)
+        if production.get("profile") != profile or production.get("phase") != service:
+            raise ValueError("prepared workflow/profile identity mismatch")
+        from .production_api import phase_boundaries, reuse_analysis
+        if service == "render":
+            values = PRODUCTION["profiles"][profile]
+            for node, field, expected in (("4595:4529", "unet_name", values["checkpoint"]),
+                ("4595:130", "clip_name", values["encoder"]), ("4595:121", "vae_name", values["video_vae"]),
+                ("4595:122", "vae_name", values["audio_vae"])):
+                if prepared.get(node, {}).get("inputs", {}).get(field) != expected:
+                    raise ValueError("converted render loader differs from persisted production profile")
+            prepared, mapping = phase_boundaries(prepared, catalog, PRODUCTION["profiles"][profile]["memory_policy"])
+            job["render_phase_nodes"] = mapping
+        else:
+            batch = batch_for_job(job)
+            job["prompt_kind"] = analysis_cache.classify(job, batch)
+            if job["prompt_kind"] != "cold_analysis":
+                prepared = reuse_analysis(prepared, batch["analysis"]["texts"], catalog)
     api_path = workflow.with_suffix(".api.json")
     catalog_path = workflow.with_suffix(".catalog.json")
     _atomic_json_write(api_path, prepared)
@@ -1588,6 +1701,25 @@ async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
     maintenance_epoch = service_maintenance_epochs[service]
     if service in service_maintenance:
         raise SubmissionDeferred("service maintenance is in progress")
+    production = job.get("profile") in PROFILE_LABELS
+    if not production and os.getenv("H3_ALLOW_DIAGNOSTIC_SUBMISSIONS", "0") != "1":
+        raise SubmissionRejected("legacy submission requires explicit diagnostic mode")
+    if production:
+        assert_phase_admission(job, service)
+        await verify_production_files(job, service)
+    cache_epoch = None
+    if production and service == "prompt":
+        await refresh_prompt_epoch()
+        cache_epoch = analysis_cache.epoch
+        job["prompt_cache_epoch"] = cache_epoch
+        job["prompt_kind"] = analysis_cache.classify(job, batch_for_job(job))
+    if production and service == "render":
+        # Only the Render Worker owns this idle render process. Clear cached CPU
+        # model objects at each new render/profile boundary, before preparation.
+        # /free does not submit inference and never touches Prompt ComfyUI.
+        await prepare_render_model_boundary()
+    if production:
+        assert_phase_admission(job, service)
     try:
         prepared = await _prepare_workflow_api(workflow, service)
     except Exception as error:
@@ -1596,6 +1728,17 @@ async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
         raise
     if service in service_maintenance or maintenance_epoch != service_maintenance_epochs[service]:
         raise SubmissionDeferred("service restarted during preparation")
+    if production and service == "prompt":
+        await refresh_prompt_epoch()
+        if cache_epoch != analysis_cache.epoch:
+            raise SubmissionDeferred("Prompt Worker epoch changed during preparation")
+    if service in service_maintenance or maintenance_epoch != service_maintenance_epochs[service]:
+        raise SubmissionDeferred("service restarted during final epoch check")
+    if production:
+        # The last synchronous admission check precedes the durable UUID arm.
+        # A renderer/prompt reservation made while conversion awaited cannot
+        # create an unsafe cold-analysis/conditioning race.
+        assert_phase_admission(job, service)
     if job.get("cancel_requested"):
         raise SubmissionCancelled("job cancelled during preparation")
     if lifecycle_dispatch_blocked() or vast_control.get("plan") == "stop_after_current":
@@ -1654,6 +1797,11 @@ async def submit_and_watch(job: dict, workflow: Path, service: str, approved_pro
     job["active_service"] = service
     job["status"] = f"{service}_preparing"
     job[f"{service}_submission_state"] = "preparing"
+    if job.get("profile") in PROFILE_LABELS:
+        if service == "prompt":
+            job["prompt_kind"] = analysis_cache.classify(job, batch_for_job(job))
+        else:
+            job["render_phase"] = "conditioning"
     try:
         save_state()
     except Exception:
@@ -1718,7 +1866,7 @@ async def generate_prompt_candidate(job: dict) -> None:
         job["status"] = "cancelled"
         save_state()
         return
-    res = await submit_and_watch(job, PROMPT_ONLY, "prompt")
+    res = await submit_and_watch(job, execution_workflow(job, "prompt"), "prompt")
     await _finish_watched_job(job, "prompt", res)
 
 
@@ -2048,6 +2196,8 @@ async def restart_local_service(service: str) -> None:
     async with lock:
         service_maintenance[service] = "restarting"
         service_maintenance_epochs[service] += 1
+        if service == "prompt":
+            analysis_cache.invalidate()
         try:
             returncode, out, err = await _run_owned_restart(["bash", SERVICE_CTL, "restart", service], cooperative_stop=True)
             if returncode != 0:
@@ -2149,6 +2299,101 @@ def prompt_prefetch_status() -> dict:
             "buffer": ready + preparing}
 
 
+async def refresh_prompt_epoch() -> None:
+    try:
+        async with httpx.AsyncClient(timeout=2) as client:
+            response = await client.get(f"{PROMPT_COMFY_URL}/aj/service_epoch")
+            response.raise_for_status()
+            analysis_cache.observe_service(response.json()["service_epoch"])
+    except Exception as error:
+        analysis_cache.invalidate()
+        raise SubmissionDeferred("Prompt Worker service epoch is unavailable") from error
+
+
+async def prepare_render_model_boundary() -> None:
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.post(f"{RENDER_COMFY_URL}/free", json={"unload_models": True, "free_memory": True})
+        response.raise_for_status()
+
+
+async def verify_production_files(job: dict, service: str) -> None:
+    from .artifacts import validate_manifest, read_json
+    from .model_health import artifact_health
+    profile = job_profile(job)
+    def verify():
+        manifest = json.loads((CONFIG / "models_manifest.json").read_text())
+        entries = validate_manifest(manifest)
+        for item in entries.values():
+            if item["required"] and ("shared" in item["profiles"] or profile in item["profiles"]):
+                if artifact_health(COMFY_MODELS_DIR, item)["status"] != "verified_file":
+                    raise ValueError("required production artifact is not integrity-verified")
+        if service == "render":
+            from .artifacts import verify_file
+            settings = resolve_loras(LORA_REGISTRY, profile, job["context"].get("loras"), frozen=True)
+            expected = [(setting["id"], "loras/" + LORA_REGISTRY[setting["id"]]["filename"], LORA_REGISTRY[setting["id"]])
+                        for setting in settings if setting["enabled"]]
+            bridge = CONDITIONING_BRIDGE
+            if job["context"].get("conditioning_bridge", bridge["defaults"][profile])["enabled"]:
+                expected.append((bridge["id"], "semantic_bridge/" + bridge["filename"], bridge))
+            enrolled = None
+            for identifier, destination, metadata in expected:
+                if type(metadata.get("size_bytes")) is int and metadata.get("sha256"):
+                    if identifier == bridge["id"]:
+                        from .model_health import verify_bridge_files
+                        verify_bridge_files(COMFY_MODELS_DIR, COMFY_ROOT, bridge, metadata)
+                    else:
+                        verify_file(COMFY_MODELS_DIR, destination, metadata)
+                    continue
+                if enrolled is None:
+                    enrolled = read_json(COMFY_MODELS_DIR, ".external_loras.json")
+                receipt = enrolled.get("artifacts", {}).get(identifier)
+                if not isinstance(receipt, dict) or receipt.get("destination") != destination:
+                    raise ValueError("external LoRA needs explicit local checksum enrollment")
+                verify_file(COMFY_MODELS_DIR, destination, receipt)
+    try:
+        await asyncio.to_thread(verify)
+    except Exception:
+        raise SubmissionRejected("Production model/LoRA provenance or file integrity is incomplete; run provisioning and preflight") from None
+
+
+def active_render_policy() -> dict | None:
+    active = [job for job in queue if job.get("status") in {
+        "render_preparing", "render_submitting", "render_running", "recovery_render", "render_submission_uncertain"}
+        or job.get("active_service") == "render" and job.get("status") in {
+            "cancelling", "soft_timeout_cancelling", "hard_timeout_restarting_comfy"}]
+    if not active:
+        return None
+    if len(active) != 1:
+        return {"profile": None, "phase": "recovery"}
+    job = active[0]
+    return {"profile": job.get("profile"), "phase": job.get("render_phase", "unknown")
+            if job.get("status") == "render_running" else "recovery"}
+
+
+def phase_admission(job: dict, service: str) -> tuple[bool, str]:
+    if job.get("profile") not in PROFILE_LABELS:
+        return True, "explicit diagnostic fixture; normal workers require persisted profiles"
+    if service == "render":
+        if any(other is not job and (other.get("status") in {
+            "render_preparing", "render_submitting", "render_running", "recovery_render", "render_submission_uncertain"}
+            or other.get("active_service") == "render" and other.get("status") in {
+                "cancelling", "soft_timeout_cancelling", "hard_timeout_restarting_comfy"}) for other in queue):
+            return False, "another heavy render owns the renderer"
+        if service_work_active("prompt") or service_recovering("prompt"):
+            return False, "conditioning window waits for the active Prompt Worker to settle"
+        return True, "exclusive render conditioning window"
+    free = overlap_telemetry["free_vram_mb"] if time.monotonic() - overlap_telemetry["sampled_at"] <= 3 else None
+    return prompt_admission(prompt_kind=analysis_cache.classify(job, batch_for_job(job)),
+        prompt_profile=job_profile(job), active_render=active_render_policy(), profiles=PRODUCTION, free_vram_mb=free)
+
+
+def assert_phase_admission(job: dict, service: str) -> None:
+    allowed, reason = phase_admission(job, service)
+    job["overlap_admission"] = reason
+    if not allowed:
+        raise SubmissionDeferred(reason)
+
+
 def pick_next_prompt_job() -> dict | None:
     if "prompt" in service_maintenance or lifecycle_dispatch_blocked() or service_recovering("prompt"):
         return None
@@ -2161,9 +2406,15 @@ def pick_next_prompt_job() -> dict | None:
             return None
         if pending_auto:
             pending_auto.sort(key=lambda j: (j["batch_seq"], j["candidate_index"]))
-            return pending_auto[0]
+            return next((job for job in pending_auto if phase_admission(job, "prompt")[0]), None)
         return None
     pending = [j for j in queue if j.get("status") == "prompt_queued"]
+    # A phase-deferred automatic candidate retains its accepted priority over
+    # all unstarted reviews. Admission cannot turn a warm review into a bypass
+    # of cold automatic work in another batch.
+    pending_auto = [job for job in pending if not job.get("review_required")]
+    if pending_auto:
+        pending = pending_auto
     if not pending:
         return None
     # Keep renderer fed: all auto candidates (#1-5) outrank review candidates (#6-10),
@@ -2173,7 +2424,7 @@ def pick_next_prompt_job() -> dict | None:
         j["batch_seq"],
         j["candidate_index"],
     ))
-    return pending[0]
+    return next((job for job in pending if phase_admission(job, "prompt")[0]), None)
 
 
 def pick_next_render_job() -> dict | None:
@@ -2190,7 +2441,7 @@ def pick_next_render_job() -> dict | None:
         j["batch_seq"],
         j["candidate_index"],
     ))
-    return candidates[0]
+    return next((job for job in candidates if phase_admission(job, "render")[0]), None)
 
 
 async def render_job(job: dict) -> None:
@@ -2206,7 +2457,7 @@ async def render_job(job: dict) -> None:
         return
 
     job["render_started_at"] = time.time()
-    res = await submit_and_watch(job, MASTER, "render", approved_prompt=approved)
+    res = await submit_and_watch(job, execution_workflow(job, "render"), "render", approved_prompt=approved)
     await _finish_watched_job(job, "render", res)
 
 
@@ -2258,6 +2509,12 @@ async def prompt_worker() -> None:
     while True:
         if await _wait_for_queue_persistence():
             continue
+        if active_render_policy() is not None and time.monotonic() - overlap_telemetry["sampled_at"] >= 1:
+            sample = await asyncio.to_thread(gpu_status, timeout_seconds=1)
+            used, total = sample.get("vram_used_mb"), sample.get("vram_total_mb")
+            overlap_telemetry.update(free_vram_mb=int(total - used) if type(used) in (int, float)
+                                    and type(total) in (int, float) and math.isfinite(total - used) else None,
+                                    sampled_at=time.monotonic())
         job = pick_next_prompt_job()
         if job:
             try:
@@ -2465,11 +2722,22 @@ async def index():
 
 @app.get("/api/config")
 async def config():
+    from .model_health import manifest_health, lora_health
     return {
-        "map": MAP,
+        "profiles": [{"id": key, **value} for key, value in PRODUCTION["profiles"].items()],
+        "default_profile": PRODUCTION["default_profile"],
         "render_comfy_url": RENDER_COMFY_URL,
         "prompt_comfy_url": PROMPT_COMFY_URL,
-        "loras": MAP["nodes"]["first_pass_loras"]["entries"],
+        "loras": [{"id": key, "display_name": value["display_name"], "defaults": value["defaults"],
+                   "strength_range": value["strength_range"], "compatibility": value["compatibility"],
+                   "gpu_validation": value["gpu_validation"], "help": value.get("help", ""),
+                   **lora_health(COMFY_MODELS_DIR, key, value)}
+                  for key, value in LORA_REGISTRY.items()],
+        "prompt_cache": {"epoch": analysis_cache.epoch, "service_epoch": analysis_cache.service_epoch},
+        "conditioning_bridge": {"id": CONDITIONING_BRIDGE["id"], "defaults": CONDITIONING_BRIDGE["defaults"],
+                                **lora_health(COMFY_MODELS_DIR, CONDITIONING_BRIDGE["id"], CONDITIONING_BRIDGE, bridge=True)},
+        "gpu_validation": "pending",
+        "models": await asyncio.to_thread(manifest_health, CONFIG / "models_manifest.json", COMFY_MODELS_DIR),
         "version": "pre-rental-final-rc5",
         "state": state_diagnostics(),
         "prompt_prefetch": H3_PROMPT_PREFETCH,
@@ -2529,7 +2797,10 @@ async def api_diagnostics():
         "storage": storage, "disk": disk, "queue": queue_summary(queue), "prefetch": prompt_prefetch_status(),
         "vast": {"cli_available": cli_available, "instance_id_available": bool(instance_id_from_env()),
                  "control_available": cli_available and bool(instance_id_from_env()) and submissions_allowed(),
-                 "remote_authorization": "not_probed"}, "models": models})
+                 "remote_authorization": "not_probed"}, "models": models,
+        "production": {"default_profile": PRODUCTION["default_profile"], "active_render": active_render_policy(),
+                       "profiles": PRODUCTION["profiles"], "prompt_cache_epoch": analysis_cache.epoch,
+                       "prompt_service_epoch": analysis_cache.service_epoch, "gpu_validation": "pending"}})
     data["checks"] = checks_for(data)
     data["status"] = next((status for status in ("FAIL", "WARN") if any(
         check["status"] == status for check in data["checks"])), "PASS")
@@ -2727,6 +2998,11 @@ async def create_batches(req: BatchRequest):
             raise HTTPException(400, "A client-generated UUID request_id is required; reuse it when retrying")
         if not req.prompt.strip():
             raise HTTPException(400, "scene prompt is empty")
+        selected_profile = req.profile or req.model or PRODUCTION["default_profile"]
+        if selected_profile not in PROFILE_LABELS:
+            raise HTTPException(400, "unknown production profile")
+        if req.profile and req.model is not None and req.model != req.profile:
+            raise HTTPException(400, "conflicting profile identifiers")
         pictures, audio = validate_requested_assets(req)
         created_batches = []
         base_render_seed = req.seed if req.seed is not None else int(time.time_ns() & 0x7FFFFFFF)
@@ -2740,17 +3016,24 @@ async def create_batches(req: BatchRequest):
             batch_seq = batch_seq_start + batch_offset
             context = {
                 "prompt": req.prompt,
-                "model": req.model,
+                "model": selected_profile,
+                "profile": selected_profile,
+                "profile_identity": profile_identity(selected_profile),
+                "lora_identity": {key: entry["filename"] for key, entry in LORA_REGISTRY.items()},
+                "conditioning_bridge": {"id": CONDITIONING_BRIDGE["id"], "filename": CONDITIONING_BRIDGE["filename"],
+                                        **CONDITIONING_BRIDGE["defaults"][selected_profile]},
+                "duration_seconds": req.duration_seconds,
                 "soft_timeout_minutes": req.soft_timeout_minutes,
                 "hard_restart_after_seconds": req.hard_restart_after_seconds,
                 "pictures": pictures,
                 "audio": audio,
-                "loras": [x.model_dump() for x in req.loras],
+                "loras": resolve_loras(LORA_REGISTRY, selected_profile, [x.model_dump() for x in req.loras]),
             }
 
             analysis_seed = base_analysis_seed + batch_offset
             batch = {
                 "id": batch_id,
+                "profile": selected_profile,
                 "seq": batch_seq,
                 "created_at": time.time(),
                 "context": context,
@@ -2771,6 +3054,7 @@ async def create_batches(req: BatchRequest):
                 next_queue.append({
                     "id": uuid.uuid4().hex,
                     "batch_id": batch_id,
+                    "profile": selected_profile,
                     "batch_seq": batch_seq,
                     "candidate_index": i + 1,
                     "render_seed": render_seed,

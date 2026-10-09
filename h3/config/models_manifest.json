@@ -1,123 +1,402 @@
 {
-  "required_primary": [
+  "schema_version": 2,
+  "status": "blocked_source_provenance",
+  "gpu_validation": "pending",
+  "baseline": {
+    "file": "H3_v20_heretic_MASTER_DURATION_EXACT.json",
+    "size_bytes": 3084071,
+    "sha256": "276621a1992a8b8da40d981a79417fd5eb3617b44166d890c8c82ffd8eb96222"
+  },
+  "lora_registry": "lora_registry.json",
+  "artifacts": [
     {
-      "dir": "diffusion_models",
-      "file": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
-      "role": "PRIMARY native H3 render model"
-    },
-    {
-      "dir": "text_encoders",
-      "file": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
-      "role": "H3 text encoder"
-    },
-    {
-      "dir": "vae",
-      "file": "minimax_h3_video_vae_int8_convrot.safetensors",
-      "role": "video VAE"
-    },
-    {
-      "dir": "vae",
-      "file": "minimax_h3_audio_vae_fp32.safetensors",
-      "role": "audio VAE"
-    },
-    {
-      "dir": "latent_upscale_models",
-      "file": "minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors",
-      "role": "latent upscaler"
-    },
-    {
-      "dir": "LLM",
-      "file": "Llama-Joycaption-Beta-One-Hf-Llava-Q4_K.gguf",
-      "role": "Step 0 JoyCaption"
-    },
-    {
-      "dir": "LLM",
-      "file": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf",
-      "role": "JoyCaption mmproj"
-    },
-    {
-      "dir": "LLM",
-      "file": "Qwen3VL-8B-Instruct-Q4_K_M.gguf",
-      "role": "Step 0 verifier"
-    },
-    {
-      "dir": "LLM",
-      "file": "mmproj-Qwen3VL-8B-Instruct-Q8_0.gguf",
-      "role": "Qwen verifier mmproj"
-    },
-    {
-      "dir": "LLM",
-      "file": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.i1-Q6_K.gguf",
-      "role": "Gemma vision/reasoning"
-    },
-    {
-      "dir": "LLM",
-      "file": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.mmproj-f16.gguf",
-      "role": "Gemma mmproj"
-    },
-    {
-      "dir": "LLM",
-      "file": "MN-Violet-Lotus-12B.Q5_K_M.gguf",
-      "role": "Step 3/4 writer"
-    }
-  ],
-  "optional_secondary": [
-    {
-      "dir": "diffusion_models",
-      "file": "10Eros_Max_h3_hybrid_beta5_int8.safetensors",
-      "role": "optional 10Eros A/B"
-    }
-  ],
-  "download_policy": "Preflight requires only active/default models. Disabled LoRAs and 10Eros remain optional until selected.",
-  "loras_default_required": [
-    {
-      "file": "HMBreastsV2.safetensors",
-      "default_on": true,
-      "strength": 1.0
-    },
-    {
-      "file": "MysticXXX_MMH3-V4-ref2va.safetensors",
-      "default_on": true,
-      "strength": 0.6
-    },
-    {
-      "file": "movement_h3_lora_v1_500.safetensors",
-      "default_on": true,
-      "strength": 0.5
-    }
-  ],
-  "loras_optional": [
-    {
-      "file": "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
-      "default_on": false,
-      "strength": 1.0
-    },
-    {
-      "file": "HMNSFW-AIO-V2.5.safetensors",
-      "default_on": false,
-      "strength": 0.6
-    },
-    {
-      "file": "MMH3-MPOV.safetensors",
-      "default_on": false,
-      "strength": 0.6
-    },
-    {
-      "file": "H3_Combat_V2.safetensors",
-      "default_on": false,
-      "strength": 0.6
-    }
-  ],
-  "special_required_models": [
-    {
-      "file": "BUNNY_H3_ActionLogic_Bridge_V1.safetensors",
-      "role": "Active Bunny H3 Conditioning Bridge adapter",
-      "accepted_locations": [
-        "custom_nodes/BUNNY_H3_Conditioning_Bridge/models/BUNNY_H3_ActionLogic_Bridge_V1.safetensors",
-        "custom_nodes/bunny-h3-semantic-bridge/models/BUNNY_H3_ActionLogic_Bridge_V1.safetensors",
-        "models/semantic_bridge/BUNNY_H3_ActionLogic_Bridge_V1.safetensors"
+      "id": "h3-transformer",
+      "role": "H3 Full BF16 transformer",
+      "provider": "huggingface",
+      "repository": "Comfy-Org/MiniMax-H3",
+      "revision": "3f57e8291d2ef846f9a074b1b76d2767db434abe",
+      "repository_path": "diffusion_models/minimax_h3_ref2va_bf16.safetensors",
+      "destination": "diffusion_models/minimax_h3_ref2va_bf16.safetensors",
+      "size_bytes": 66280487368,
+      "sha256": "e32c54c1a7b4f5f397f195cea267ccb18806303bb665678c4bee60953bdf3026",
+      "required": true,
+      "profiles": [
+        "h3_full"
       ],
-      "source": "https://huggingface.co/JOKER141/BUNNY_H3_Conditioning_Bridge"
+      "gpu_validation": "pending",
+      "provenance_status": "verified_source_metadata",
+      "metadata_evidence": {
+        "provider": "Hugging Face Git/LFS",
+        "blob_url": "https://huggingface.co/Comfy-Org/MiniMax-H3/blob/3f57e8291d2ef846f9a074b1b76d2767db434abe/diffusion_models/minimax_h3_ref2va_bf16.safetensors",
+        "pointer_url": "https://huggingface.co/Comfy-Org/MiniMax-H3/raw/3f57e8291d2ef846f9a074b1b76d2767db434abe/diffusion_models/minimax_h3_ref2va_bf16.safetensors"
+      }
+    },
+    {
+      "id": "h3-encoder",
+      "role": "H3 BF16 conditioning encoder",
+      "provider": "huggingface",
+      "repository": "Comfy-Org/MiniMax-H3",
+      "revision": "3f57e8291d2ef846f9a074b1b76d2767db434abe",
+      "repository_path": "text_encoders/qwen3vl_32b_minimax_h3_bf16.safetensors",
+      "destination": "text_encoders/qwen3vl_32b_minimax_h3_bf16.safetensors",
+      "size_bytes": 51506295256,
+      "sha256": "600d567f6a9629c8574e8e7041b199bdd9c59a986afa7906910a81919610607d",
+      "required": true,
+      "profiles": [
+        "shared"
+      ],
+      "gpu_validation": "pending",
+      "provenance_status": "verified_source_metadata",
+      "metadata_evidence": {
+        "provider": "Hugging Face Git/LFS",
+        "blob_url": "https://huggingface.co/Comfy-Org/MiniMax-H3/blob/3f57e8291d2ef846f9a074b1b76d2767db434abe/text_encoders/qwen3vl_32b_minimax_h3_bf16.safetensors",
+        "pointer_url": "https://huggingface.co/Comfy-Org/MiniMax-H3/raw/3f57e8291d2ef846f9a074b1b76d2767db434abe/text_encoders/qwen3vl_32b_minimax_h3_bf16.safetensors"
+      }
+    },
+    {
+      "id": "video-vae",
+      "role": "H3 video VAE FP16",
+      "provider": "huggingface",
+      "repository": "Comfy-Org/MiniMax-H3",
+      "revision": "3f57e8291d2ef846f9a074b1b76d2767db434abe",
+      "repository_path": "vae/minimax_h3_video_vae_fp16.safetensors",
+      "destination": "vae/minimax_h3_video_vae_fp16.safetensors",
+      "size_bytes": 5207808496,
+      "sha256": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+      "required": true,
+      "profiles": [
+        "shared"
+      ],
+      "gpu_validation": "pending",
+      "provenance_status": "verified_source_metadata",
+      "metadata_evidence": {
+        "provider": "Hugging Face Git/LFS",
+        "blob_url": "https://huggingface.co/Comfy-Org/MiniMax-H3/blob/3f57e8291d2ef846f9a074b1b76d2767db434abe/vae/minimax_h3_video_vae_fp16.safetensors",
+        "pointer_url": "https://huggingface.co/Comfy-Org/MiniMax-H3/raw/3f57e8291d2ef846f9a074b1b76d2767db434abe/vae/minimax_h3_video_vae_fp16.safetensors"
+      }
+    },
+    {
+      "id": "audio-vae",
+      "role": "H3 audio VAE FP32",
+      "provider": "huggingface",
+      "repository": "Comfy-Org/MiniMax-H3",
+      "revision": "3f57e8291d2ef846f9a074b1b76d2767db434abe",
+      "repository_path": "vae/minimax_h3_audio_vae_fp32.safetensors",
+      "destination": "vae/minimax_h3_audio_vae_fp32.safetensors",
+      "size_bytes": 605254808,
+      "sha256": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+      "required": true,
+      "profiles": [
+        "shared"
+      ],
+      "gpu_validation": "pending",
+      "provenance_status": "verified_source_metadata",
+      "metadata_evidence": {
+        "provider": "Hugging Face Git/LFS",
+        "blob_url": "https://huggingface.co/Comfy-Org/MiniMax-H3/blob/3f57e8291d2ef846f9a074b1b76d2767db434abe/vae/minimax_h3_audio_vae_fp32.safetensors",
+        "pointer_url": "https://huggingface.co/Comfy-Org/MiniMax-H3/raw/3f57e8291d2ef846f9a074b1b76d2767db434abe/vae/minimax_h3_audio_vae_fp32.safetensors"
+      }
+    },
+    {
+      "id": "latent-upscaler",
+      "role": "H3 3D convolution latent upscaler FP16",
+      "provider": "huggingface",
+      "repository": "LBH-123-AI/Minimax_h3_latent_Upscaler",
+      "revision": "6749d7b4376fe1597115c4807f0f659c426d0b4d",
+      "repository_path": "minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors",
+      "destination": "latent_upscale_models/minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors",
+      "size_bytes": 690592672,
+      "sha256": "043e5a48e161610ef6c3ea974645220354d06fa618abca15f76d084812eb55c2",
+      "required": true,
+      "profiles": [
+        "shared"
+      ],
+      "gpu_validation": "pending",
+      "provenance_status": "verified_source_metadata",
+      "metadata_evidence": {
+        "provider": "Hugging Face Git/LFS",
+        "blob_url": "https://huggingface.co/LBH-123-AI/Minimax_h3_latent_Upscaler/blob/6749d7b4376fe1597115c4807f0f659c426d0b4d/minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors",
+        "pointer_url": "https://huggingface.co/LBH-123-AI/Minimax_h3_latent_Upscaler/raw/6749d7b4376fe1597115c4807f0f659c426d0b4d/minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors"
+      }
+    },
+    {
+      "id": "10eros-transformer",
+      "role": "10Eros Full non-Turbo Beta5 transformer",
+      "provider": "huggingface",
+      "repository": "TenStrip/10Eros-Max",
+      "revision": "b0070d3c9fb8b25c4b954aeb740e2f80924040df",
+      "repository_path": "10Eros_Max_h3_hybrid_beta5.safetensors",
+      "destination": "diffusion_models/10Eros_Max_h3_hybrid_beta5.safetensors",
+      "size_bytes": 40222982192,
+      "sha256": "a4c8fcefca0628f717ddfc91cadbce7bbef6a7da1fd470d144d81ef3ca4de33f",
+      "required": true,
+      "profiles": [
+        "10eros_full"
+      ],
+      "gpu_validation": "pending",
+      "provenance_status": "verified_source_metadata",
+      "metadata_evidence": {
+        "provider": "Hugging Face Git/LFS",
+        "blob_url": "https://huggingface.co/TenStrip/10Eros-Max/blob/b0070d3c9fb8b25c4b954aeb740e2f80924040df/10Eros_Max_h3_hybrid_beta5.safetensors",
+        "pointer_url": "https://huggingface.co/TenStrip/10Eros-Max/raw/b0070d3c9fb8b25c4b954aeb740e2f80924040df/10Eros_Max_h3_hybrid_beta5.safetensors"
+      }
+    },
+    {
+      "id": "joycaption",
+      "role": "Step 0A JoyCaption F16",
+      "provider": "huggingface",
+      "repository": "concedo/llama-joycaption-beta-one-hf-llava-mmproj-gguf",
+      "revision": "acfe6bf78ae4e411cd5c7c8f4a71ba01f26a5b97",
+      "repository_path": "Llama-Joycaption-Beta-One-Hf-Llava-F16.gguf",
+      "destination": "LLM/Llama-Joycaption-Beta-One-Hf-Llava-F16.gguf",
+      "size_bytes": 16068892864,
+      "sha256": "4f6701b0853d1913004bee86ee91e094b6d4cc709e1a1a1850c455cba252baf6",
+      "required": true,
+      "profiles": [
+        "shared"
+      ],
+      "gpu_validation": "pending",
+      "provenance_status": "verified_source_metadata",
+      "metadata_evidence": {
+        "provider": "Hugging Face Git/LFS",
+        "blob_url": "https://huggingface.co/concedo/llama-joycaption-beta-one-hf-llava-mmproj-gguf/blob/acfe6bf78ae4e411cd5c7c8f4a71ba01f26a5b97/Llama-Joycaption-Beta-One-Hf-Llava-F16.gguf",
+        "pointer_url": "https://huggingface.co/concedo/llama-joycaption-beta-one-hf-llava-mmproj-gguf/raw/acfe6bf78ae4e411cd5c7c8f4a71ba01f26a5b97/Llama-Joycaption-Beta-One-Hf-Llava-F16.gguf"
+      }
+    },
+    {
+      "id": "joycaption-mmproj",
+      "role": "Step 0A matching F16 mmproj",
+      "provider": "huggingface",
+      "repository": "concedo/llama-joycaption-beta-one-hf-llava-mmproj-gguf",
+      "revision": "acfe6bf78ae4e411cd5c7c8f4a71ba01f26a5b97",
+      "repository_path": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf",
+      "destination": "LLM/llama-joycaption-beta-one-llava-mmproj-model-f16.gguf",
+      "size_bytes": 877771808,
+      "sha256": "94002cb5c354c7c9e538e64f37d593db9eceeca2e94573bae6cd3b2bd8bb1952",
+      "required": true,
+      "profiles": [
+        "shared"
+      ],
+      "gpu_validation": "pending",
+      "provenance_status": "verified_source_metadata",
+      "metadata_evidence": {
+        "provider": "Hugging Face Git/LFS",
+        "blob_url": "https://huggingface.co/concedo/llama-joycaption-beta-one-hf-llava-mmproj-gguf/blob/acfe6bf78ae4e411cd5c7c8f4a71ba01f26a5b97/llama-joycaption-beta-one-llava-mmproj-model-f16.gguf",
+        "pointer_url": "https://huggingface.co/concedo/llama-joycaption-beta-one-hf-llava-mmproj-gguf/raw/acfe6bf78ae4e411cd5c7c8f4a71ba01f26a5b97/llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"
+      }
+    },
+    {
+      "id": "verifier",
+      "role": "Step 0B caption verifier F16",
+      "provider": "huggingface",
+      "repository": "mradermacher/Qwen3-VL-8B-NSFW-Caption-V4.5-GGUF",
+      "revision": "6738dcb8bb1f43b480393ba1ce36e50c6f1399d8",
+      "repository_path": "Qwen3-VL-8B-NSFW-Caption-V4.5.f16.gguf",
+      "destination": "LLM/Qwen3-VL-8B-NSFW-Caption-V4.5.f16.gguf",
+      "size_bytes": 16388045920,
+      "sha256": "96d661a5979f6cb6052ed69737b1fd7cd8b51bbabcad7d25beb6e1c0850a4cbb",
+      "required": true,
+      "profiles": [
+        "shared"
+      ],
+      "gpu_validation": "pending",
+      "provenance_status": "verified_source_metadata",
+      "metadata_evidence": {
+        "provider": "Hugging Face Git/LFS",
+        "blob_url": "https://huggingface.co/mradermacher/Qwen3-VL-8B-NSFW-Caption-V4.5-GGUF/blob/6738dcb8bb1f43b480393ba1ce36e50c6f1399d8/Qwen3-VL-8B-NSFW-Caption-V4.5.f16.gguf",
+        "pointer_url": "https://huggingface.co/mradermacher/Qwen3-VL-8B-NSFW-Caption-V4.5-GGUF/raw/6738dcb8bb1f43b480393ba1ce36e50c6f1399d8/Qwen3-VL-8B-NSFW-Caption-V4.5.f16.gguf"
+      }
+    },
+    {
+      "id": "verifier-mmproj",
+      "role": "Step 0B matching F16 mmproj",
+      "provider": "huggingface",
+      "repository": "mradermacher/Qwen3-VL-8B-NSFW-Caption-V4.5-GGUF",
+      "revision": "f8bff167ffe6f49f3a0afa5e01e242e1ee7a7a00",
+      "repository_path": "Qwen3-VL-8B-NSFW-Caption-V4.5.mmproj-f16.gguf",
+      "destination": "LLM/Qwen3-VL-8B-NSFW-Caption-V4.5.mmproj-f16.gguf",
+      "size_bytes": 1159030368,
+      "sha256": "ceb8b4f0ed3669bc0bc85450109f014d835225e1702be676308f1c10892a1f7d",
+      "required": true,
+      "profiles": [
+        "shared"
+      ],
+      "gpu_validation": "pending",
+      "provenance_status": "verified_source_metadata",
+      "metadata_evidence": {
+        "provider": "Hugging Face Git/LFS",
+        "blob_url": "https://huggingface.co/mradermacher/Qwen3-VL-8B-NSFW-Caption-V4.5-GGUF/blob/f8bff167ffe6f49f3a0afa5e01e242e1ee7a7a00/Qwen3-VL-8B-NSFW-Caption-V4.5.mmproj-f16.gguf",
+        "pointer_url": "https://huggingface.co/mradermacher/Qwen3-VL-8B-NSFW-Caption-V4.5-GGUF/raw/f8bff167ffe6f49f3a0afa5e01e242e1ee7a7a00/Qwen3-VL-8B-NSFW-Caption-V4.5.mmproj-f16.gguf"
+      }
+    },
+    {
+      "id": "gemma",
+      "role": "Step 0C/1/2 canonical Gemma F16",
+      "provider": "huggingface",
+      "repository": "mradermacher/Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS-GGUF",
+      "revision": "26a17cc867ed43a8e9636bbfedb874d3b4e773b5",
+      "repository_path": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.f16.gguf",
+      "destination": "LLM/Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.f16.gguf",
+      "size_bytes": 14942972992,
+      "sha256": "24f0d29b2836473ff2406450f0867345c0902712ed953f45de3d98a12de9c4ea",
+      "required": true,
+      "profiles": [
+        "shared"
+      ],
+      "gpu_validation": "pending",
+      "provenance_status": "verified_source_metadata",
+      "metadata_evidence": {
+        "provider": "Hugging Face Git/LFS",
+        "blob_url": "https://huggingface.co/mradermacher/Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS-GGUF/blob/26a17cc867ed43a8e9636bbfedb874d3b4e773b5/Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.f16.gguf",
+        "pointer_url": "https://huggingface.co/mradermacher/Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS-GGUF/raw/26a17cc867ed43a8e9636bbfedb874d3b4e773b5/Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.f16.gguf"
+      }
+    },
+    {
+      "id": "gemma-mmproj",
+      "role": "Step 0C/1/2 matching Gemma F16 mmproj",
+      "provider": "huggingface",
+      "repository": "mradermacher/Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS-GGUF",
+      "revision": "94b51494c2f9650d4d9456f054d1ccade9d8fb22",
+      "repository_path": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.mmproj-f16.gguf",
+      "destination": "LLM/Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.mmproj-f16.gguf",
+      "size_bytes": 990372832,
+      "sha256": "f84a44828afc71ed2f083a20680122f29d1044184572f090a8838db37aee016a",
+      "required": true,
+      "profiles": [
+        "shared"
+      ],
+      "gpu_validation": "pending",
+      "provenance_status": "verified_source_metadata",
+      "metadata_evidence": {
+        "provider": "Hugging Face Git/LFS",
+        "blob_url": "https://huggingface.co/mradermacher/Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS-GGUF/blob/94b51494c2f9650d4d9456f054d1ccade9d8fb22/Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.mmproj-f16.gguf",
+        "pointer_url": "https://huggingface.co/mradermacher/Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS-GGUF/raw/94b51494c2f9650d4d9456f054d1ccade9d8fb22/Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.mmproj-f16.gguf"
+      }
+    },
+    {
+      "id": "h3-writer",
+      "role": "H3 Step 3/4 Heretic Q8 writer",
+      "provider": "huggingface",
+      "repository": "darrellbest/Qwen3.5-4B-Heretic-GGUF",
+      "revision": "ef1937006c2385300da935de7dceeba29bb44e48",
+      "repository_path": "Qwen3.5-4B-Heretic-Q8_0.gguf",
+      "destination": "LLM/Qwen3.5-4B-Heretic-Q8_0.gguf",
+      "size_bytes": 4610579840,
+      "sha256": "fedcedc80acd248cf0fb128d5c0f58eef220b3d05d54f49554348d1d7421f21d",
+      "required": true,
+      "profiles": [
+        "h3_full"
+      ],
+      "gpu_validation": "pending",
+      "provenance_status": "verified_source_metadata",
+      "metadata_evidence": {
+        "provider": "Hugging Face Git/LFS",
+        "blob_url": "https://huggingface.co/darrellbest/Qwen3.5-4B-Heretic-GGUF/blob/ef1937006c2385300da935de7dceeba29bb44e48/Qwen3.5-4B-Heretic-Q8_0.gguf",
+        "pointer_url": "https://huggingface.co/darrellbest/Qwen3.5-4B-Heretic-GGUF/raw/ef1937006c2385300da935de7dceeba29bb44e48/Qwen3.5-4B-Heretic-Q8_0.gguf"
+      }
+    },
+    {
+      "id": "hm-breasts-v2",
+      "role": "Registered optional LoRA",
+      "provider": "huggingface",
+      "repository": "Hearmeman/minimax-h3-loras",
+      "revision": "4b1d1def6d254290aac60c8223f0c562967a19cd",
+      "repository_path": "HMBreastsV2.safetensors",
+      "destination": "loras/HMBreastsV2.safetensors",
+      "size_bytes": 77580016,
+      "sha256": "d260653bdf10775380a44c8f1486bcc4690bd57085cb034002a8fb878f1ad36f",
+      "required": false,
+      "profiles": [
+        "h3_full",
+        "10eros_full"
+      ],
+      "gpu_validation": "pending",
+      "metadata_evidence": [
+        "https://huggingface.co/Hearmeman/minimax-h3-loras/commit/4b1d1def6d254290aac60c8223f0c562967a19cd",
+        "https://huggingface.co/Hearmeman/minimax-h3-loras/raw/4b1d1def6d254290aac60c8223f0c562967a19cd/HMBreastsV2.safetensors"
+      ]
+    },
+    {
+      "id": "h3-turbo-8step",
+      "role": "Registered optional LoRA",
+      "provider": "huggingface",
+      "repository": "Comfy-Org/MiniMax-H3",
+      "revision": "186455f4c2a878eb57d5c7916c5b0f71a77e8ceb",
+      "repository_path": "loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+      "destination": "loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+      "size_bytes": 1956193000,
+      "sha256": "2339acdf19bfe123f46b971ea35d367a84adb85de43627e1eceafa5a5b2b111e",
+      "required": false,
+      "profiles": [
+        "h3_full",
+        "10eros_full"
+      ],
+      "gpu_validation": "pending",
+      "metadata_evidence": [
+        "https://huggingface.co/Comfy-Org/MiniMax-H3/commit/186455f4c2a878eb57d5c7916c5b0f71a77e8ceb",
+        "https://huggingface.co/Comfy-Org/MiniMax-H3/raw/186455f4c2a878eb57d5c7916c5b0f71a77e8ceb/loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
+      ]
+    },
+    {
+      "id": "hm-nsfw-aio-v25",
+      "role": "Registered optional LoRA",
+      "provider": "huggingface",
+      "repository": "Hearmeman/minimax-h3-loras",
+      "revision": "f85a4b77aa9bc1a81a96855d1e792a779743b322",
+      "repository_path": "HMNSFW-AIO-V2.5.safetensors",
+      "destination": "loras/HMNSFW-AIO-V2.5.safetensors",
+      "size_bytes": 86040232,
+      "sha256": "a07732a84fd733085eb5d910f602f918fa7a3658117116927e4329f5951a9d2d",
+      "required": false,
+      "profiles": [
+        "h3_full",
+        "10eros_full"
+      ],
+      "gpu_validation": "pending",
+      "metadata_evidence": [
+        "https://huggingface.co/Hearmeman/minimax-h3-loras/commit/f85a4b77aa9bc1a81a96855d1e792a779743b322",
+        "https://huggingface.co/Hearmeman/minimax-h3-loras/raw/f85a4b77aa9bc1a81a96855d1e792a779743b322/HMNSFW-AIO-V2.5.safetensors"
+      ]
+    },
+    {
+      "id": "bunny-actionlogic-v1",
+      "role": "Conditioning bridge",
+      "provider": "huggingface",
+      "repository": "JOKER141/BUNNY_H3_Conditioning_Bridge",
+      "revision": "bdb78f29216fe16ae97c7177325abc16689b17bd",
+      "repository_path": "BUNNY_H3_ActionLogic_Bridge_V1.safetensors",
+      "destination": "semantic_bridge/BUNNY_H3_ActionLogic_Bridge_V1.safetensors",
+      "size_bytes": 22045536,
+      "sha256": "983380be6bf790544dbfa9be1bbe42e60ea841c7b6f7c5aac668de9380ab277a",
+      "required": false,
+      "profiles": [
+        "h3_full"
+      ],
+      "gpu_validation": "pending",
+      "metadata_evidence": [
+        "https://huggingface.co/JOKER141/BUNNY_H3_Conditioning_Bridge/commit/bdb78f29216fe16ae97c7177325abc16689b17bd",
+        "https://huggingface.co/JOKER141/BUNNY_H3_Conditioning_Bridge/raw/bdb78f29216fe16ae97c7177325abc16689b17bd/BUNNY_H3_ActionLogic_Bridge_V1.safetensors"
+      ]
+    }
+  ],
+  "pending_artifacts": [
+    {
+      "id": "10eros-writer",
+      "role": "10Eros Step 3/4 BF16 GGUF writer",
+      "provider": "generated",
+      "profiles": [
+        "10eros_full"
+      ],
+      "required": true,
+      "destination": "LLM/Qwen3.5-9B-F451-AND-TRI-Polar-Ultra-Pro-Writer-Uncensored-Heretic-BF16.gguf",
+      "source_repository": "DavidAU/Qwen3.5-9B-F451-AND-TRI-Polar-Ultra-Pro-Writer-Uncensored-Heretic",
+      "observed_source_revision": "72f2d803ae63499fc463607d997fe48abd38f093",
+      "status": "blocked_source_metadata",
+      "reason": "Complete source shard/config/tokenizer size/hash metadata could not be independently obtained. Do not generate or substitute a quantized writer.",
+      "llama_cpp_revision": "60eeeb6082c1126bb8bc72902c83123cd056811b",
+      "converter_revision": "60eeeb6082c1126bb8bc72902c83123cd056811b",
+      "converter_sha256": "e38975e1c68d98ac1664dfd530616eb35c72294382a4dd873d4746b23f27779f",
+      "gpu_validation": "pending"
     }
   ]
 }
