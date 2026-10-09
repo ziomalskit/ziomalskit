@@ -29,14 +29,14 @@ def request(m, key=None):
     pictures = [f"final-ref-{i}.png" for i in range(6)]
     for name in pictures + ["__h3_silence_1s.wav"]:
         (m.COMFY_INPUT_DIR / name).write_bytes(b"CPU fixture")
-    model = m.model_path_for_preset("native_int8")
+    model = m.model_path_for_preset("h3_full")
     model.parent.mkdir(parents=True, exist_ok=True)
     model.write_bytes(b"CPU fixture")
-    return m.BatchRequest(request_id=key or uuid.uuid4(), prompt="confirmed scene", pictures=pictures)
+    return m.BatchRequest(request_id=key or uuid.uuid4(), prompt="confirmed scene", pictures=pictures, profile="h3_full")
 
 
 def prior_review(m, req):
-    job = dict(id="review", batch_id="prior", batch_seq=1, candidate_index=6, created_at=1,
+    job = dict(id="review", batch_id="prior", batch_seq=1, candidate_index=6, created_at=1, profile="h3_full",
                status="pending_review", review_required=True, final_h3_prompt="confirmed scene",
                render_seed=1, prompt_seed=2, analysis_seed=3, context=req.model_dump(mode="json"))
     m.queue.append(job)

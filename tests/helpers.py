@@ -9,7 +9,7 @@ import shutil
 import sys
 import tempfile
 import types
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,7 +18,7 @@ BASELINE = ROOT / "migration/01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC
 
 
 @contextmanager
-def load_controller(source: Path = ACTIVE):
+def load_controller(source: Path = ACTIVE, *, production_probes: bool = False):
     """Fresh module, authentic workflow/config files, disposable runtime state."""
     with tempfile.TemporaryDirectory(prefix="aj-test-") as temporary:
         target = Path(temporary) / "h3"
@@ -37,6 +37,9 @@ def load_controller(source: Path = ACTIVE):
             "VAST_CLI": "/usr/bin/false", "SERVICE_CTL": "/usr/bin/false",
             "RENDER_RESTART_CMD": "/usr/bin/false", "PROMPT_RESTART_CMD": "/usr/bin/false",
             "H3_ALLOW_SUBMISSIONS": "1",
+            # Existing controller tests explicitly exercise the diagnostic
+            # graphs. Normal deployment never enables legacy submissions.
+            "H3_ALLOW_DIAGNOSTIC_SUBMISSIONS": "1",
             "WORKSPACE": str(target / "workspace"),
             "H3_PROMPT_PREFETCH": "3", "H3_ENABLE_TERMINAL": "0",
         }
@@ -47,6 +50,13 @@ def load_controller(source: Path = ACTIVE):
                 module = importlib.util.module_from_spec(spec)
                 sys.modules[name] = module
                 spec.loader.exec_module(module)
+                if not production_probes and source == ACTIVE:
+                    # New process-epoch/cache-release I/O is separate from the
+                    # accepted durability tests. Production integration tests
+                    # opt in and exercise those requests with MockTransport.
+                    module.refresh_prompt_epoch = AsyncMock()
+                    module.prepare_render_model_boundary = AsyncMock()
+                    module.verify_production_files = AsyncMock()
                 # Pure controller tests replace service/task dependencies. Tests
                 # of task death explicitly replace these with actual Tasks.
                 for task_name in ("prompt_worker_task", "render_worker_task", "recovery_task", "vast_guard_task"):

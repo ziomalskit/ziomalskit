@@ -192,6 +192,7 @@ class DeploymentTests(unittest.TestCase):
         checksums=self.base/'checksums.json'
         checksums.write_text(json.dumps({'models/LLM/model.gguf':{'sha256':hashlib.sha256(model.read_bytes()).hexdigest()}}))
         environment={'PANEL_ROOT':str(panel),'COMFY_ROOT':str(comfy),'COMFY_PYTHON':sys.executable,
+                     'H3_ALLOW_DIAGNOSTIC_SUBMISSIONS':'1',
                      'H3_MODEL_CHECKSUMS_FILE':str(checksums),'RENDER_PORT':'9188','PROMPT_PORT':'9189','H3_PANEL_PORT':'9860'}
         def command(arguments, **kwargs):
             if arguments[0]=='git':return runtime_config.COMFY_COMMIT+'\n'
@@ -278,7 +279,19 @@ if '--build' in a:
             (package/"scripts"/name).write_text('#!/bin/sh\nexit 0\n')
         (package/"scripts/service_ctl.sh").write_text('#!/bin/sh\ntouch "$PANEL_ROOT/service-started"\n')
         comfy=self.base/"data/ComfyUI"
-        return package,comfy,self.inert_tools(package,comfy)
+        environment=self.inert_tools(package,comfy)
+        # Provision the real new manifest/download path using already verified
+        # synthetic bytes. No real model download belongs in this CPU fixture.
+        body=b'GGUF'+(3).to_bytes(4,'little')+bytes(28)
+        model=comfy/'models/LLM/fixture.gguf';model.parent.mkdir(parents=True);model.write_bytes(body)
+        item=dict(id='fixture-model',role='CPU provisioning fixture',provider='huggingface',repository='fixture/model',
+                  revision='1'*40,repository_path='fixture.gguf',destination='LLM/fixture.gguf',size_bytes=len(body),
+                  sha256=hashlib.sha256(body).hexdigest(),required=True,profiles=['shared'],gpu_validation='pending')
+        (package/'config/models_manifest.json').write_text(json.dumps(dict(schema_version=2,
+            status='production_pinned_gpu_pending',artifacts=[item])))
+        downloads=self.base/'data/.aj-download-venv/bin';downloads.mkdir(parents=True)
+        (downloads/'python').symlink_to(environment['COMFY_PYTHON'])
+        return package,comfy,environment
 
     def test_provision_targets_comfy_root_one_python_and_retains_credentials(self):
         package,comfy,environment=self.provision_fixture()
@@ -309,6 +322,23 @@ if '--build' in a:
         self.assertEqual(result.returncode,7)
         self.assertFalse((package/'service-started').exists())
 
+    def test_provision_download_token_is_ephemeral_and_leaves_submissions_disabled(self):
+        package, comfy, environment = self.provision_fixture()
+        sentinel = 'FAKE_ONETIME_DOWNLOAD_TOKEN_CPU_PROBE'
+        for key in ('HF_TOKEN', 'HF_HUB_TOKEN', 'HUGGING_FACE_HUB_TOKEN'):
+            environment[key] = sentinel
+        environment['HF_XET_HIGH_PERFORMANCE'] = '1'
+        environment['H3_ALLOW_SUBMISSIONS'] = '1'
+        result = subprocess.run(['bash', str(package/'scripts/provision.sh')], env=environment, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(sentinel, result.stdout + result.stderr)
+        configured = runtime_config.read_env(package/'runtime.env')
+        self.assertEqual(configured['H3_ALLOW_SUBMISSIONS'], '0')
+        self.assertFalse(any(key in configured for key in ('HF_TOKEN', 'HF_HUB_TOKEN', 'HUGGING_FACE_HUB_TOKEN')))
+        for path in self.base.rglob('*'):
+            if path.is_file():
+                self.assertNotIn(sentinel.encode(), path.read_bytes(), str(path))
+
     def test_service_restart_commands_preserve_paths_with_spaces(self):
         package=self.base/'panel with spaces'
         shutil.copytree(ROOT/'h3',package,ignore=shutil.ignore_patterns('state','__pycache__','runtime.env'))
@@ -331,7 +361,7 @@ if '--build' in a:
 
     def test_existing_wrong_comfy_commit_is_not_overwritten(self):
         package,comfy,environment=self.provision_fixture()
-        comfy.mkdir(parents=True);(comfy/'main.py').write_text('user file')
+        comfy.mkdir(parents=True,exist_ok=True);(comfy/'main.py').write_text('user file')
         environment['TEST_COMFY_COMMIT']='wrong'
         result=subprocess.run(['bash',str(package/'scripts/provision.sh')],env=environment,text=True,capture_output=True)
         self.assertNotEqual(result.returncode,0)

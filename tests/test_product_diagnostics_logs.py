@@ -34,7 +34,7 @@ class DiagnosticsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.status_code, 200, response.text)
             result = response.json()
             self.assertEqual({check["id"] for check in result["checks"]},
-                             {"controller", "render", "prompt", "gpu", "vram", "storage", "disk", "queue", "prefetch", "vast", "models"})
+                             {"controller", "render", "prompt", "gpu", "vram", "storage", "disk", "queue", "prefetch", "vast", "models", "memory", "prompt_cache"})
             self.assertEqual(result["prefetch"], {"target": 3, "ready": 1, "preparing": 0, "buffer": 1})
             self.assertEqual(result["queue"]["pending_review"], 1)
             self.assertTrue(result["models"]["provisional"])
@@ -89,7 +89,7 @@ class DiagnosticsTests(unittest.IsolatedAsyncioTestCase):
     async def test_model_presence_remains_provisional_with_alternative_bridge_location(self):
         with load_controller() as m:
             d = importlib.import_module(m.__package__ + ".diagnostics")
-            manifest_path = m.CONFIG / "models_manifest.json"
+            manifest_path = m.CONFIG / "legacy_models_manifest.json"
             initial = d.model_status(manifest_path, m.COMFY_MODELS_DIR, m.COMFY_ROOT)
             self.assertGreater(initial["missing"], 0)
             manifest = json.loads(manifest_path.read_text())

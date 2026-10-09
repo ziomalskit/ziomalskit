@@ -24,10 +24,10 @@ class AdversarialPersistenceTests(unittest.IsolatedAsyncioTestCase):
         names = [f"ref_{index}.png" for index in range(6)]
         for name in names + ["__h3_silence_1s.wav"]:
             (self.m.COMFY_INPUT_DIR / name).write_bytes(b"CPU fixture")
-        model = self.m.model_path_for_preset("native_int8")
+        model = self.m.model_path_for_preset("h3_full")
         model.parent.mkdir(parents=True)
         model.write_bytes(b"CPU fixture")
-        self.request = self.m.BatchRequest(request_id=uuid.uuid4(), prompt="inert reference scene", pictures=names)
+        self.request = self.m.BatchRequest(request_id=uuid.uuid4(), prompt="inert reference scene", pictures=names, profile="h3_full")
         self.tasks = []
 
     async def asyncTearDown(self):
@@ -39,7 +39,7 @@ class AdversarialPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.fixture.__exit__(None, None, None)
 
     def review_job(self):
-        job = {"id": "prior-review", "status": "pending_review", "batch_id": "prior-batch",
+        job = {"id": "prior-review", "status": "pending_review", "batch_id": "prior-batch", "profile": "h3_full",
                "batch_seq": 1, "candidate_index": 6, "created_at": 1,
                "review_required": True, "final_h3_prompt": "prior candidate",
                "render_seed": 1, "analysis_seed": 2, "prompt_seed": 3,
