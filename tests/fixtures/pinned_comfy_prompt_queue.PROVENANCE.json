@@ -1,0 +1,8 @@
+{
+  "repository": "comfyanonymous/ComfyUI",
+  "revision": "6b747c0428c343e1417219641db93a4fb7cb69ae",
+  "path": "execution.py",
+  "source_sha256": "c9ef8ea11b8cb7aa80d05f670ca457211869d27623991b66d0014fb9b33fb246",
+  "fixture_sha256": "76385fef4411f7bd22753c183f145bcc57d89664e1b4315c412c6dd1bb14d635",
+  "content": "verbatim PromptQueue excerpt plus CPU-only import prelude"
+}

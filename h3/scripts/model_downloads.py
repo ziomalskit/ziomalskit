@@ -36,6 +36,7 @@ def store_lock(root: Path):
 
 
 def download_sdk(item: dict, staging: Path) -> Path:
+    validate_staging(staging)
     # The credentials live only in this process environment and SDK call.
     # Hugging Face accepts HF_XET_HIGH_PERFORMANCE=1 natively. Preserve it.
     os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
@@ -54,6 +55,28 @@ def download_sdk(item: dict, staging: Path) -> Path:
         raise ValueError("artifact download failed; check provider access/network and retry provisioning") from None
     finally:
         logging.disable(previous)
+
+
+def validate_staging(staging: Path) -> None:
+    """Inspect retained SDK data without following links or opening FIFOs.
+
+    Provisioners serialize under store_lock. The private (0700) store is not a
+    boundary against another process with the same uid modifying it concurrently.
+    """
+    def walk(directory):
+        for name in os.listdir(directory):
+            info = os.stat(name, dir_fd=directory, follow_symlinks=False)
+            if stat.S_ISDIR(info.st_mode):
+                child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory)
+                try:
+                    walk(child)
+                finally:
+                    os.close(child)
+            elif not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise ValueError("unsafe retained download staging entry")
+    # Also walk every ancestor from the filesystem root without following links.
+    with parent_directory(Path(staging.absolute().anchor), staging.absolute().as_posix().lstrip('/') + '/.anchor') as (directory, _):
+        walk(directory)
 
 
 @contextmanager
@@ -133,6 +156,7 @@ def ensure_download(root: Path, item: dict, *, downloader=download_sdk) -> dict:
             with parent_directory(root, staging_relative, create=True):
                 pass
             staging = root / ".downloads" / item["id"]
+            validate_staging(staging)
             if shutil.disk_usage(root).free < item["size_bytes"] * 2:
                 raise ValueError("insufficient persistent disk space for download staging and artifact")
             source = downloader(item, staging)

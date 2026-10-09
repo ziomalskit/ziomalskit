@@ -1,10 +1,10 @@
 """AJ-owned lifecycle dependencies. No downloads, inference or Vast actions."""
 import uuid
 import re
-import shlex
-import tempfile
 from pathlib import Path
 from .temporal import normalize_plan, final_timeline, final_answer, validate_duration
+from .execution_journal import ExecutionJournal, PROTOCOL
+from .compiler import generate as generate_compiler, completion_response
 
 from aiohttp import web
 import comfy.model_management
@@ -12,6 +12,51 @@ import nodes
 from server import PromptServer
 
 SERVICE_EPOCH = uuid.uuid4().hex
+_journal = None
+
+
+def execution_journal():
+    global _journal
+    if _journal is None:
+        import folder_paths
+        server = PromptServer.instance
+        port = getattr(server, 'port', None)
+        if port is None:
+            from comfy.cli_args import args
+            port = args.port
+        _journal = ExecutionJournal(server.prompt_queue, Path(folder_paths.get_output_directory()) / '.aj-results' / str(port))
+    return _journal
+
+
+# Pinned PromptServer constructs its queue before custom-node imports, and the
+# prompt worker starts afterward. Install before any worker can cache get/done.
+# CPU-only node stubs intentionally have no queue; real workers always do.
+if hasattr(PromptServer.instance, 'prompt_queue'):
+    execution_journal()
+
+
+@PromptServer.instance.routes.get('/aj/execution_protocol')
+async def execution_protocol(_request):
+    journal = execution_journal()
+    return web.json_response({'protocol': PROTOCOL, 'quiesced': journal.quiesced})
+
+
+@PromptServer.instance.routes.get('/aj/results/{prompt_id}')
+async def execution_result(request):
+    return web.json_response(execution_journal().read(request.match_info['prompt_id']))
+
+
+@PromptServer.instance.routes.post('/aj/cancel/{prompt_id}')
+async def execution_cancel(request):
+    return web.json_response(execution_journal().cancel(request.match_info['prompt_id']))
+
+
+@PromptServer.instance.routes.post('/aj/quiesce')
+async def execution_quiesce(request):
+    body = await request.json()
+    if not isinstance(body.get('owned_ids'), list) or any(not isinstance(value, str) for value in body['owned_ids']):
+        raise web.HTTPBadRequest()
+    return web.json_response(execution_journal().quiesce(set(body['owned_ids'])))
 
 # Native output-file framing in the pinned llama.cpp cli-context.cpp. This
 # never mixes stderr or prompt/timing substrings into the final channel.
@@ -19,7 +64,9 @@ COMPILER_SECTIONS = ("subject_definitions", "summary", "retention_analysis", "de
                      "overall_soundscape", "non_diegetic_music")
 
 
-def compiler_file_response(body):
+def compiler_file_response(body, completion=None):
+    # Framing alone is never completion evidence, including six valid headers.
+    verified, _, _ = completion_response(completion)
     if not body.startswith("Assistant:\n") or not body.endswith("\n\n"):
         raise ValueError("incomplete native compiler output file")
     content = body[len("Assistant:\n"):].rstrip("\n")
@@ -38,16 +85,13 @@ def compiler_file_response(body):
         if "[Start thinking]" in reasoning or "[End thinking]" in reasoning:
             raise ValueError("nested native compiler reasoning boundary")
     final_answer(content)
+    if content != verified:
+        raise ValueError('compiler file differs from machine-readable final channel')
     return content, reasoning, ""
 
 
 class AJCompilerTextProcessor:
-    """Same pinned LLM invocation, with its native output-file final channel.
-
-    Only Step 4 uses this adapter. Inference, cancellation and temporary input
-    cleanup remain delegated to the pinned node; its lossy stdout/stderr
-    response is discarded. No new serving runtime or global monkey patch.
-    """
+    """Step 4 requires the pinned engine's machine-readable EOS receipt."""
     @classmethod
     def INPUT_TYPES(cls):
         return nodes.NODE_CLASS_MAPPINGS["LLMTextProcessor"].INPUT_TYPES()
@@ -61,21 +105,7 @@ class AJCompilerTextProcessor:
     def generate(self, **values):
         if values.get("enable_processing", True) is not True or values.get("reasoning") != "on" or values.get("mmproj") != "none" or values.get("image") is not None:
             raise ValueError("compiler requires native thinking and text-only processing")
-        with tempfile.TemporaryDirectory(prefix="aj-compiler-") as directory:
-            output = Path(directory) / "response.txt"
-            values["extra_args"] = values.get("extra_args", "") + " --output-file " + shlex.quote(str(output))
-            native = nodes.NODE_CLASS_MAPPINGS["LLMTextProcessor"]()
-            native.generate(**values)
-            if not output.is_file() or output.is_symlink() or output.stat().st_size > 16 * 1024 * 1024:
-                raise ValueError("missing/invalid native compiler output file")
-            body = output.read_bytes().decode("utf-8")
-            # cli-context.cpp writes the complete user record before Assistant.
-            # Match the known prompt exactly (including pinned node padding),
-            # rather than splitting on a role/timing marker inside prompt text.
-            user_record = "User:\n" + values["prompt"].strip() + " " * 501 + "\n\n"
-            if not body.startswith(user_record):
-                raise ValueError("native compiler user record differs from submitted prompt")
-            return compiler_file_response(body[len(user_record):])
+        return generate_compiler(nodes.NODE_CLASS_MAPPINGS['LLMTextProcessor'], values)
 
 
 class AJFrozenDuration:

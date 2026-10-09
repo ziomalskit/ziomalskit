@@ -59,7 +59,7 @@ def production_fixture_history(module,prompt_id,label):
 
 
 @contextmanager
-def load_controller(source: Path = ACTIVE, *, production_probes: bool = False):
+def load_controller(source: Path = ACTIVE, *, production_probes: bool = False, terminal_opt_in: bool = False):
     """Fresh module, authentic workflow/config files, disposable runtime state."""
     with tempfile.TemporaryDirectory(prefix="aj-test-") as temporary:
         target = Path(temporary) / "h3"
@@ -82,7 +82,7 @@ def load_controller(source: Path = ACTIVE, *, production_probes: bool = False):
             # graphs. Normal deployment never enables legacy submissions.
             "H3_ALLOW_DIAGNOSTIC_SUBMISSIONS": "1",
             "WORKSPACE": str(target / "workspace"),
-            "H3_PROMPT_PREFETCH": "3", "H3_ENABLE_TERMINAL": "0",
+            "H3_PROMPT_PREFETCH": "3", "H3_ENABLE_TERMINAL": "1" if terminal_opt_in else "0",
         }
         try:
             with patch.dict(os.environ, environment):
@@ -98,6 +98,9 @@ def load_controller(source: Path = ACTIVE, *, production_probes: bool = False):
                     module.refresh_prompt_epoch = AsyncMock()
                     module.prepare_render_model_boundary = AsyncMock()
                     module.verify_production_files = AsyncMock()
+                    module.arm_execution_protocol = AsyncMock()
+                    module.quiesce_service = AsyncMock()
+                    module.fetch_durable_result = AsyncMock(return_value={})
                 # Pure controller tests replace service/task dependencies. Tests
                 # of task death explicitly replace these with actual Tasks.
                 for task_name in ("prompt_worker_task", "render_worker_task", "recovery_task", "vast_guard_task"):

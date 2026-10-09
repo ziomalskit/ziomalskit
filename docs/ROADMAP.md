@@ -41,7 +41,9 @@ behavior. No live/GPU acceptance PASS has been recorded.
 - The canonical prompt is the exact v20 attachment; no v21/v22 prompt revisions.
 - The production manifest pins 17 artifacts; complete 9B source metadata is
   still missing. Provisioning/preflight fail closed rather than substitute a quant.
-- Terminal is an optional admin tool, disabled by default: `H3_ENABLE_TERMINAL=0`.
+- Terminal is unavailable in supported production deployments. `H3_ENABLE_TERMINAL=1`
+  cannot enable it: supervisor death does not guarantee detached-child cleanup.
+  The default remains `0`; containment stays in place until ownership is reliable.
 
 Out of scope:
 
@@ -115,6 +117,11 @@ state or invoke Vast. Preserve Render/Prompt restart controls in Advanced.
 - No indexing, searching, downloading or log-management subsystem.
 
 ### Optional terminal — implement last within this feature phase
+
+Production containment from the Ultra fix review supersedes opt-in below:
+Terminal remains unavailable, including when `H3_ENABLE_TERMINAL=1`. The
+existing CPU PTY tests describe internal experimental code, not a supported
+production feature. Detached-child ownership must be resolved before enablement.
 
 - Disabled by default; disabled UI remains inactive and backend refuses sessions.
 - Interactive PTY in `WORKSPACE`, live output/input, Enter, Ctrl+C, connect/disconnect.

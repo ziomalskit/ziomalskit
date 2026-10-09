@@ -11,6 +11,21 @@ PROFILE_LABELS = {"h3_full": "H3 Full", "10eros_full": "10Eros Full"}
 IDENTIFIER = re.compile(r"[a-z0-9][a-z0-9_-]{0,79}\Z")
 
 
+def functional_policy(profile: dict) -> dict:
+    memory, overlap = profile.get("memory_policy", {}), profile.get("overlap_policy", {})
+    if (memory.get("encoder_release") != "after_conditioning" or memory.get("render_release") != "after_video"
+            or memory.get("sampling_priority") != "render"):
+        raise ValueError("persisted functional memory policy missing or incompatible; explicit reconciliation required")
+    if type(overlap.get("cold_analysis_during_sampling")) is not bool or any(
+        type(overlap.get(key)) is not int or overlap[key] <= 0 for key in ("analysis_headroom_mb", "writer_headroom_mb")):
+        raise ValueError("persisted functional overlap policy missing; explicit reconciliation required")
+    if profile.get("compiler") not in {"profile_writer", "shared_gemma"}:
+        raise ValueError("persisted compiler admission route missing")
+    return {"memory_policy": {key: memory[key] for key in ("encoder_release", "render_release", "sampling_priority")},
+            "overlap_policy": {key: overlap[key] for key in ("cold_analysis_during_sampling", "analysis_headroom_mb", "writer_headroom_mb")},
+            "compiler": profile["compiler"]}
+
+
 def validate_lora_provenance(entry: dict) -> None:
     if entry.get("provenance_status") not in {"verified_source", "external/user-provided"}:
         raise ValueError("invalid LoRA provenance status")

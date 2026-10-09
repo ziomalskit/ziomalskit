@@ -17,6 +17,24 @@ ROOT = Path(__file__).resolve().parents[1] / "h3"
 
 
 class ProductionNodeTests(unittest.TestCase):
+    def test_owned_journal_installs_before_prompt_worker_can_cache_queue_methods(self):
+        from tests.fixtures.pinned_comfy_prompt_queue import PromptQueue
+        server = sys.modules['server'].PromptServer.instance
+        server.prompt_queue = PromptQueue(types.SimpleNamespace(queue_updated=lambda:None))
+        folder_paths = types.ModuleType('folder_paths')
+        cli_args = types.ModuleType('comfy.cli_args');cli_args.args = types.SimpleNamespace(port=8189)
+        with tempfile.TemporaryDirectory() as directory:
+            folder_paths.get_output_directory = lambda:directory
+            with patch.dict(sys.modules, {'folder_paths':folder_paths, 'comfy.cli_args':cli_args}):
+                name = '_aj_eager_journal_' + uuid.uuid4().hex
+                spec = importlib.util.spec_from_file_location(name, ROOT / 'custom_nodes/aj_production/__init__.py')
+                module = importlib.util.module_from_spec(spec);sys.modules[name] = module
+                self.addCleanup(sys.modules.pop, name, None)
+                spec.loader.exec_module(module)
+                self.assertIs(module._journal.queue, server.prompt_queue)
+                self.assertEqual(module._journal.directory, Path(directory) / '.aj-results/8189')
+                self.assertEqual(server.prompt_queue.task_done.__module__, name + '.execution_journal')
+
     def setUp(self):
         self.events = []
         memory = types.ModuleType("comfy.model_management")
@@ -36,6 +54,8 @@ class ProductionNodeTests(unittest.TestCase):
         nodes.UNETLoader = Loader
         self.routes = {}
         class Routes:
+            def post(_self, path):
+                return _self.get(path)
             def get(_self, path):
                 def register(function):
                     self.routes[path] = function
@@ -130,16 +150,26 @@ class ProductionNodeTests(unittest.TestCase):
     def test_real_pinned_command_and_native_file_keep_reasoning_out_of_final(self):
         from tests.test_temporal_contract import FINAL
         cli,_=self.pinned_llm()
+        from unittest.mock import MagicMock
+        compiler=sys.modules[self.module.__name__+'.compiler']
         commands=[]
+        processes=[]
         def spawn(command,**kwargs):
             commands.append(command)
-            self.assertIs(kwargs["shell"],False)
-            prompt=Path(command[command.index("-f")+1]).read_text()
-            Path(command[command.index("--output-file")+1]).write_text("User:\n"+prompt+"\n\nAssistant:\n[Start thinking]\n\nINTERNAL_ONLY_REASONING[End thinking]\n\n"+FINAL+"\n\n")
-            # Upstream stdout parser will incorrectly select this fake timing
-            # marker. The adapter must use the actual native content file.
-            return types.SimpleNamespace(returncode=0,communicate=lambda **_: ("... (truncated)\n[ Prompt: 1.0 t/s | Generation: 2.0 t/s ]\nWRONG_STDOUT", "STDERR_ONLY"))
-        with patch.object(cli.subprocess,"Popen",side_effect=spawn):
+            self.assertIs(kwargs['shell'],False)
+            process=types.SimpleNamespace(poll=lambda:None,terminate=lambda:processes.append('terminate'),wait=lambda **_:0)
+            return process
+        response=MagicMock();response.__enter__.return_value.status=200
+        opener=MagicMock();opener.open.return_value=response
+        def completion(url,payload,timeout):
+            self.assertEqual(payload['messages'][0]['content'],self.compiler_values()['prompt']+' '*501)
+            self.assertIs(payload['stream'],False)
+            return {'choices':[{'index':0,'finish_reason':'stop','message':{'role':'assistant','content':FINAL,'reasoning_content':'INTERNAL_ONLY_REASONING'}}],
+                    '__verbose':{'stop':True,'stop_type':'eos','truncated':False}}
+        with patch.object(compiler,'verified_server',return_value=Path('/CPUFixture/llama-server')), \
+             patch.object(compiler.subprocess,'Popen',side_effect=spawn), \
+             patch.object(compiler.urllib.request,'build_opener',return_value=opener), \
+             patch.object(compiler,'post_completion',side_effect=completion):
             final,reasoning,perf=self.module.AJCompilerTextProcessor().generate(**self.compiler_values())
         self.assertEqual(final,FINAL)
         self.assertEqual(reasoning,"INTERNAL_ONLY_REASONING")
@@ -150,13 +180,14 @@ class ProductionNodeTests(unittest.TestCase):
         for flag,value in (("--reasoning","on"),("--reasoning-budget","4096"),("-n","12352"),("-c","29184"),("--seed","202")):
             self.assertEqual(command[command.index(flag)+1],value)
         self.assertNotIn("--mmproj",command)
-        self.assertFalse(Path(command[command.index("--output-file")+1]).parent.exists())
-        self.assertFalse(Path(command[command.index("-f")+1]).exists())
+        self.assertEqual(processes,['terminate'])
+        self.assertNotIn('-f',command)
+        self.assertEqual(command[0],'/CPUFixture/llama-server')
 
     def test_native_file_preserves_quoted_think_prompt_echo_and_timing_text(self):
         from tests.test_temporal_contract import FINAL
         final=FINAL.replace("Natural sounds.",'Quoted "<think>example</think>", "[End thinking]", "... (truncated)", "[ Prompt: 1.0 t/s | Generation: 2.0 t/s ]" remain literal.')
-        self.assertEqual(self.module.compiler_file_response("Assistant:\n[Start thinking]\n\nPrivate trace[End thinking]\n\n"+final+"\n\n")[0],final)
+        self.assertEqual(self.module.compiler_file_response("Assistant:\n[Start thinking]\n\nPrivate trace[End thinking]\n\n"+final+"\n\n", completion={'choices':[{'index':0,'finish_reason':'stop','message':{'role':'assistant','content':final}}],'__verbose':{'stop':True,'stop_type':'eos','truncated':False}})[0],final)
 
     def test_native_incomplete_nested_or_ambiguous_reasoning_fails_closed(self):
         from tests.test_temporal_contract import FINAL
@@ -164,7 +195,7 @@ class ProductionNodeTests(unittest.TestCase):
                      "Assistant:\n[Start thinking]\n\n[Start thinking]Nested[End thinking]\n\n"+FINAL+"\n\n",
                      "Assistant:\n[End thinking]\n\n"+FINAL+"\n\n",
                      "Assistant:\n[Start thinking]\n\nPrivate[End thinking]\n\n"+FINAL+"\n[End thinking]\n\n"):
-            with self.assertRaises(ValueError):self.module.compiler_file_response(body)
+            with self.assertRaises(ValueError):self.module.compiler_file_response(body, {'choices':[{'index':0,'finish_reason':'stop','message':{'role':'assistant','content':FINAL}}],'__verbose':{'stop':True,'stop_type':'eos','truncated':False}})
 
     def test_compiler_cannot_bypass_processing_or_select_vision(self):
         for changed in ({"enable_processing":False},{"reasoning":"off"},{"mmproj":"vision.gguf"},{"image":object()}):
@@ -172,16 +203,21 @@ class ProductionNodeTests(unittest.TestCase):
 
     def test_native_timeout_reaps_process_and_removes_all_temporary_files(self):
         cli,_=self.pinned_llm()
-        commands=[]
-        stopped=[]
-        def spawn(command,**_):
-            commands.append(command)
-            return types.SimpleNamespace(poll=lambda: None,terminate=lambda:stopped.append("terminate"),wait=lambda **_:0)
-        with patch.object(cli.subprocess,"Popen",side_effect=spawn),patch.object(cli,"_communicate_with_interrupt",side_effect=TimeoutError("CPU timeout fixture")):
+        compiler=sys.modules[self.module.__name__+'.compiler']
+        stopped=[];temporary=[]
+        original=cli.build_command
+        def build(**values):
+            command,paths=original(**values);temporary.extend(paths);return command,paths
+        process=types.SimpleNamespace(poll=lambda:None,terminate=lambda:stopped.append('terminate'),wait=lambda **_:0)
+        native=sys.modules['nodes'].NODE_CLASS_MAPPINGS['LLMTextProcessor']
+        with patch.dict(native.generate.__globals__,{'build_command':build}), \
+             patch.object(compiler,'verified_server',return_value=Path('/CPUFixture/llama-server')), \
+             patch.object(compiler.subprocess,'Popen',return_value=process), \
+             patch.object(compiler.time,'monotonic',side_effect=[0,601]):
             with self.assertRaises(TimeoutError):self.module.AJCompilerTextProcessor().generate(**self.compiler_values())
-        self.assertEqual(stopped,["terminate"])
-        self.assertFalse(Path(commands[0][commands[0].index("-f")+1]).exists())
-        self.assertFalse(Path(commands[0][commands[0].index("--output-file")+1]).parent.exists())
+        self.assertEqual(stopped,['terminate'])
+        self.assertTrue(temporary)
+        self.assertTrue(all(not path.exists() for path in temporary))
 
     def test_actual_owned_guards_fix_ninety_seconds_and_bind_final_cuts(self):
         from tests.test_temporal_contract import RAW_NINETY,CANONICAL,FINAL
@@ -191,3 +227,10 @@ class ProductionNodeTests(unittest.TestCase):
         self.assertEqual(self.module.AJFinalPromptTimeGuard().guard(wrong,plan,20.04),(FINAL,))
         self.assertEqual(self.module.AJFrozenDuration().value(481,20.04),(481,20.04))
         self.assertEqual(self.events,[])
+
+    def test_owned_guard_rejects_inline_extra_cut_and_keeps_clear_quoted_reference(self):
+        from tests.test_temporal_contract import CANONICAL, FINAL
+        wrong = FINAL.replace('finish naturally through the final frame.', 'finish naturally. [Shot 4] At 01:30.000, cut again.')
+        with self.assertRaises(ValueError):self.module.AJFinalPromptTimeGuard().guard(wrong, CANONICAL, 20.04)
+        quoted = FINAL.replace('finish naturally through the final frame.', 'finish naturally. A sign reads "[Shot 4] At 01:30.000, a reference".')
+        self.assertEqual(self.module.AJFinalPromptTimeGuard().guard(quoted, CANONICAL, 20.04), (quoted,))

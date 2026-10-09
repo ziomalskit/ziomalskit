@@ -41,7 +41,8 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         self.m.analysis_cache.record(job, self.m.batch_for_job(job), TEXTS, execution_epoch=self.m.analysis_cache.epoch)
 
     def render_active(self, profile="h3_full", phase="sampling"):
-        job = {"id": "other-render", "profile": profile, "render_phase": phase, "status": "render_running"}
+        job = {"id": "other-render", "profile": profile, "render_phase": phase, "status": "render_running",
+               "context": {"profile_identity": self.m.profile_identity(profile)}}
         self.m.queue.append(job)
         self.m.overlap_telemetry.update(free_vram_mb=40000, sampled_at=time.monotonic())
         return job
@@ -58,6 +59,8 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
                     return value
             if req.method == "GET" and req.url.path == "/aj/service_epoch":
                 return httpx.Response(200, json={"service_epoch": "1" * 32})
+            if req.method == "GET" and req.url.path == "/aj/execution_protocol":
+                return httpx.Response(200, json={"protocol": "aj-terminal-v1", "quiesced": False})
             if req.method == "GET" and req.url.path == "/object_info":
                 return httpx.Response(200, json=catalog)
             if req.method == "POST" and req.url.path == "/free":
@@ -135,8 +138,9 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         self.m.queue.clear()
         self.m.PRODUCTION["profiles"]["h3_full"]["writer"] = "changed.gguf"
         self.m.load_state()
-        self.assertIn("routing changed", self.m.state_load_error)
-        self.assertEqual(self.m.queue, [])
+        self.assertIsNone(self.m.state_load_error)
+        self.assertTrue(self.m.queue)
+        self.assertTrue(all(item['status'] == 'reconciliation_required' and 'routing changed' in item['reconciliation_required'] for item in self.m.queue))
 
     async def prepared_prompt(self,job):
         job["active_service"]="prompt"
@@ -272,8 +276,9 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         self.m.save_state()
         self.m.queue.clear()
         self.m.load_state()
-        self.assertIn("persisted profile", self.m.state_load_error)
-        self.assertEqual(self.m.queue, [])
+        self.assertIsNone(self.m.state_load_error)
+        self.assertTrue(self.m.queue)
+        self.assertTrue(all(item['status'] == 'reconciliation_required' and 'persisted profile' in item['reconciliation_required'] for item in self.m.queue))
 
     async def test_browser_cannot_supply_model_urls_paths_or_unregistered_lora_fields(self):
         for field in ("repository", "model_path", "download_url", "checkpoint"):
@@ -412,7 +417,8 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
                     await self.m._submit_workflow(job, self.m.production_workflow(job), "prompt")
                 post.assert_not_awaited()
                 self.assertNotIn("prompt_prompt_id", job)
-                self.assertEqual(len(calls), 2)
+                self.assertEqual(len(calls), 3)
+                self.assertEqual(calls[0], ('GET', 8189, '/aj/execution_protocol'))
 
     async def test_render_reservation_during_prompt_preparation_defers_without_post(self):
         job = await self.batch()
@@ -471,3 +477,58 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["production"]["gpu_validation"], "pending")
         self.assertEqual(result["models"]["manifest_status"], "blocked_source_provenance")
         self.assertEqual(self.m.QUEUE_FILE.read_bytes(), before)
+
+    async def test_inline_extra_cut_is_rejected_through_guard_approval_recovery_and_render_preparation(self):
+        from fastapi import HTTPException
+        from tests.test_temporal_contract import CANONICAL, FINAL
+        from h3.app.temporal import final_timeline
+        job = await self.batch();graph = await self.prepared_prompt(job)
+        wrong = FINAL.replace('finish naturally through the final frame.', 'finish naturally. [Shot 4] At 01:30.000, the camera cuts again.')
+        with self.assertRaises(ValueError):final_timeline(wrong, CANONICAL, 20.04, canonicalize=True)
+        job.update(status='pending_review', creative_plan=CANONICAL)
+        with self.assertRaises(HTTPException) as error:
+            await self.m.approve(job['id'], self.m.ApprovalRequest(final_prompt=wrong))
+        self.assertEqual(error.exception.status_code, 400)
+        self.assertEqual(job['status'], 'pending_review')
+        job.update(status='recovery_prompt', prompt_prompt_id=str(__import__('uuid').uuid4()))
+        with patch.object(self.m, 'wait_service_ready', AsyncMock(return_value=True)), \
+             patch.object(self.m, 'fetch_history', AsyncMock(return_value=self.guarded_history(graph, CANONICAL, wrong))), \
+             patch.object(self.m, '_dispatch_prepared_workflow', AsyncMock()) as post:
+            await self.m._recover_one_job(job, 'prompt')
+            self.assertEqual(job['status'], 'prompt_failed');post.assert_not_awaited()
+        job.update(active_service='render', creative_plan=CANONICAL)
+        path = self.m.patch_workflow(job, self.m.production_workflow(job), approved_prompt=wrong)
+        converted = exact_convert(json.loads(path.read_text()), production_catalog())
+        transport, _ = self.transport()
+        with transport, patch.object(self.m, '_dispatch_prepared_workflow', AsyncMock()) as post:
+            with self.assertRaises(ValueError):
+                await self.m._prepare_workflow_api(path, 'render', preview_envelope={'data': {'status': 'preview', 'prompt': converted}})
+            post.assert_not_awaited()
+        self.assertEqual((job['context']['requested_duration_seconds'], job['context']['legal_frame_count'], job['context']['effective_duration_seconds']), (20, 481, 20.04))
+
+    async def test_quoted_and_escaped_inline_shot_references_remain_exact_through_approval(self):
+        from tests.test_temporal_contract import CANONICAL, FINAL
+        job = await self.batch();job.update(status='pending_review', creative_plan=CANONICAL)
+        text = FINAL.replace('finish naturally through the final frame.', 'finish naturally. The label reads "[Shot 4] At 01:30.000, a reference"; the escaped label is \\[Shot 8].')
+        self.assertEqual(self.m.final_timeline(text, CANONICAL, 20.04), text)
+        await self.m.approve(job['id'], self.m.ApprovalRequest(final_prompt=text))
+        self.assertEqual(job['approved_final_prompt'], text)
+
+    async def test_frozen_memory_and_overlap_recovery_ignores_later_functional_config_edits(self):
+        job = await self.batch();frozen = copy.deepcopy(job['context']['profile_identity'])
+        job['status'] = 'prompt_preparing';self.m.save_state()
+        defaults = self.m.PRODUCTION['profiles']['h3_full']
+        defaults['overlap_policy'].update(cold_analysis_during_sampling=True, analysis_headroom_mb=1, writer_headroom_mb=1)
+        defaults['memory_policy']['label'] = 'changed defaults'
+        self.m.queue.clear();self.m.batches.clear();self.m.load_state()
+        recovered = self.m.find_job(job['id'])
+        self.assertEqual(recovered['context']['profile_identity'], frozen)
+        active = self.render_active();active['context']['profile_identity'] = frozen
+        self.assertFalse(self.m.phase_admission(recovered, 'prompt')[0])
+        self.m.batch_for_job(recovered)['analysis'] = {'key': self.m.analysis_cache_key(recovered) if hasattr(self.m, 'analysis_cache_key') else __import__(self.m.__package__ + '.analysis_cache', fromlist=['analysis_key']).analysis_key(recovered), 'texts': TEXTS}
+        self.m.overlap_telemetry.update(free_vram_mb=100, sampled_at=time.monotonic())
+        self.assertFalse(self.m.phase_admission(recovered, 'prompt')[0])
+        fresh = self.m.profile_identity('h3_full')
+        self.assertTrue(fresh['overlap_policy']['cold_analysis_during_sampling'])
+        self.assertEqual(fresh['overlap_policy']['writer_headroom_mb'], 1)
+        self.assertEqual(frozen['memory_policy'], {'encoder_release': 'after_conditioning', 'render_release': 'after_video', 'sampling_priority': 'render'})

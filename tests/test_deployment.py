@@ -263,8 +263,9 @@ import json,os,sys
 a=sys.argv[1:]
 with open(os.environ['TEST_CMAKE_LOG'],'a') as h:h.write(json.dumps(a)+'\\n')
 if '--build' in a:
- binary=Path(a[a.index('--build')+1])/'bin/llama-cli';binary.parent.mkdir(parents=True,exist_ok=True)
- binary.write_text("#!/bin/sh\\nprintf '%s\\\\n' 'version: 10472 ({runtime_config.LLAMA_COMMIT[:7]})'\\n");binary.chmod(0o700)
+ for target in a[a.index('--target')+1:]:
+  binary=Path(a[a.index('--build')+1])/'bin'/target;binary.parent.mkdir(parents=True,exist_ok=True)
+  binary.write_text("#!/bin/sh\\nprintf '%s\\\\n' 'version: 10472 ({runtime_config.LLAMA_COMMIT[:7]})'\\n");binary.chmod(0o700)
 ''')
         return dict(os.environ, PATH=str(tools)+":"+os.environ["PATH"], COMFY_PYTHON=str(fake_python),
                     VIRTUAL_ENV="/stale/venv", CONDA_PREFIX="/stale/conda", PACKAGE_DIR=str(package),
@@ -386,6 +387,10 @@ if '--build' in a:
         self.assertLessEqual(int(compilation[compilation.index('--parallel')+1]),8)
         binary=llama_runtime.verify_llama(node)
         self.assertIn('/b10472/',str(binary))
+        self.assertEqual(compilation[compilation.index('--target')+1:], ['llama-cli', 'llama-server'])
+        server = binary.with_name('llama-server')
+        self.assertTrue(server.is_file())
+        self.assertEqual(json.loads(server.with_suffix('.build.json').read_text())['sha256'], llama_runtime.sha256(server))
         second=subprocess.run(command,env=environment,text=True,capture_output=True)
         self.assertEqual(second.returncode,0,second.stderr)
         self.assertIn('Reusing verified',second.stdout)

@@ -23,7 +23,7 @@ def install(source: Path, custom_nodes: Path) -> None:
     if source.is_symlink() or (source / "__init__.py").is_symlink():
         raise ValueError("owned node source is symlinked")
     bodies = {}
-    for filename in ("__init__.py", "temporal.py"):
+    for filename in ("__init__.py", "temporal.py", "execution_journal.py", "compiler.py"):
         path = source / filename
         if path.is_symlink():
             raise ValueError("owned node source is symlinked")
@@ -38,7 +38,7 @@ def install(source: Path, custom_nodes: Path) -> None:
             raise ValueError("AJ node ownership files are symlinked")
         previous = json.loads(owner.read_text())
         previous_files = previous.get("files_sha256", {"__init__.py": previous.get("sha256")})
-        if previous.get("owner") != "AJ" or not isinstance(previous_files, dict) or not previous_files or set(previous_files) - {"__init__.py", "temporal.py"}:
+        if previous.get("owner") != "AJ" or not isinstance(previous_files, dict) or not previous_files or set(previous_files) - {"__init__.py", "temporal.py", "execution_journal.py", "compiler.py"}:
             raise ValueError("AJ node local edits preserved; reconcile before provisioning")
         for name, digest in previous_files.items():
             module = target / name

@@ -25,11 +25,12 @@ STATE.mkdir(exist_ok=True)
 MASTER = WORKFLOWS / "VAST_H3_MASTER_NATIVE_INT8_96GB.json"
 PROMPT_ONLY = WORKFLOWS / "VAST_H3_PROMPT_ONLY_STAGE2.json"
 MAP = json.loads((CONFIG / "VAST_H3_API_MAP.json").read_text(encoding="utf-8"))
-from .production import read_profiles, read_loras, read_bridge, resolve_loras, patch_lora_slots, PROFILE_LABELS
+from .production import read_profiles, read_loras, read_bridge, resolve_loras, patch_lora_slots, PROFILE_LABELS, functional_policy
 from .analysis_cache import AnalysisCache, prompt_admission
 from .v20 import compose as compose_v20, set_widget as set_v20_widget
 from .writer_policy import MODEL_FIELDS, validate_stages, stage_routes, validate_writer_graph, final_answer
 from .temporal import duration_identity, validate_duration, final_timeline
+from .redaction import redact
 
 PRODUCTION = read_profiles(CONFIG / "production_profiles.json")
 LORA_REGISTRY = read_loras(CONFIG / "lora_registry.json")
@@ -40,7 +41,7 @@ overlap_telemetry = {"free_vram_mb": None, "sampled_at": 0.0}
 
 def job_profile(job: dict) -> str:
     profile = job.get("profile")
-    if profile not in PROFILE_LABELS or job.get("context", {}).get("profile") != profile:
+    if profile not in PROFILE_LABELS or not isinstance(job.get("context"), dict) or job["context"].get("profile") != profile:
         raise ValueError("job has no consistent persisted production profile; explicit migration is required")
     identity = job["context"].get("profile_identity")
     if not isinstance(identity, dict):
@@ -48,6 +49,7 @@ def job_profile(job: dict) -> str:
     if any(identity.get(key) != PRODUCTION["profiles"][profile][key] for key in MODEL_FIELDS):
         raise ValueError("persisted profile model routing changed; explicit reconciliation is required")
     validate_stages(identity.get("writer_stages"))
+    functional_policy(identity)
     if identity.get("writer_runtime") != PRODUCTION["writer_runtime"]:
         raise ValueError("persisted writer runtime changed; explicit reconciliation is required")
     if identity.get("manifest_identity") != manifest_identity(profile):
@@ -66,6 +68,7 @@ def job_profile(job: dict) -> str:
 
 def profile_identity(profile: str) -> dict:
     return copy.deepcopy({**{key: PRODUCTION["profiles"][profile][key] for key in MODEL_FIELDS},
+                          **functional_policy(PRODUCTION["profiles"][profile]),
                           "writer_stages": PRODUCTION["profiles"][profile]["writer_stages"],
                           "writer_runtime": PRODUCTION["writer_runtime"], "manifest_identity": manifest_identity(profile)})
 
@@ -133,7 +136,9 @@ def prompt_prefetch_target(value: str | None) -> int:
 
 
 H3_PROMPT_PREFETCH = prompt_prefetch_target(os.getenv("H3_PROMPT_PREFETCH", "3"))
-H3_ENABLE_TERMINAL = os.getenv("H3_ENABLE_TERMINAL", "0").strip() == "1"
+# Production containment: the PTY supervisor cannot guarantee ownership of
+# detached descendants after its death. No runtime setting enables this feature.
+H3_ENABLE_TERMINAL = False
 
 from .terminal import PTYSession, SessionTokens, TOKEN_TTL_SECONDS, TERMINAL_PROTOCOL, bridge_terminal, websocket_ticket
 
@@ -297,7 +302,9 @@ def submissions_allowed() -> bool:
 def lifecycle_dispatch_blocked() -> bool:
     plan = str(vast_control.get("plan") or "none")
     inflight = lifecycle_action_task is not None and not lifecycle_action_task.done()
-    return bool(state_load_error or queue_persistence_error or vast_control_load_error or
+    return bool(any(j.get("status") == "reconciliation_required" and any(
+        _known_prompt_id(j, service) for service in ("render", "prompt")) for j in queue) or
+                state_load_error or queue_persistence_error or vast_control_load_error or
                 (controller_started and _worker_health()[1])) or inflight or plan.startswith("executing_") or plan in {
         "action_failed", "action_interrupted", "blocked_unsafe_persistence",
     }
@@ -309,9 +316,15 @@ def shutdown_armed() -> bool:
     }
 
 
+def quarantined_execution_ids() -> list[str]:
+    return [j["id"] for j in queue if j.get("status") == "reconciliation_required" and any(
+        _known_prompt_id(j, service) for service in ("render", "prompt"))]
+
+
 def service_recovering(service: str) -> bool:
     return service in recovering_services or any(
-        j.get("status") in {f"recovery_{service}", f"{service}_submission_uncertain"} for j in queue
+        j.get("status") in {f"recovery_{service}", f"{service}_submission_uncertain"} or
+        j.get("status") == "reconciliation_required" and _known_prompt_id(j, service) for j in queue
     )
 
 
@@ -332,7 +345,11 @@ def _preserve_recovery(job: dict, service: str, warning: str) -> None:
     save_state()
 
 
-def _record_cancel_confirmation(job: dict, service: str, prompt_id: str, confirmed: bool) -> None:
+def _record_cancel_confirmation(job: dict, service: str, prompt_id: str, confirmed) -> None:
+    if isinstance(confirmed, dict) and confirmed.get("protocol") == "aj-terminal-v1" and confirmed.get("prompt_id") == prompt_id:
+        if confirmed.get("state") == "pending_deleted":
+            job[f"{service}_pending_deleted"] = dict(confirmed)
+        confirmed = confirmed.get("state") in {"pending_deleted", "running_signalled"}
     if confirmed is True:
         job[f"{service}_cancel_confirmed"] = True
         job[f"{service}_cancel_confirmed_id"] = prompt_id
@@ -353,15 +370,16 @@ def state_diagnostics() -> dict[str, Any]:
     if vast_control.get("plan") in {"action_failed", "action_interrupted", "blocked_unsafe_persistence"}:
         lifecycle_error = lifecycle_error or vast_control.get("reason") or "Lifecycle requires manual reconciliation"
     workers, worker_error = _worker_health()
-    return {
-        "ready": not (state_load_error or queue_persistence_error or lifecycle_error or worker_error),
+    return redact({
+        "ready": not (state_load_error or queue_persistence_error or lifecycle_error or worker_error or quarantined_execution_ids()),
+        "reconciliation_jobs": quarantined_execution_ids(),
         "queue_error": state_load_error,
         "persistence_error": queue_persistence_error,
         "worker_error": worker_error,
         "workers": workers,
         "lifecycle_error": lifecycle_error,
         "service_maintenance": dict(service_maintenance),
-    }
+    })
 
 
 def load_vast_control() -> dict[str, Any]:
@@ -394,7 +412,7 @@ def load_vast_control() -> dict[str, Any]:
         for key in ("idle_minutes", "cost_guard_usd"):
             if key in data and (not isinstance(data[key], (int, float)) or isinstance(data[key], bool) or not math.isfinite(data[key]) or data[key] < 0):
                 raise ValueError(f"invalid lifecycle field: {key}")
-        default.update(data)
+        default.update(redact(data))
         if type(default["control_generation"]) is not int or default["control_generation"] < 0:
             raise ValueError("invalid lifecycle control generation")
         if "armed_generation" in data and data["armed_generation"] is not None and (
@@ -427,6 +445,8 @@ def lifecycle_decision_response(**fields) -> dict:
 
 
 def _atomic_json_write(path: Path, payload: Any) -> None:
+    if path == VAST_CONTROL_FILE:
+        payload = redact(payload)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
@@ -452,6 +472,9 @@ def save_vast_control() -> None:
     if vast_control_load_error:
         raise RuntimeError(vast_control_load_error)
     vast_control.pop("persistence_error", None)
+    sanitized = redact(vast_control)
+    vast_control.clear()
+    vast_control.update(sanitized)
     try:
         _atomic_json_write(VAST_CONTROL_FILE, vast_control)
     except Exception as error:
@@ -528,11 +551,13 @@ def load_state() -> None:
         if type(generation) is not int or generation < 0 or not isinstance(loaded_requests, dict):
             raise ValueError("invalid queue idempotency/safety state")
         batch_ids = {batch.get("id") for batch in loaded_batches if isinstance(batch.get("id"), str)}
-        profiles_by_batch = {}
+        profiles_by_batch, incompatible_batches = {}, {}
         for batch in loaded_batches:
             if batch.get("profile") is not None:
-                if batch["profile"] not in PROFILE_LABELS or batch.get("context", {}).get("profile") != batch["profile"]:
-                    raise ValueError("batch persisted profile is inconsistent")
+                if batch["profile"] not in PROFILE_LABELS or not isinstance(batch.get("context"), dict) or batch["context"].get("profile") != batch["profile"]:
+                    incompatible_batches[batch["id"]] = "batch persisted profile is inconsistent"
+                    batch["reconciliation_required"] = incompatible_batches[batch["id"]]
+                    continue
                 profiles_by_batch[batch["id"]] = batch["profile"]
         for key, record in loaded_requests.items():
             if str(uuid.UUID(key)) != key or not isinstance(record, dict) or not isinstance(record.get("request_hash"), str):
@@ -548,9 +573,19 @@ def load_state() -> None:
             # Legacy state remains available for UUID reconciliation. It cannot
             # acquire a new production identity from a mutable runtime default.
             if j.get("profile") is not None:
-                job_profile(j)
-                if j.get("batch_id") in profiles_by_batch and profiles_by_batch[j["batch_id"]] != j["profile"]:
-                    raise ValueError("job persisted profile differs from batch")
+                try:
+                    if j.get("batch_id") in incompatible_batches:
+                        raise ValueError(incompatible_batches[j["batch_id"]])
+                    job_profile(j)
+                    if j.get("batch_id") in profiles_by_batch and profiles_by_batch[j["batch_id"]] != j["profile"]:
+                        raise ValueError("job persisted profile differs from batch")
+                except (ValueError, KeyError, TypeError) as error:
+                    j["reconciliation_required"] = str(error)
+                    if j.get("status") not in {"completed", "cancelled", "failed", "prompt_failed", "render_failed", "stuck_skipped",
+                                               "prompt_stuck_skipped", "render_stuck_skipped", "rejected", "review_skipped_shutdown"}:
+                        j.setdefault("reconciliation_from_status", j.get("status"))
+                        j["status"] = "reconciliation_required"
+                    continue
             else:
                 j["profile_migration_required"] = True
             old_status = j.get("status")
@@ -967,19 +1002,19 @@ async def run_cli_envelope(service: str, *args: str) -> dict:
     return envelope
 
 
-async def cancel_prompt(service: str, prompt_id: str) -> bool:
-    # ComfyUI 0.38 cancels this id atomically under the queue mutex. CLI 1.21
-    # instead checks the queue then interrupts globally, risking the next job.
+async def cancel_prompt(service: str, prompt_id: str) -> dict:
+    # AJ persists pending deletion under the pinned queue mutex, before removal.
     from urllib.parse import quote
     async with httpx.AsyncClient(timeout=15) as client:
         response = await client.post(
-            f"{service_url(service)}/api/jobs/{quote(prompt_id, safe='')}/cancel"
+            f"{service_url(service)}/aj/cancel/{quote(prompt_id, safe='')}"
         )
         response.raise_for_status()
         result = response.json()
-    if not isinstance(result, dict) or type(result.get("cancelled")) is not bool:
+    if (not isinstance(result, dict) or result.get("protocol") != "aj-terminal-v1" or result.get("prompt_id") != prompt_id
+            or result.get("state") not in {"pending_deleted", "running_signalled", "unknown"}):
         raise RuntimeError("ComfyUI returned an invalid cancellation acknowledgement")
-    return result["cancelled"]
+    return result
 
 
 _RESTART_GATE = """import os, sys
@@ -1075,7 +1110,7 @@ async def _cleanup_owned_restart(proc, descriptor: int | None, communication: as
 
 
 async def _run_owned_restart(command: list[str], *, preserve_success: bool = False,
-                             cooperative_stop: bool = False) -> tuple[int, bytes, bytes]:
+                             cooperative_stop: bool = False, environment: dict | None = None) -> tuple[int, bytes, bytes]:
     _require_restart_group_control()
     proc = None
     descriptor = None
@@ -1086,7 +1121,7 @@ async def _run_owned_restart(command: list[str], *, preserve_success: bool = Fal
         # cannot execute the command before capture, and exits on parent EOF.
         proc = subprocess.Popen([sys.executable, "-c", _RESTART_GATE, *command],
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                start_new_session=True, close_fds=True)
+                                start_new_session=True, close_fds=True, env=environment)
         descriptor = os.pidfd_open(proc.pid)
         communication = asyncio.create_task(asyncio.to_thread(proc.communicate, b"G"))
         out, err = await asyncio.shield(communication)
@@ -1155,9 +1190,46 @@ async def _run_owned_restart(command: list[str], *, preserve_success: bool = Fal
 
 
 async def restart_comfy(service: str) -> None:
+    await quiesce_service(service)
     returncode, _out, _err = await _run_owned_restart(["/bin/sh", "-c", restart_cmd(service)], cooperative_stop=True)
     if returncode != 0:
         raise RuntimeError(f"{service} restart failed with exit code {returncode}")
+
+
+async def arm_execution_protocol(service: str) -> None:
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get(f"{service_url(service)}/aj/execution_protocol")
+        response.raise_for_status()
+        body = response.json()
+    if body.get("protocol") != "aj-terminal-v1" or body.get("quiesced") is not False:
+        raise SubmissionRejected("Worker durable-result protocol unavailable or quiesced")
+
+
+async def quiesce_service(service: str) -> None:
+    owned_ids = sorted({pid for job in queue if (pid := _known_prompt_id(job, service))})
+    deadline = time.monotonic() + 5
+    async with httpx.AsyncClient(timeout=5) as client:
+        while True:
+            response = await client.post(f"{service_url(service)}/aj/quiesce", json={"owned_ids": owned_ids})
+            response.raise_for_status()
+            body = response.json()
+            if body.get("protocol") != "aj-terminal-v1" or type(body.get("ready")) is not bool:
+                raise RuntimeError("Worker restart barrier acknowledgement invalid")
+            if body["ready"]:
+                return
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Worker cannot durably settle running work; restart refused")
+            await asyncio.sleep(.1)
+
+
+async def fetch_durable_result(service: str, prompt_id: str) -> dict:
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get(f"{service_url(service)}/aj/results/{prompt_id}")
+        response.raise_for_status()
+        body = response.json()
+    if not isinstance(body, dict):
+        raise RuntimeError("Invalid durable worker result")
+    return body
 
 
 async def fetch_history(service: str, prompt_id: str, *, retries: int = 8, delay: float = 0.4) -> dict:
@@ -1173,6 +1245,12 @@ async def fetch_history(service: str, prompt_id: str, *, retries: int = 8, delay
                 return entry
         except Exception as e:
             last_error = e
+        try:
+            entry = await fetch_durable_result(service, prompt_id)
+            if entry:
+                return entry
+        except Exception as error:
+            last_error = error
         if attempt + 1 < retries:
             await asyncio.sleep(delay)
     if last_error is not None:
@@ -1695,7 +1773,7 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
                 ("4595:122", "vae_name", values["audio_vae"])):
                 if prepared.get(node, {}).get("inputs", {}).get(field) != expected:
                     raise ValueError("converted render loader differs from persisted production profile")
-            prepared, mapping = phase_boundaries(prepared, catalog, PRODUCTION["profiles"][profile]["memory_policy"])
+            prepared, mapping = phase_boundaries(prepared, catalog, job["context"]["profile_identity"]["memory_policy"])
             job["render_phase_nodes"] = mapping
         else:
             batch = batch_for_job(job)
@@ -1747,6 +1825,7 @@ async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
     if production:
         assert_phase_admission(job, service)
         await verify_production_files(job, service)
+    await arm_execution_protocol(service)
     cache_epoch = None
     if production and service == "prompt":
         await refresh_prompt_epoch()
@@ -1924,13 +2003,18 @@ def instance_id_from_env() -> str | None:
 async def run_vast_cli(*args: str, expect_json: bool = False) -> Any:
     cmd = [VAST_CLI, *args]
     api_key = os.getenv("CONTAINER_API_KEY", "").strip()
+    environment = os.environ.copy()
     if api_key:
-        cmd.extend(["--api-key", api_key])
-    returncode, out, err = await _run_owned_restart(cmd, preserve_success=True)
-    sout = out.decode(errors="replace").strip()
-    serr = err.decode(errors="replace").strip()
+        environment["VAST_API_KEY"] = api_key
+    environment.pop("CONTAINER_API_KEY", None)
+    try:
+        returncode, out, err = await _run_owned_restart(cmd, preserve_success=True, environment=environment)
+    except Exception as error:
+        raise RuntimeError(redact(str(error))) from None
+    sout = redact(out.decode(errors="replace").strip())
     if returncode != 0:
-        raise RuntimeError(serr or sout or f"vastai exited {returncode}")
+        # Provider text is untrusted and may include transformed credentials.
+        raise RuntimeError(f"vastai exited {returncode}; provider output suppressed")
     if expect_json:
         if not sout:
             return {}
@@ -1943,7 +2027,7 @@ async def run_vast_cli(*args: str, expect_json: bool = False) -> Any:
                     return json.loads(line)
                 except Exception:
                     pass
-            raise RuntimeError(f"Could not parse vastai JSON: {sout[:500]}")
+            raise RuntimeError("Could not parse vastai JSON; provider output suppressed")
     return sout
 
 
@@ -2170,7 +2254,7 @@ async def vast_instance_status() -> dict[str, Any]:
 
 def _lifecycle_failure(reason: str, *, plan: str = "action_failed") -> None:
     """Block dispatch in memory even when the failure cannot be persisted."""
-    vast_control.update({"plan": plan, "reason": reason})
+    vast_control.update({"plan": plan, "reason": redact(reason)})
     try:
         save_vast_control()
     except Exception as error:
@@ -2239,6 +2323,7 @@ async def restart_local_service(service: str) -> None:
         if service == "prompt":
             analysis_cache.invalidate()
         try:
+            await quiesce_service(service)
             returncode, out, err = await _run_owned_restart(["bash", SERVICE_CTL, "restart", service], cooperative_stop=True)
             if returncode != 0:
                 raise RuntimeError(err.decode(errors="replace") or out.decode(errors="replace"))
@@ -2406,7 +2491,11 @@ def active_render_policy() -> dict | None:
     if len(active) != 1:
         return {"profile": None, "phase": "recovery"}
     job = active[0]
-    return {"profile": job.get("profile"), "phase": job.get("render_phase", "unknown")
+    try:
+        functional_policy(job.get("context", {}).get("profile_identity", {}))
+    except ValueError:
+        return {"profile": job.get("profile"), "phase": "recovery"}
+    return {"profile": job.get("profile"), "policy": job.get("context", {}).get("profile_identity"), "phase": job.get("render_phase", "unknown")
             if job.get("status") == "render_running" else "recovery"}
 
 
@@ -2424,7 +2513,8 @@ def phase_admission(job: dict, service: str) -> tuple[bool, str]:
         return True, "exclusive render conditioning window"
     free = overlap_telemetry["free_vram_mb"] if time.monotonic() - overlap_telemetry["sampled_at"] <= 3 else None
     return prompt_admission(prompt_kind=analysis_cache.classify(job, batch_for_job(job)),
-        prompt_profile=job_profile(job), active_render=active_render_policy(), profiles=PRODUCTION, free_vram_mb=free)
+        prompt_profile=job_profile(job), active_render=active_render_policy(), profiles=PRODUCTION,
+        prompt_policy=job["context"]["profile_identity"], free_vram_mb=free)
 
 
 def assert_phase_admission(job: dict, service: str) -> None:
@@ -2597,6 +2687,10 @@ async def _recover_one_job(job: dict, service: str) -> None:
 
 async def _recover_one_job_impl(job: dict, service: str) -> None:
     pid = _known_prompt_id(job, service)
+    receipt = job.get(f"{service}_pending_deleted")
+    if (isinstance(receipt, dict) and receipt == {"protocol": "aj-terminal-v1", "prompt_id": pid, "state": "pending_deleted"}):
+        _apply_history_outcome(job, service, {"status": {"status_str": "error", "completed": True}})
+        return
     attempted = job.get(f"{service}_submission_attempted") or job.get(f"{service}_submission_state") in {
         "attempting", "accepted", "uncertain",
     }
@@ -2849,7 +2943,7 @@ async def api_diagnostics():
     data["checks"] = checks_for(data)
     data["status"] = next((status for status in ("FAIL", "WARN") if any(
         check["status"] == status for check in data["checks"])), "PASS")
-    return data
+    return redact(data)
 
 
 @app.get("/api/logs/{service}")
@@ -2858,7 +2952,7 @@ async def api_logs(service: str, lines: int = Query(200, ge=1, le=1000)):
 
     if service not in LOG_FILES:
         raise HTTPException(400, "service must be render, prompt or panel")
-    return await asyncio.to_thread(tail_log, WORKSPACE, service, lines)
+    return redact(await asyncio.to_thread(tail_log, WORKSPACE, service, lines))
 
 
 @app.post("/api/terminal/session")

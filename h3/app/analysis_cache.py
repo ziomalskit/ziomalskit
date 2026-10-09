@@ -57,7 +57,7 @@ class AnalysisCache:
 
 
 def prompt_admission(*, prompt_kind: str, prompt_profile: str, active_render: dict | None,
-                     profiles: dict, free_vram_mb: int | None) -> tuple[bool, str]:
+                     profiles: dict, free_vram_mb: int | None, prompt_policy: dict | None = None) -> tuple[bool, str]:
     if active_render is None:
         return True, "analysis window: renderer idle"
     render_profile = active_render.get("profile")
@@ -65,16 +65,16 @@ def prompt_admission(*, prompt_kind: str, prompt_profile: str, active_render: di
         return False, "render profile unknown"
     if active_render.get("phase") != "sampling":
         return False, "renderer conditioning, decoding or recovery has VRAM priority"
-    render_policy = profiles["profiles"][render_profile]["overlap_policy"]
+    render_policy = (active_render.get("policy") or profiles["profiles"][render_profile])["overlap_policy"]
     cold = prompt_kind == "cold_analysis"
     if cold and not render_policy["cold_analysis_during_sampling"]:
         return False, "H3 Full sampling: cold Step 0–2 waits for an analysis window"
     if prompt_profile not in profiles["profiles"]:
         return False, "prompt profile unknown"
-    needed = (render_policy["analysis_headroom_mb"] if cold else
-              profiles["profiles"][prompt_profile]["overlap_policy"]["writer_headroom_mb"])
-    if not cold and profiles["profiles"][prompt_profile].get("compiler") == "shared_gemma":
-        needed = max(needed, profiles["profiles"][prompt_profile]["overlap_policy"]["analysis_headroom_mb"])
+    writer_policy = prompt_policy or profiles["profiles"][prompt_profile]
+    needed = render_policy["analysis_headroom_mb"] if cold else writer_policy["overlap_policy"]["writer_headroom_mb"]
+    if not cold and writer_policy.get("compiler") == "shared_gemma":
+        needed = max(needed, writer_policy["overlap_policy"]["analysis_headroom_mb"])
     if type(free_vram_mb) is not int or free_vram_mb < needed:
         return False, "measured VRAM headroom unavailable or insufficient"
     return True, "analysis overlap with measured headroom" if cold else "small writer with reused Step 0–2 text"

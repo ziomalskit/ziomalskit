@@ -13,6 +13,42 @@ SHOT = re.compile(r"(?m)^\[Shot ([1-9][0-9]*)\]")
 TIMELINE = re.compile(r"(?m)^Timeline:[ \t]*(" + TIMECODE + r")-(" + TIMECODE + r")[ \t]*$")
 
 
+def directive_text(text):
+    """Mask clearly quoted references and escaped markers, preserving offsets."""
+    masked = list(text)
+    index = 0
+    quotes = {'"': '"', "'": "'", '`': '`', '“': '”', '‘': '’'}
+    while index < len(text):
+        char = text[index]
+        if char == '\\' and index + 1 < len(text):
+            masked[index:index + 2] = [' ', ' ']
+            index += 2
+            continue
+        if char in quotes and not (char in {"'", '‘'} and index and text[index - 1].isalnum()):
+            end = index + 1
+            while end < len(text) and text[end] != '\n':
+                if text[end] == '\\':
+                    end += 2
+                elif text[end] == quotes[char]:
+                    break
+                else:
+                    end += 1
+            if end < len(text) and text[end] == quotes[char]:
+                masked[index:end + 1] = [' '] * (end + 1 - index)
+                index = end + 1
+                continue
+        index += 1
+    return ''.join(masked)
+
+
+def structural_headers(text):
+    visible = directive_text(text)
+    headers = list(SHOT.finditer(visible))
+    if [match.start() for match in re.finditer(r'\[shot(?=\s|\d|\]|$)', visible, re.I)] != [match.start() for match in headers]:
+        raise ValueError("inline, malformed or misplaced structural shot directive")
+    return visible, headers
+
+
 def milliseconds(seconds):
     if type(seconds) not in (int, float) or not math.isfinite(seconds) or seconds <= 0:
         raise ValueError("effective duration must be finite and positive")
@@ -72,7 +108,7 @@ def timecode(value):
 def shots(plan):
     if not isinstance(plan, str):
         raise ValueError("creative plan missing")
-    headers = list(SHOT.finditer(plan))
+    visible, headers = structural_headers(plan)
     if not headers or [int(match.group(1)) for match in headers] != list(range(1, len(headers) + 1)):
         raise ValueError("creative plan shot identities are not sequential")
     if len(re.findall(r"(?m)^\[Shot\b", plan)) != len(headers):
@@ -163,12 +199,13 @@ def final_timeline(text, plan, effective, *, canonicalize=False):
     start = re.search(r"(?m)^detailed_description:[ \t]*", text).end()
     end = re.search(r"(?m)^overall_soundscape:", text).start()
     description = text[start:end]
-    headers = list(SHOT.finditer(description))
+    visible, headers = structural_headers(description)
     if [int(match.group(1)) for match in headers] != list(range(1, len(schedule) + 1)):
         raise ValueError("final prompt shot identities differ from creative plan")
-    if len(re.findall(r"(?m)^\[Shot\b", text)) != len(headers):
+    whole_visible, whole_headers = structural_headers(text)
+    if len(whole_headers) != len(headers):
         raise ValueError("final prompt has malformed or misplaced shot headers")
-    replacements = []
+    replacements, actual_cuts = [], []
     for index, header in enumerate(headers):
         tail = description[header.end():]
         if index == 0:
@@ -178,12 +215,18 @@ def final_timeline(text, plan, effective, *, canonicalize=False):
         stamp = re.match(r"[ \t]+At (" + TIMECODE + r"),", tail)
         if not stamp:
             raise ValueError("final cut requires a canonical timestamp")
+        actual_cuts.append(start + header.end() + stamp.start(1) - 3)
         expected = schedule[index][0]
         supplied = timecode_ms(stamp.group(1))
         if supplied != expected:
             if not canonicalize:
                 raise ValueError("final cut differs from canonical creative timeline")
             replacements.append((start + header.end() + stamp.start(1), start + header.end() + stamp.end(1), timecode(expected)))
+    # Every unquoted cut directive must be the canonical one immediately after
+    # its structural header, including directives hidden inside ordinary prose.
+    cuts = [match.start() for match in re.finditer(r'\bat\s+[+-]?[0-9]+:[0-9]+', whole_visible, re.I)]
+    if cuts != actual_cuts:
+        raise ValueError("extra or misplaced temporal cut directive")
     result = text
     for begin, finish, value in reversed(replacements):
         result = result[:begin] + value + result[finish:]

@@ -2,6 +2,10 @@
 
 Projekt przyjmuje **6 obrazów i opcjonalnie 1 plik audio**, analizuje referencje, przygotowuje 10 wariantów promptu i generuje wideo przez ComfyUI na GPU Vast.ai. Produkcyjne profile to wyłącznie **H3 Full** i **10Eros Full**, ze wspólną, dokładnie zachowaną logiką promptów **v20 Heretic**. Legacy INT8 pozostaje tylko jawną ścieżką diagnostyczną.
 
+**Poprawki Ultra w Draft PR #5:** [raport i dowody testowe](docs/PR5_ULTRA_FIXES_2026-10-09.md).
+Terminal pozostaje niedostępny w produkcji, również przy `H3_ENABLE_TERMINAL=1`.
+Rzeczywista walidacja pochodzenia/build/load modelu DavidAU 9B nadal blokuje produkcję; GPU/live acceptance pozostaje pending.
+
 **Stan po audycie CPU/runtime, 8 października 2026:** wszystkie znane merge-blocking problemy wykryte w STEP 1–3 i cross-step zostały naprawione, niezależnie zweryfikowane i scalone do `main` w PR #1. Końcowy merge commit to `4ea3fdd1b9d41e2475c52ed5f705b52af35df5b0`.
 
 Baseline z 8 października przechodzi:
