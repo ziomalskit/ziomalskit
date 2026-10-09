@@ -2,13 +2,13 @@ from __future__ import annotations
 import asyncio, base64, errno, hashlib, hmac, json, math, os, shutil, signal, subprocess, sys, time, uuid
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit, urlencode
+from urllib.parse import urlsplit, urlencode, parse_qs
 
 if sys.version_info < (3, 11):
     raise RuntimeError("H3 runtime requires Python >=3.11")
 
 import httpx
-from fastapi import FastAPI, File, HTTPException, UploadFile, Request
+from fastapi import FastAPI, File, HTTPException, UploadFile, Request, Query, WebSocket
 from fastapi.exceptions import RequestValidationError
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, Response, JSONResponse
@@ -31,6 +31,7 @@ RENDER_COMFY_URL = os.getenv("RENDER_COMFY_URL", "http://127.0.0.1:8188").rstrip
 PROMPT_COMFY_URL = os.getenv("PROMPT_COMFY_URL", "http://127.0.0.1:8189").rstrip("/")
 COMFY_INPUT_DIR = Path(os.getenv("COMFY_INPUT_DIR", "/workspace/ComfyUI/input"))
 COMFY_ROOT = Path(os.getenv("COMFY_ROOT", "/workspace/ComfyUI"))
+WORKSPACE = Path(os.getenv("WORKSPACE") or "/workspace")
 COMFY_PYTHON = os.getenv("COMFY_PYTHON", sys.executable)
 COMFY_OUTPUT_DIR = Path(os.getenv("COMFY_OUTPUT_DIR", str(COMFY_ROOT / "output")))
 COMFY_MODELS_DIR = Path(os.getenv("COMFY_MODELS_DIR", str(COMFY_ROOT / "models")))
@@ -51,6 +52,24 @@ PANEL_AUTH_PASSWORD = os.getenv("H3_PANEL_PASSWORD", "")
 PROMPTS_PER_BATCH = 10
 AUTO_APPROVED_PER_BATCH = 5
 REVIEW_PER_BATCH = 5
+
+
+def prompt_prefetch_target(value: str | None) -> int:
+    """A small future-render buffer, never an unbounded preparation queue."""
+    try:
+        return max(1, min(5, int(value)))
+    except (TypeError, ValueError):
+        return 3
+
+
+H3_PROMPT_PREFETCH = prompt_prefetch_target(os.getenv("H3_PROMPT_PREFETCH", "3"))
+H3_ENABLE_TERMINAL = os.getenv("H3_ENABLE_TERMINAL", "0").strip() == "1"
+
+from .terminal import PTYSession, SessionTokens, TOKEN_TTL_SECONDS, TERMINAL_PROTOCOL, bridge_terminal, websocket_ticket
+
+terminal_tokens = SessionTokens()
+terminal_sessions: set[PTYSession] = set()
+terminal_shutting_down = False
 
 app = FastAPI(title="H3 Mobile Controller", version="1.0.0-pre-rental-final-rc4")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -1123,6 +1142,56 @@ def _history_outcome(entry: dict) -> str | None:
     return None
 
 
+def render_duration_seconds(job: dict) -> float | None:
+    start, finish = job.get("render_started_at"), job.get("finished_at")
+    if (type(start) in (int, float) and type(finish) in (int, float)
+            and math.isfinite(start) and math.isfinite(finish) and finish >= start):
+        duration = finish - start
+        return round(duration, 3) if math.isfinite(duration) else None
+    return None
+
+
+def _record_render_finish(job: dict, entry: dict) -> None:
+    job["finished_at"] = time.time()
+    if job.get("render_started_at") is None:
+        # Older/recovered jobs may only have the ComfyUI execution timestamp
+        # (milliseconds since epoch). Never invent a start from recovery time.
+        for message in (entry.get("status") or {}).get("messages") or []:
+            if (isinstance(message, (list, tuple)) and len(message) >= 2
+                    and message[0] == "execution_start" and isinstance(message[1], dict)):
+                timestamp = message[1].get("timestamp")
+                if type(timestamp) in (int, float) and math.isfinite(timestamp) and timestamp > 0:
+                    job["render_started_at"] = timestamp / 1000
+                    break
+    job["render_duration_seconds"] = render_duration_seconds(job)
+
+
+def public_job(job: dict) -> dict:
+    """Read-only result normalization, including pre-contract queue snapshots."""
+    result = dict(job)
+    if job.get("status") == "completed":
+        videos = []
+        for url in job.get("video_outputs", job.get("outputs", [])) or []:
+            if not isinstance(url, str):
+                continue
+            try:
+                parsed = urlsplit(url)
+            except ValueError:
+                continue
+            query = parse_qs(parsed.query)
+            filename = query.get("filename", [""])[0]
+            if (not parsed.scheme and not parsed.netloc and parsed.path == "/api/proxy/render/view"
+                    and query.get("type", ["output"])[0] == "output"
+                    and Path(filename).suffix.lower() in {".mp4", ".webm", ".mov", ".mkv", ".avi", ".m4v"}
+                    and url not in videos):
+                videos.append(url)
+        result["video_outputs"] = videos
+        result["render_started_at"] = job.get("render_started_at")
+        result["finished_at"] = job.get("finished_at")
+        result["render_duration_seconds"] = render_duration_seconds(job)
+    return result
+
+
 def _apply_history_outcome(job: dict, service: str, entry: dict) -> bool:
     """Only settled ComfyUI history is proof of a terminal execution outcome."""
     outcome = _history_outcome(entry)
@@ -1134,7 +1203,10 @@ def _apply_history_outcome(job: dict, service: str, entry: dict) -> bool:
         )
         job["error"] = "ComfyUI execution failed or was interrupted"
         job["execution_status"] = entry.get("status")
-        job["finished_at"] = time.time()
+        if service == "render":
+            _record_render_finish(job, entry)
+        else:
+            job["finished_at"] = time.time()
     elif service == "prompt":
         capture_error = None
         try:
@@ -1166,7 +1238,7 @@ def _apply_history_outcome(job: dict, service: str, entry: dict) -> bool:
             for url in videos:
                 if url not in job["outputs"]:
                     job["outputs"].append(url)
-        job["finished_at"] = time.time()
+        _record_render_finish(job, entry)
     job[f"{service}_submission_state"] = "settled"
     job.pop("recovery_warning", None)
     try:
@@ -1530,6 +1602,11 @@ async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
         raise SubmissionDeferred("shutdown armed during preparation")
     if service == "prompt" and job.get("review_required") and vast_control.get("plan") in {"stop_after_queue", "destroy_after_queue_keep_data"}:
         raise SubmissionSkippedForShutdown("unsubmitted review prompt skipped while draining queue")
+    if service == "prompt" and prompt_prefetch_status()["ready"] >= H3_PROMPT_PREFETCH:
+        # An approval may have filled the future-render buffer while workflow
+        # conversion awaited. This is still known no-POST deferral, never an
+        # uncertain submission or a reason to cancel already accepted work.
+        raise SubmissionDeferred("prompt prefetch buffer filled during preparation")
 
     # Keep a local-only preparation snapshot until the dispatch arm is durable.
     # A failed arm write cannot have sent a request in this live process, even
@@ -1730,11 +1807,11 @@ def queue_finished_for_shutdown() -> bool:
     return not any(j.get("status") in blocking for j in queue)
 
 
-def _mount_info(path: Path) -> dict[str, Any]:
+def _mount_info(path: Path, *, timeout_seconds: float = 5) -> dict[str, Any]:
     try:
         result = subprocess.run(
             ["findmnt", "-T", str(path), "-J", "-o", "SOURCE,TARGET,FSTYPE,FSROOT,UUID,MAJ:MIN"],
-            capture_output=True, text=True, timeout=5, check=True)
+            capture_output=True, text=True, timeout=timeout_seconds, check=True)
         mounts = json.loads(result.stdout)["filesystems"]
         if len(mounts) != 1 or not isinstance(mounts[0], dict):
             return {}
@@ -1743,7 +1820,15 @@ def _mount_info(path: Path) -> dict[str, Any]:
         return {}
 
 
-def persistent_storage_status() -> dict[str, Any]:
+def persistent_storage_status(*, timeout_seconds: float | None = None) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout_seconds if timeout_seconds is not None else None
+
+    def mount_info(path):
+        if deadline is None:
+            return _mount_info(path)
+        remaining = deadline - time.monotonic()
+        return _mount_info(path, timeout_seconds=min(0.3, remaining)) if remaining > 0 else {}
+
     root = Path(H3_PERSISTENT_ROOT).resolve() if H3_PERSISTENT_ROOT else None
     result = {"configured": bool(root), "mode": H3_PERSISTENCE_MODE or None,
               "root": str(root) if root else None, "exists": bool(root and root.exists()),
@@ -1752,8 +1837,8 @@ def persistent_storage_status() -> dict[str, Any]:
     if not root or not root.exists():
         result["reason"] = "persistent root is not configured or does not exist"
         return result
-    mount = _mount_info(root)
-    system_mount = _mount_info(Path("/"))
+    mount = mount_info(root)
+    system_mount = mount_info(Path("/"))
     keys = ("source", "target", "fstype", "fsroot", "uuid", "maj:min")
     result.update(mount_source=mount.get("source"), mount_target=mount.get("target"),
                   mount_fstype=mount.get("fstype"))
@@ -1788,7 +1873,7 @@ def persistent_storage_status() -> dict[str, Any]:
                  "outputs": COMFY_OUTPUT_DIR.resolve(), "inputs": COMFY_INPUT_DIR.resolve()}
     all_on_volume = True
     for name, path in protected.items():
-        info = _mount_info(path if path.exists() else path.parent)
+        info = mount_info(path if path.exists() else path.parent)
         ok = (path.exists() and (path == root or root in path.parents)
               and bool(mount) and all(info.get(key) == mount.get(key) for key in keys))
         result["protected_paths"][name] = {"path": str(path), "exists": path.exists(),
@@ -1818,13 +1903,13 @@ def disk_status() -> dict[str, Any]:
         return {"path": target, "error": repr(e)}
 
 
-def gpu_status() -> dict[str, Any]:
+def gpu_status(*, timeout_seconds: float = 8) -> dict[str, Any]:
     try:
         p = subprocess.run(
             ["nvidia-smi",
              "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
              "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=8
+            capture_output=True, text=True, timeout=timeout_seconds
         )
         if p.returncode != 0 or not p.stdout.strip():
             return {"error": p.stderr.strip() or "nvidia-smi failed"}
@@ -2047,8 +2132,27 @@ async def vast_guard_worker() -> None:
         await asyncio.sleep(10)
 
 
+def service_work_active(service: str) -> bool:
+    return any(j.get("status") in {f"{service}_preparing", f"{service}_submitting", f"{service}_running"}
+               or (j.get("active_service") == service and j.get("status") in {
+                   "soft_timeout_cancelling", "hard_timeout_restarting_comfy", "cancelling",
+               }) for j in queue)
+
+
+def prompt_prefetch_status() -> dict:
+    ready = sum(j.get("status") in {"render_queued_auto", "render_queued_review"} for j in queue)
+    # The one Prompt Worker reserves one slot before its first await. Review
+    # Pool entries are decisions, not future render work; counting them would
+    # deadlock automatic batches and prevent all five reviews being prepared.
+    preparing = int(service_work_active("prompt") or service_recovering("prompt"))
+    return {"target": H3_PROMPT_PREFETCH, "ready": ready, "preparing": preparing,
+            "buffer": ready + preparing}
+
+
 def pick_next_prompt_job() -> dict | None:
     if "prompt" in service_maintenance or lifecycle_dispatch_blocked() or service_recovering("prompt"):
+        return None
+    if service_work_active("prompt") or prompt_prefetch_status()["buffer"] >= H3_PROMPT_PREFETCH:
         return None
     if vast_control.get("plan") in {"stop_after_current", "stop_after_queue", "destroy_after_queue_keep_data"}:
         # auto prompts may already be queued for stop-after-queue, but review generation is intentionally skipped when armed.
@@ -2074,6 +2178,8 @@ def pick_next_prompt_job() -> dict | None:
 
 def pick_next_render_job() -> dict | None:
     if "render" in service_maintenance or lifecycle_dispatch_blocked() or service_recovering("render") or vast_control.get("plan") == "stop_after_current":
+        return None
+    if service_work_active("render"):
         return None
     candidates = [j for j in queue if j.get("status") in ("render_queued_review", "render_queued_auto")]
     if not candidates:
@@ -2158,6 +2264,9 @@ async def prompt_worker() -> None:
                 await generate_prompt_candidate(job)
             except Exception as e:
                 _handle_worker_error(job, "prompt", e)
+            # Cached/immediate service responses need not suspend. Give the
+            # renderer, guard and HTTP handlers a turn before another prompt.
+            await asyncio.sleep(0)
         else:
             await asyncio.sleep(0.75)
 
@@ -2172,6 +2281,7 @@ async def render_worker() -> None:
                 await render_job(job)
             except Exception as e:
                 _handle_worker_error(job, "render", e)
+            await asyncio.sleep(0)
         else:
             await asyncio.sleep(0.75)
 
@@ -2330,12 +2440,22 @@ async def startup() -> None:
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
+    global terminal_shutting_down
+    terminal_shutting_down = True
+    terminal_tokens.pending.clear()
     tasks = [task for task in (prompt_worker_task, render_worker_task, vast_guard_task, recovery_task, lifecycle_action_task)
              if task is not None]
     for task in tasks:
         task.cancel()
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
+    sessions = list(terminal_sessions)
+    errors = await asyncio.gather(*(session.close() for session in sessions), return_exceptions=True)
+    for session in sessions:
+        if session.closed:
+            terminal_sessions.discard(session)
+    if any(isinstance(error, BaseException) for error in errors):
+        raise BaseExceptionGroup("Terminal cleanup failed", [error for error in errors if isinstance(error, BaseException)])
 
 
 @app.get("/")
@@ -2352,6 +2472,8 @@ async def config():
         "loras": MAP["nodes"]["first_pass_loras"]["entries"],
         "version": "pre-rental-final-rc5",
         "state": state_diagnostics(),
+        "prompt_prefetch": H3_PROMPT_PREFETCH,
+        "terminal_enabled": H3_ENABLE_TERMINAL,
         "batch": {
             "prompts_per_batch": PROMPTS_PER_BATCH,
             "auto_approved": AUTO_APPROVED_PER_BATCH,
@@ -2381,6 +2503,98 @@ async def proxy_comfy(service: str, path: str, request: Request):
 @app.get("/api/vast/status")
 async def api_vast_status():
     return await vast_instance_status()
+
+
+@app.get("/api/diagnostics")
+async def api_diagnostics():
+    from .diagnostics import checks_for, local_probe, model_status, queue_summary, service_health
+
+    # Independent probes run concurrently. No save_state, CLI control, workflow
+    # submission, restart or recovery operation belongs on this read-only path.
+    render, prompt, storage, disk, gpu, models = await asyncio.gather(
+        service_health(RENDER_COMFY_URL), service_health(PROMPT_COMFY_URL),
+        local_probe(lambda: persistent_storage_status(timeout_seconds=1.5)),
+        local_probe(disk_status), local_probe(lambda: gpu_status(timeout_seconds=1.0)),
+        local_probe(lambda: model_status(CONFIG / "models_manifest.json", COMFY_MODELS_DIR, COMFY_ROOT)),
+    )
+    if "status" not in models:
+        models.update(status="WARN", provisional=True)
+    gpu = finite_json(gpu)
+    vram_available = (type(gpu.get("vram_total_mb")) in (int, float) and gpu["vram_total_mb"] > 0
+                      and type(gpu.get("vram_used_mb")) in (int, float) and gpu["vram_used_mb"] >= 0)
+    cli_available = shutil.which(VAST_CLI) is not None
+    data = finite_json({"controller": state_diagnostics(), "services": {"render": render, "prompt": prompt},
+        "gpu": gpu, "vram": {"available": vram_available,
+                               "used_mb": gpu.get("vram_used_mb"), "total_mb": gpu.get("vram_total_mb")},
+        "storage": storage, "disk": disk, "queue": queue_summary(queue), "prefetch": prompt_prefetch_status(),
+        "vast": {"cli_available": cli_available, "instance_id_available": bool(instance_id_from_env()),
+                 "control_available": cli_available and bool(instance_id_from_env()) and submissions_allowed(),
+                 "remote_authorization": "not_probed"}, "models": models})
+    data["checks"] = checks_for(data)
+    data["status"] = next((status for status in ("FAIL", "WARN") if any(
+        check["status"] == status for check in data["checks"])), "PASS")
+    return data
+
+
+@app.get("/api/logs/{service}")
+async def api_logs(service: str, lines: int = Query(200, ge=1, le=1000)):
+    from .logs import LOG_FILES, tail_log
+
+    if service not in LOG_FILES:
+        raise HTTPException(400, "service must be render, prompt or panel")
+    return await asyncio.to_thread(tail_log, WORKSPACE, service, lines)
+
+
+@app.post("/api/terminal/session")
+async def api_terminal_session():
+    # This HTTP handshake is protected by require_panel_auth. It does not
+    # launch a shell. The WebSocket independently validates/consumes the ticket.
+    if not H3_ENABLE_TERMINAL or terminal_shutting_down:
+        raise HTTPException(403, "Terminal is disabled")
+    if terminal_sessions:
+        raise HTTPException(409, "A terminal session is already active")
+    try:
+        token = terminal_tokens.issue()
+    except RuntimeError as error:
+        raise HTTPException(429, "Too many pending terminal sessions") from error
+    return JSONResponse({"token": token, "expires_in_seconds": TOKEN_TTL_SECONDS},
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.websocket("/api/terminal/ws")
+async def api_terminal_websocket(websocket: WebSocket):
+    # HTTP middleware NEVER authorizes WebSockets. Basic Auth, a URL token,
+    # and an old/reused HTTP ticket cannot bypass this independent check.
+    if not H3_ENABLE_TERMINAL or terminal_shutting_down or not PANEL_AUTH_PASSWORD:
+        await websocket.close(code=1008)
+        return
+    ticket = websocket_ticket(websocket)
+    if ticket is None or not terminal_tokens.consume(ticket):
+        await websocket.close(code=1008)
+        return
+    if terminal_sessions:
+        await websocket.close(code=1013)
+        return
+    session = PTYSession(WORKSPACE, _require_restart_group_control)
+    terminal_sessions.add(session)  # No await before reserving the sole session.
+    try:
+        await websocket.accept(subprotocol=TERMINAL_PROTOCOL)
+        session.start()
+        await session.ready()
+        await bridge_terminal(websocket, session)
+    except Exception:
+        # Do not echo commands, tickets, environment or process exception text.
+        pass
+    finally:
+        try:
+            await session.close()
+        finally:
+            if session.closed:
+                terminal_sessions.discard(session)
+            try:
+                await websocket.close()
+            except Exception:
+                pass
 
 
 @app.post("/api/vast/action")
@@ -2584,12 +2798,12 @@ async def create_batches(req: BatchRequest):
 
 @app.get("/api/jobs")
 async def jobs():
-    return {"jobs": queue, "batches": batches}
+    return {"jobs": [public_job(job) for job in queue], "batches": batches}
 
 
 @app.get("/api/jobs/{controller_job_id}")
 async def get_job(controller_job_id: str):
-    return find_job(controller_job_id)
+    return public_job(find_job(controller_job_id))
 
 
 @app.get("/api/jobs/{controller_job_id}/prompts")

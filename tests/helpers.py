@@ -37,6 +37,8 @@ def load_controller(source: Path = ACTIVE):
             "VAST_CLI": "/usr/bin/false", "SERVICE_CTL": "/usr/bin/false",
             "RENDER_RESTART_CMD": "/usr/bin/false", "PROMPT_RESTART_CMD": "/usr/bin/false",
             "H3_ALLOW_SUBMISSIONS": "1",
+            "WORKSPACE": str(target / "workspace"),
+            "H3_PROMPT_PREFETCH": "3", "H3_ENABLE_TERMINAL": "0",
         }
         try:
             with patch.dict(os.environ, environment):

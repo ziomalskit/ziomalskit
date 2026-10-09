@@ -1,6 +1,11 @@
 # Uruchomienie na GPU — acceptance po CPU/runtime PASS
 
-Ten dokument opisuje **następny etap** po zakończonym audycie CPU/runtime.
+Ten dokument opisuje **końcową, skonsolidowaną sesję GPU/Vast**. Zgodnie z
+[ROADMAP.md](ROADMAP.md) najpierw kończymy feature set offline/CPU, wykonujemy pełną
+regresję/audyt CPU, a następnie osobno wybieramy i zamrażamy finalne modele.
+Dopiero po tych etapach wynajmujemy GPU i przechodzimy wszystkie poniższe gate'y
+w jednej sesji. Aktualny manifest modeli jest nadal provisional; ten dokument nie
+zamraża URL-i ani checksumów.
 
 Na `main` po PR #1 wszystkie znane merge-blocking problemy z STEP 1–3 i cross-step zostały naprawione i niezależnie zweryfikowane. Baseline z 8 października 2026 przechodzi `make test` i `make audit` po **290 testów**, a `make test` dodatkowo 16 HTTP smoke checks.
 
@@ -21,6 +26,9 @@ Planowany target:
 ## Gate 0 — przed wynajmem
 
 Przed startem płatnej instancji:
+
+0. Zakończ feature set, pełne `make setup`, `make test`, `make audit` na finalnym
+   commicie oraz osobną decyzję o finalnym stosie modeli i ich zaufanych źródłach.
 
 1. Upewnij się, że deployment pochodzi z aktualnego `main`, nie z `migration/`.
 2. Zarezerwuj RTX PRO 6000 Blackwell 96 GB z wystarczającym dyskiem/RAM i Linuxem obsługującym wymagane pidfd process-group signalling.
@@ -113,6 +121,12 @@ Dopiero po pojedynczym renderze:
 4. Sprawdź recovery po restarcie panelu.
 5. Potwierdź brak duplicate POST po persistence/restart boundary.
 6. Sprawdź watchdog na disposable jobie z krótkim timeoutem.
+7. Sprawdź prefetch (domyślnie `H3_PROMPT_PREFETCH=3`): jednocześnie najwyżej jeden
+   render H3, Prompt Worker może działać równolegle, bufor przyszłych renderów jest
+   ograniczony, #1–5 mają pierwszeństwo, #6–10 ostatecznie trafiają do Review Pool.
+8. Sprawdź Diagnostics, Live Logs i OPEN MP4/timing na realnym layoucie. Terminal
+   jest opcjonalny, domyślnie wyłączony; jeśli świadomie włączony, sprawdź go tylko
+   przez zaufane/prywatne połączenie, wraz z disconnect/cleanup.
 
 ## Gate 6 — Vast lifecycle
 
