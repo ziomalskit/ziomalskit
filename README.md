@@ -1,10 +1,11 @@
 # AJ — panel mobilny i generowanie wideo H3
 
-Projekt przyjmuje **6 obrazów i opcjonalnie 1 plik audio**, analizuje referencje, przygotowuje 10 wariantów promptu i generuje wideo przez ComfyUI na GPU Vast.ai. Produkcyjny model pozostaje native MiniMax H3 INT8; 10Eros to opcjonalny wariant porównawczy.
+Projekt przyjmuje **6 obrazów i opcjonalnie 1 plik audio**, analizuje referencje, przygotowuje 10 wariantów promptu i generuje wideo przez ComfyUI na GPU Vast.ai. Docelowym domyślnym wariantem pozostaje native MiniMax H3 INT8; 10Eros to opcjonalny wariant porównawczy. Dokładny stos produkcyjnych modeli nie jest jeszcze zamrożony.
 
 **Stan po audycie CPU/runtime, 8 października 2026:** wszystkie znane merge-blocking problemy wykryte w STEP 1–3 i cross-step zostały naprawione, niezależnie zweryfikowane i scalone do `main` w PR #1. Końcowy merge commit to `4ea3fdd1b9d41e2475c52ed5f705b52af35df5b0`.
 
-Aktualny baseline przechodzi:
+Baseline z 8 października przechodzi:
+
 - `make setup`;
 - `make test`: **290 testów PASS + 16 HTTP smoke checks**;
 - `make audit`: **290 testów PASS**;
@@ -13,11 +14,24 @@ Aktualny baseline przechodzi:
 
 To oznacza **CPU/runtime acceptance PASS**. Nie oznacza jeszcze pełnego GPU acceptance: na aktualnym kodzie po merge nie wykonano jeszcze realnej instalacji na docelowym RTX PRO 6000, prawdziwego `/object_info`, prompt-only acceptance, renderu H3, benchmarku VRAM ani lifecycle STOP/DESTROY na wynajętej instancji.
 
+**Feature set offline/CPU, 9 października 2026**, na gałęzi
+`feat/h3-cpu-product-completion`: `make setup` PASS, `make test`
+**358 testów PASS + 16 HTTP smoke checks**, `make audit` **358 testów PASS**; zero failures, errors
+i skips, zakończony teardown. Dodano 68 testów dla MP4, prefetch, Diagnostics,
+Live Logs i opcjonalnego terminala. [Raport CPU i self-review](docs/CPU_PRODUCT_ACCEPTANCE_2026-10-09.md)
+opisuje dokładne testowane źródła, izolację środowiska testowego i ograniczenia
+weryfikacji CPU. GPU/live acceptance nadal jest pending.
+
+Aktualna kolejność produktu: **feature set offline/CPU -> pełna regresja/audyt CPU
+-> osobny wybór i zamrożenie finalnych modeli -> jedna skonsolidowana sesja
+Vast/GPU na końcu**. Manifest modeli pozostaje provisional. Szczegóły funkcji,
+Advanced, prefetch i opcjonalnego terminala: [h3/README.md](h3/README.md).
+
 ## Od czego zacząć
 
 1. [Roadmap produktu i aktualny scope](docs/ROADMAP.md) — kanoniczny plan dalszych etapów i rzeczy świadomie odłożonych.
-2. [Finalne CPU/runtime acceptance](docs/FINAL_CPU_ACCEPTANCE_2026-10-08.md) — kanoniczny stan po merge.
-3. [Przygotowanie i acceptance na Vast GPU](docs/GPU_ACCEPTANCE.md) — aktualna kolejność pierwszego deploymentu.
+2. [CPU feature acceptance i self-review](docs/CPU_PRODUCT_ACCEPTANCE_2026-10-09.md) — stan finalnego feature set na gałęzi PR; [baseline z 8 października](docs/FINAL_CPU_ACCEPTANCE_2026-10-08.md) opisuje wcześniejszy stan po merge.
+3. [Przygotowanie i acceptance na Vast GPU](docs/GPU_ACCEPTANCE.md) — końcowa sesja po feature set, regresji CPU i osobnym wyborze modeli.
 4. [H3 Vast Mobile](h3/README.md) — wymagania runtime, persistent volume i sterowanie usługami.
 5. [Historyczny audyt z 6 października](docs/AUDIT_2026-10-06.md) — źródło wcześniejszych blockerów; nie jest już aktualnym statusem produkcyjnym.
 6. [Oryginalny stan projektu](migration/00_START_HERE/CURRENT_STATE.md) — materiał migracyjny i historia decyzji.
@@ -26,7 +40,7 @@ Materiały pod `migration/` i `archive/` są baseline'em historycznym. Ich stare
 
 ## Praca lokalna / Codex
 
-Wymagane: Linux, Python >=3.11 (development checks używają 3.12), Git i Bash. Node.js jest opcjonalny i służy do sprawdzania składni JavaScript.
+Wymagane: Linux, Python >=3.11 (development checks używają 3.12), Git i Bash. Node.js jest wymagany do pełnej regresji frontendu; sam backend go nie potrzebuje.
 
 ```bash
 make setup

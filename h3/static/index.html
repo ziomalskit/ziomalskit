@@ -20,6 +20,8 @@ button.reject{background:#3a2020;color:#fff}
 .reviewcard{border:1px solid #343a45;border-radius:12px;padding:10px;margin:8px 0}
 .reviewactions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 pre{white-space:pre-wrap;word-break:break-word;background:#0b0d10;padding:10px;border-radius:10px}
+.logtail{max-height:350px;overflow:auto;font-size:12px}
+summary{cursor:pointer;margin:8px 0}
 a{color:#9ecbff}
 
 .vastgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}
@@ -48,16 +50,12 @@ a{color:#9ecbff}
     <button class="secondary" data-lifecycle-control onclick="vastAction('cancel_plan')">CANCEL SHUTDOWN PLAN</button>
   </div>
   <details>
-    <summary>Guards & service controls</summary>
+    <summary>Guards</summary>
     <div class="row">
       <div><label>Idle stop (minutes, 0=off)</label><input id="idleMin" type="number" value="0" min="0" oninput="guardEdited()"></div>
       <div><label>Session cost guard $ (0=off)</label><input id="costGuard" type="number" value="0" min="0" step="0.25" oninput="guardEdited()"></div>
     </div>
     <button class="secondary" data-lifecycle-control onclick="saveGuards()">SAVE GUARDS</button>
-    <div class="vastactions">
-      <button class="secondary" id="restart-render" onclick="restartService('render')">RESTART RENDER COMFY</button>
-      <button class="secondary" id="restart-prompt" onclick="restartService('prompt')">RESTART PROMPT COMFY</button>
-    </div>
   </details>
   <details>
     <summary>Danger zone</summary>
@@ -106,6 +104,48 @@ a{color:#9ecbff}
 
 <div class="card"><b>Queue / Results</b><div id="jobs">—</div></div>
 
+<details class="card" id="advanced" ontoggle="advancedChanged()">
+  <summary><b>Advanced</b></summary>
+  <details id="diagnosticsSection" ontoggle="diagnosticsChanged()">
+    <summary>Diagnostics</summary>
+    <div class="tiny">Parallel prompt prefetch target: <span id="prefetchTarget">—</span>. Model manifest is provisional.</div>
+    <button class="secondary" id="diagnosticsRefresh" onclick="refreshDiagnostics()">REFRESH DIAGNOSTICS</button>
+    <div id="diagnostics">Open to check services.</div>
+  </details>
+  <details id="logsSection" ontoggle="logsChanged()">
+    <summary>Live Logs</summary>
+    <label for="logSource">Source</label>
+    <select id="logSource" onchange="refreshLogs()">
+      <option value="render">Render ComfyUI</option>
+      <option value="prompt">Prompt ComfyUI</option>
+      <option value="panel">AJ panel / controller</option>
+    </select>
+    <button class="secondary" id="logsRefresh" onclick="refreshLogs()">REFRESH LOGS</button>
+    <div id="logStatus" class="tiny">Latest 200 lines; bounded tail.</div>
+    <pre id="liveLogs" class="logtail">—</pre>
+  </details>
+  <details>
+    <summary>Service controls</summary>
+    <div class="vastactions">
+      <button class="secondary" id="restart-render" onclick="restartService('render')">RESTART RENDER COMFY</button>
+      <button class="secondary" id="restart-prompt" onclick="restartService('prompt')">RESTART PROMPT COMFY</button>
+    </div>
+  </details>
+  <details id="terminalSection" hidden ontoggle="terminalChanged()">
+    <summary>Terminal</summary>
+    <div class="tiny">Developer/admin shell. Use only through a trusted/private connection. Disconnect ends the shell and its child processes. AJ does not save command history.</div>
+    <div class="row">
+      <button class="secondary" id="terminalConnect" disabled onclick="connectTerminal()">CONNECT</button>
+      <button class="secondary" id="terminalDisconnect" disabled onclick="disconnectTerminal()">DISCONNECT</button>
+    </div>
+    <div id="terminalStatus" class="tiny">Disabled</div>
+    <pre id="terminalOutput" class="logtail" aria-live="polite"></pre>
+    <label for="terminalInput">Command (Enter executes; Ctrl+C interrupts)</label>
+    <input id="terminalInput" disabled maxlength="4096" autocomplete="off" autocapitalize="off" spellcheck="false" onkeydown="terminalKey(event)">
+    <button class="secondary" id="terminalInterrupt" disabled onclick="interruptTerminal()">CTRL+C</button>
+  </details>
+</details>
+
 <script>
 let loras=[], selected=null, lastJobs=[];
 let batchInFlight=false, approvalInFlight=new Set();
@@ -113,6 +153,8 @@ let jobsGeneration=0, promptsGeneration=0, vastGeneration=0;
 let lifecycleInFlight=false, lifecycleToken=null, backendVast=null;
 let guardsDirty=false, guardEditGeneration=0, guardBaseToken=null;
 const restartInFlight=new Set();
+let diagnosticsGeneration=0, logsGeneration=0;
+let terminalEnabled=false, terminalBusy=false, terminalSocket=null, terminalGeneration=0;
 const pendingBatchKey='h3.pendingBatch';
 function batchButtonState(){
   const pending=!!localStorage.getItem(pendingBatchKey);
@@ -137,6 +179,10 @@ function newBatch(){
 async function init(){
   batchButtonState();
   const c=await fetch('/api/config').then(r=>r.json());
+  document.getElementById('prefetchTarget').textContent=c.prompt_prefetch??'—';
+  terminalEnabled=c.terminal_enabled===true;
+  document.getElementById('terminalSection').hidden=!terminalEnabled;
+  terminalButtonState();
   loras=c.loras||[];
   document.getElementById('loras').innerHTML=loras.map((x,i)=>
     `<label><input style="width:auto" type="checkbox" id="le${i}" ${x.on?'checked':''}> ${x.lora}</label>
@@ -262,11 +308,157 @@ function renderJobs(){
   document.getElementById('jobs').innerHTML=jobs.length?jobs.map(j=>{
     let cls=j.status==='completed'?'ok':(j.status.includes('failed')||j.status.includes('stuck')?'bad':(j.status==='pending_review'?'warn':''));
     let active=j.id===selected?' active':'';
+    const duration=Number.isFinite(j.render_duration_seconds)&&j.render_duration_seconds>=0?` · ${j.render_duration_seconds.toFixed(1)} s render`:'';
+    const videos=j.status==='completed'&&Array.isArray(j.video_outputs)?j.video_outputs.filter(u=>typeof u==='string'&&u.startsWith('/api/proxy/render/view?')):[];
     return `<div class="job${active}" onclick="selectJob('${j.id}')">
-      <b class="${cls}">${esc(j.status)}</b> · B${j.batch_seq} #${j.candidate_index} · render seed ${j.render_seed ?? j.seed}<br>
-      <span class="tiny">${esc(j.current_node||'')} ${j.review_required?'• review':'• auto'}</span>
-      ${(j.outputs||[]).map(u=>`<br><a href="${esc(u)}" target="_blank" onclick="event.stopPropagation()">output</a>`).join('')}
+      <b class="${cls}">${esc(j.status)}</b>${duration}
+      ${videos.map(u=>` · <a href="${esc(u)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${/[?&]filename=[^&]*\.mp4(?:&|$)/i.test(u)?'OPEN MP4':'OPEN VIDEO'}</a>`).join('')}<br>
+      <span class="tiny">Batch ${esc(j.batch_seq)} · candidate #${esc(j.candidate_index)} · job ${esc(j.id)} · seed ${esc(j.render_seed ?? j.seed)} · ${j.review_required?'review':'auto'} ${esc(j.current_node||'')}</span>
     </div>`}).join(''):'—';
+}
+
+function advancedOpen(section){
+  return document.getElementById('advanced').open && document.getElementById(section).open;
+}
+function advancedChanged(){
+  if(!document.getElementById('advanced').open){
+    ++diagnosticsGeneration; ++logsGeneration;
+    document.getElementById('diagnosticsRefresh').disabled=false;
+    document.getElementById('logsRefresh').disabled=false;
+    disconnectTerminal();
+  }
+}
+function diagnosticsChanged(){
+  if(advancedOpen('diagnosticsSection'))refreshDiagnostics();
+  else{++diagnosticsGeneration;document.getElementById('diagnosticsRefresh').disabled=false}
+}
+function logsChanged(){
+  if(advancedOpen('logsSection'))refreshLogs();
+  else{++logsGeneration;document.getElementById('logsRefresh').disabled=false}
+}
+async function refreshDiagnostics(){
+  if(!advancedOpen('diagnosticsSection'))return;
+  const generation=++diagnosticsGeneration;
+  document.getElementById('diagnosticsRefresh').disabled=true;
+  try{
+    const r=await fetch('/api/diagnostics');
+    if(!r.ok)throw new Error('Diagnostics unavailable');
+    const data=await r.json();
+    if(generation!==diagnosticsGeneration || !advancedOpen('diagnosticsSection'))return;
+    if(!Array.isArray(data.checks))throw new Error('Invalid diagnostics response');
+    document.getElementById('diagnostics').innerHTML=data.checks.map(check=>{
+      const status=['PASS','WARN','FAIL'].includes(check.status)?check.status:'WARN';
+      const cls={PASS:'ok',WARN:'warn',FAIL:'bad'}[status];
+      return `<div><b class="${cls}">${status}</b> ${esc(check.label)} <span class="tiny">${esc(check.detail)}</span></div>`;
+    }).join('');
+  }catch(e){
+    if(generation===diagnosticsGeneration && advancedOpen('diagnosticsSection'))document.getElementById('diagnostics').textContent='WARN · Diagnostics unavailable';
+  }finally{
+    if(generation===diagnosticsGeneration)document.getElementById('diagnosticsRefresh').disabled=false;
+  }
+}
+async function refreshLogs(){
+  if(!advancedOpen('logsSection'))return;
+  const source=document.getElementById('logSource').value, generation=++logsGeneration;
+  if(!['render','prompt','panel'].includes(source))return;
+  document.getElementById('logsRefresh').disabled=true;
+  document.getElementById('liveLogs').textContent='Loading…';
+  try{
+    const r=await fetch('/api/logs/'+source+'?lines=200');
+    if(!r.ok)throw new Error('Log unavailable');
+    const data=await r.json();
+    if(generation!==logsGeneration || source!==document.getElementById('logSource').value || !advancedOpen('logsSection'))return;
+    document.getElementById('liveLogs').textContent=data.text||'—';
+    document.getElementById('logStatus').textContent=data.status==='not_created'?'Not created yet':
+      data.available?`${data.line_count} lines${data.truncated?' · truncated tail':''}`:'WARN · Log unavailable';
+  }catch(e){
+    if(generation===logsGeneration && advancedOpen('logsSection')){
+      document.getElementById('liveLogs').textContent='—';
+      document.getElementById('logStatus').textContent='WARN · Log unavailable';
+    }
+  }finally{
+    if(generation===logsGeneration)document.getElementById('logsRefresh').disabled=false;
+  }
+}
+
+function terminalButtonState(){
+  const connected=terminalEnabled && terminalSocket?.readyState===1;
+  document.getElementById('terminalConnect').disabled=!terminalEnabled || terminalBusy || !!terminalSocket;
+  document.getElementById('terminalDisconnect').disabled=!terminalBusy && !terminalSocket;
+  document.getElementById('terminalInput').disabled=!connected;
+  document.getElementById('terminalInterrupt').disabled=!connected;
+  if(!terminalEnabled)document.getElementById('terminalStatus').textContent='Disabled';
+}
+function terminalChanged(){
+  if(!advancedOpen('terminalSection'))disconnectTerminal();
+}
+function disconnectTerminal(){
+  ++terminalGeneration;
+  const socket=terminalSocket;
+  terminalSocket=null; terminalBusy=false;
+  if(socket)socket.close();
+  document.getElementById('terminalInput').value='';
+  document.getElementById('terminalStatus').textContent=terminalEnabled?'Disconnected':'Disabled';
+  terminalButtonState();
+}
+async function connectTerminal(){
+  if(!terminalEnabled || terminalBusy || terminalSocket || !advancedOpen('terminalSection'))return;
+  const generation=++terminalGeneration;
+  terminalBusy=true; terminalButtonState();
+  document.getElementById('terminalStatus').textContent='Connecting…';
+  try{
+    const r=await fetch('/api/terminal/session',{method:'POST',cache:'no-store'});
+    if(!r.ok)throw new Error('Terminal session refused');
+    const data=await r.json();
+    if(generation!==terminalGeneration || !terminalEnabled || !advancedOpen('terminalSection'))return;
+    if(typeof data.token!=='string' || !/^[A-Za-z0-9_-]{43}$/.test(data.token))throw new Error('Invalid session ticket');
+    const url=new URL('/api/terminal/ws',location.href);
+    url.protocol=location.protocol==='https:'?'wss:':'ws:';
+    // The one-use ticket is a subprotocol header, never a URL/query parameter.
+    const socket=new WebSocket(url.href,['h3-terminal','h3-session.'+data.token]);
+    terminalSocket=socket;
+    const current=()=>generation===terminalGeneration && terminalSocket===socket;
+    socket.onopen=()=>{
+      if(!current() || !advancedOpen('terminalSection')){socket.close();return}
+      terminalBusy=false;
+      document.getElementById('terminalOutput').textContent='';
+      document.getElementById('terminalStatus').textContent='Connected';
+      terminalButtonState(); document.getElementById('terminalInput').focus();
+    };
+    socket.onmessage=event=>{
+      if(!current() || !advancedOpen('terminalSection'))return;
+      const output=document.getElementById('terminalOutput');
+      output.textContent=(output.textContent+String(event.data)).slice(-65536);
+      output.scrollTop=output.scrollHeight;
+    };
+    socket.onclose=()=>{if(current())disconnectTerminal()};
+    socket.onerror=()=>{
+      if(current()){
+        disconnectTerminal();
+        document.getElementById('terminalStatus').textContent='WARN · Connection failed';
+      }
+    };
+  }catch(e){
+    if(generation===terminalGeneration){
+      terminalBusy=false; terminalButtonState();
+      document.getElementById('terminalStatus').textContent='WARN · Terminal unavailable';
+    }
+  }finally{
+    if(generation===terminalGeneration && !terminalSocket){terminalBusy=false;terminalButtonState()}
+  }
+}
+function interruptTerminal(){
+  if(terminalEnabled && terminalSocket?.readyState===1)terminalSocket.send('\x03');
+}
+function terminalKey(event){
+  if(event.ctrlKey && event.key.toLowerCase()==='c'){event.preventDefault();interruptTerminal();return}
+  if(event.key==='Enter'){
+    event.preventDefault();
+    if(terminalEnabled && terminalSocket?.readyState===1){
+      const input=document.getElementById('terminalInput');
+      terminalSocket.send(input.value+'\n'); input.value='';
+    }
+  }
 }
 async function refresh(){
   const generation=++jobsGeneration;
@@ -387,6 +579,7 @@ async function refreshVast(){
   }
 }
 setInterval(refreshVast,5000);
+if(typeof window!=='undefined')window.addEventListener('pagehide',disconnectTerminal);
 refreshVast();
 init();
 </script></body></html>

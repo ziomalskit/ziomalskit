@@ -1,6 +1,10 @@
 # H3 Vast Mobile — PRE-RENTAL FINAL RC5
 
-This is the release candidate to use for the first Vast deployment.
+Current AJ/H3 runtime for CPU development and the eventual consolidated Vast
+acceptance session. Live GPU/Vast acceptance is still pending. Follow
+[`docs/ROADMAP.md`](../docs/ROADMAP.md): finish the feature set, run the full CPU
+regression/audit, choose and freeze final models as a separate decision, then
+perform one consolidated GPU/Vast session.
 
 Target:
 - RTX PRO 6000 Blackwell 96 GB
@@ -14,7 +18,7 @@ Target:
 Conservative first-release input contract:
 - exactly 6 images: Picture 1 + 5 supporting references
 - 0 or 1 audio reference
-- native MiniMax H3 INT8 is the production default
+- native MiniMax H3 INT8 is the intended default; the exact production stack and manifest remain provisional
 - 10Eros Hybrid remains optional A/B
 
 If preserving data, set `H3_PERSISTENCE_MODE=volume` and
@@ -57,6 +61,133 @@ bash <PANEL_ROOT>/scripts/smoke_test.sh
 Do not start a real H3 render until both pass.
 
 See `FULL_PRE_RENTAL_AUDIT.md` for the complete audit and remaining live-only risks.
+
+## Ref2Video results
+
+Normal flow stays **references + parameters -> job -> final MP4 link**.
+Queue / Results prioritizes status, render time when known and **OPEN MP4**.
+Batch, candidate, controller job ID and seed remain secondary metadata.
+There is no media gallery or library.
+
+`GET /api/jobs` and `GET /api/jobs/{id}` expose canonical `video_outputs` for
+completed renders, plus `render_started_at`, `finished_at` (Unix seconds) and
+`render_duration_seconds` when valid timestamps exist. Duration measures the
+controller's render phase, from render preparation through observed settled
+history; it is not a GPU kernel benchmark. Recovery retains the original start;
+an older job may recover a start from ComfyUI's `execution_start` timestamp.
+Otherwise duration is null, including missing timestamps or backwards clocks.
+Legacy completed results are normalized on reads without rewriting queue state.
+
+Links keep the authenticated Render proxy (`/api/proxy/render/view`) and its
+HTTP Range / streaming behavior. Only settled successful history with a final
+video proves completion; preview output, missing history or uncertain submission
+still cannot prove success or trigger an automatic paid resubmission.
+
+## Bounded Parallel prompt prefetch
+
+```dotenv
+H3_PROMPT_PREFETCH=3
+```
+
+Parallel is the only scheduling mode: one Render Worker on `8188` and one Prompt
+Worker on `8189` may overlap on the same GPU. There is no global GPU mutex.
+The target is a future-render buffer, excluding the active render. Integers clamp
+to **1–5**; missing, empty or non-integer settings fall back to **3**. Configure
+through runtime environment, then restart the controller. `/api/config` returns
+the active integer as `prompt_prefetch`; Diagnostics shows ready/preparing/target.
+
+The one active prompt reserves a slot. Waiting automatic and approved-review
+renders count toward the buffer. Existing approved work may exceed the target;
+prefetch pauses until the renderer consumes it. Unapproved `pending_review`
+decisions do not occupy render capacity: otherwise five reviews could never
+finish with a smaller buffer and could block later automatic batches.
+
+All queued automatic candidates #1–5 outrank unstarted review candidates #6–10,
+across batches. Review prompts are prepared when automatic work is exhausted and
+buffer capacity permits; all five eventually become review decisions for a finite
+queue. Approved reviews retain their existing top render priority. STOP AFTER
+CURRENT starts no more work. Queue draining finishes automatic/approved work,
+skips unsubmitted review preparation and ignores pending/rejected reviews.
+Recovery/uncertain execution, persistence and lifecycle fences still apply per
+service. A render can never run alongside another H3 render.
+
+## Advanced diagnostics and live logs
+
+The collapsed **Advanced** section contains Diagnostics, Live Logs, service
+restart controls and, only when enabled, Terminal. Existing Vast lifecycle,
+guard, telemetry and destructive confirmation behavior is preserved.
+
+`GET /api/diagnostics` is read-only. It checks AJ/controller tasks and persistence,
+both ComfyUI `/system_stats` endpoints, GPU/VRAM when available, retained-volume
+proof, disk free space, queue summary, prefetch and local Vast CLI/control
+availability. It never submits, restarts services, writes state or invokes Vast.
+Each independent probe has a short deadline (at most two seconds) and runs
+concurrently. A dead service produces FAIL while other checks still return.
+Vast remote authorization is explicitly **not probed**.
+
+Model diagnostics use the **provisional** `config/models_manifest.json`: required
+primary files, default LoRAs and accepted bridge locations. Missing/empty files
+produce FAIL; even complete presence stays WARN because presence cannot prove
+integrity, loader readiness or final model selection. Existing preflight integrity
+checks are unchanged. Production model sources/checksums must be decided separately.
+
+Diagnostics and logs refresh manually when their sections are open. Logs use
+`GET /api/logs/{service}?lines=200`, with only `render`, `prompt` and `panel`:
+
+| Source | Existing `service_ctl.sh` file |
+| --- | --- |
+| Render ComfyUI | `$WORKSPACE/comfyui-render.log` |
+| Prompt ComfyUI | `$WORKSPACE/comfyui-prompt.log` |
+| AJ panel/controller | `$WORKSPACE/h3-mobile.log` |
+
+Line count is 1–1000; the reader takes at most 256 KiB from a regular file's tail,
+decodes UTF-8 with replacement and marks truncation. Missing files return a normal
+"Not created yet" response. Symlinks/FIFOs/unreadable files fail closed as
+unavailable. Clients cannot choose a path. `make panel` writes its separate local
+development log to `.local/panel.log`; service logs may not exist in that CPU preview.
+
+## Optional admin terminal
+
+```dotenv
+H3_ENABLE_TERMINAL=0
+```
+
+Only exactly `1` enables Terminal. Keep it disabled for normal Ref2Video use.
+**Enable only when the AJ panel is accessed through a trusted/private connection.**
+The terminal grants the panel user's shell privileges. Basic Auth on a public
+plain HTTP connection is not a suitable way to expose it. This feature does not
+provide HTTPS, credential management or a separate security boundary for commands.
+
+The terminal is an interactive Bash PTY in `WORKSPACE` (normally `/workspace`),
+with live output, command input, Enter, Ctrl+C, connect and disconnect. It reads
+no user Bash startup files. AJ does not store command history; shell history is
+disabled and `HISTFILE` points to `/dev/null`. The browser only holds a bounded
+65,536-character transcript in memory and clears unsent input on disconnect. Closing
+Terminal/Advanced or leaving the page disconnects the session.
+
+Security contract:
+
+- The authenticated `POST /api/terminal/session` handshake mints a cryptographically
+  random 30-second one-use token. It launches no process, uses `Cache-Control:
+  no-store` and retains at most 32 pending tickets in controller memory.
+- `/api/terminal/ws` authenticates independently; FastAPI HTTP middleware does
+  **not** protect WebSockets. The client offers `h3-terminal` and `h3-session.<token>`
+  as WebSocket subprotocols. The server selects only `h3-terminal`; the token is
+  never a URL/query parameter in AJ's client or normal access logs.
+- Disabled, invalid, expired and reused tickets fail closed before shell launch.
+  Browser Origins must match the panel Host. Only one terminal session is allowed.
+  Controller restart clears tickets; shutdown refuses upgrades and cleans sessions.
+- A private gated supervisor captures process ownership before Bash starts,
+  handles parent death and reaps shell/background descendants as a Linux subreaper.
+  Cleanup also covers descendants that create another process group/session.
+  The controller retains original supervisor and gated-shell pidfds through group cleanup, never a numeric
+  `killpg`, and waits for reaping on disconnect, error or cancellation. It requires
+  the same Linux >=6.9 group-control capability as existing service controls.
+
+CPU tests exercise tickets, real local PTYs and loopback HTTP/WebSockets, Ctrl+C,
+ignored TERM, detached children, shell exit, launch/capture errors, descriptor
+errors, repeated cancellation and WebSocket cleanup. Live transport
+through the chosen private deployment must still be checked during acceptance.
 
 Batch API retries require a client-generated UUID `request_id` in the JSON body.
 Reuse the same UUID and exact body after an uncertain response, including after
