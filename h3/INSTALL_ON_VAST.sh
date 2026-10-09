@@ -8,6 +8,6 @@ PANEL_ROOT="${PANEL_ROOT:-$DATA_ROOT/H3_VAST_MOBILE}"
 
 echo
 echo "Provisioning finished."
-echo "Models are NOT assumed to exist yet. Once they are present run:"
+echo "Pinned model files verified. GPU loading and rendering remain pending; submissions are disabled. Run:"
 printf '  PANEL_ROOT=%q bash %q\n' "$PANEL_ROOT" "$PANEL_ROOT/scripts/preflight.sh"
 printf '  PANEL_ROOT=%q bash %q\n' "$PANEL_ROOT" "$PANEL_ROOT/scripts/smoke_test.sh"

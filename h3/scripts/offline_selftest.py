@@ -117,7 +117,7 @@ assert "refs.length!==5" in html
 assert "Audio reference — optional, max 1" in html
 
 # Manifest must cover the active native model stack and all enabled default LoRAs.
-manifest=json.loads((ROOT/"config/models_manifest.json").read_text())
+manifest=json.loads((ROOT/"config/legacy_models_manifest.json").read_text())
 required={x["file"] for x in manifest["required_primary"]}
 for f in [
  "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
@@ -132,5 +132,21 @@ for f in [
 ]: assert f in required, f
 required_loras={x["file"] for x in manifest["loras_default_required"]}
 assert required_loras=={"HMBreastsV2.safetensors","MysticXXX_MMH3-V4-ref2va.safetensors","movement_h3_lora_v1_500.safetensors"}
+
+# Production identities are separate from these preserved diagnostic graphs.
+from app.production import read_profiles, read_loras
+from app.v20 import compose, instruction_snapshot, verified_baseline, BASELINE_FILE
+from app.artifacts import validate_manifest
+profiles=read_profiles(ROOT/'config/production_profiles.json')
+registry=read_loras(ROOT/'config/lora_registry.json')
+baseline=verified_baseline(ROOT/'workflows'/BASELINE_FILE)
+for profile in profiles['profiles'].values():
+    assert instruction_snapshot(compose(ROOT/'workflows'/profile['render_template'],profiles,registry))==instruction_snapshot(baseline)
+production=json.loads((ROOT/'config/models_manifest.json').read_text())
+assert len(validate_manifest(production,allow_pending=True))>=13
+if production.get('pending_artifacts'):
+    try: validate_manifest(production)
+    except ValueError: pass
+    else: raise AssertionError('Incomplete provenance must block production readiness')
 
 print("OFFLINE SELFTEST PASS")

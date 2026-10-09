@@ -81,9 +81,10 @@ def write_runtime(path: Path, environment: dict[str, str]) -> None:
         "COMFY_OUTPUT_DIR", "COMFY_MODELS_DIR", "H3_CUDA_VERSION",
         "H3_MODEL_CHECKSUMS_FILE", "H3_PERSISTENT_VOLUME_PROOF",
         "H3_PROMPT_PREFETCH", "H3_ENABLE_TERMINAL",
+        "H3_ALLOW_SUBMISSIONS",
     )
     values = {name: environment.get(name, "") for name in names}
-    for name, default in (("H3_PROMPT_PREFETCH", "3"), ("H3_ENABLE_TERMINAL", "0")):
+    for name, default in (("H3_PROMPT_PREFETCH", "3"), ("H3_ENABLE_TERMINAL", "0"), ("H3_ALLOW_SUBMISSIONS", "0")):
         values[name] = environment.get(name) or previous.get(name) or default
     values["H3_PANEL_USER"] = environment.get("H3_PANEL_USER") or previous.get("H3_PANEL_USER") or "h3"
     values["H3_PANEL_PASSWORD"] = (

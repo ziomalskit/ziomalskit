@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+set +x
+# Download credentials are scoped to the download subprocess only.
+AJ_DOWNLOAD_HF_TOKEN="${HF_TOKEN:-}"
+unset HF_TOKEN HUGGING_FACE_HUB_TOKEN HF_HUB_TOKEN
 
 PACKAGE_DIR="${PACKAGE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 DATA_ROOT="${H3_PERSISTENT_ROOT:-${WORKSPACE:-/workspace}}"
@@ -13,6 +17,10 @@ mkdir -p "$DATA_ROOT"
 source "$PACKAGE_DIR/scripts/python_env.sh"
 h3_select_python
 export PACKAGE_DIR DATA_ROOT WORKSPACE COMFY_ROOT PANEL_ROOT PID_DIR H3_CUDA_VERSION
+
+# Fail before package/model installation when canonical provenance is blocked.
+"$COMFY_PYTHON" "$PACKAGE_DIR/scripts/provision_models.py" \
+  --manifest "$PACKAGE_DIR/config/models_manifest.json" --models-root "$COMFY_ROOT/models" --plan
 
 echo "Preparing H3 with Python $COMFY_PYTHON and ComfyUI $COMFY_ROOT"
 if [[ "${H3_SKIP_SYSTEM_PACKAGES:-0}" != 1 ]] && command -v apt-get >/dev/null 2>&1; then
@@ -54,9 +62,20 @@ mkdir -p "$COMFY_ROOT/input" "$COMFY_ROOT/output" \
 h3_comfy --skip-prompt --workspace="$COMFY_ROOT" set-default "$COMFY_ROOT"
 # Do not downgrade a failed dependency installation to a successful provision.
 h3_comfy --skip-prompt --workspace="$COMFY_ROOT" node install-deps \
-  --workflow="$PANEL_ROOT/workflows/VAST_H3_MASTER_NATIVE_INT8_96GB.json" --uv-compile
+  --workflow="$PANEL_ROOT/workflows/H3_v20_heretic_MASTER_DURATION_EXACT.json" --uv-compile
 bash "$PANEL_ROOT/scripts/install_fallback_nodes.sh"
+"$COMFY_PYTHON" "$PANEL_ROOT/scripts/install_owned_nodes.py" \
+  "$PANEL_ROOT/custom_nodes/aj_production" "$COMFY_ROOT/custom_nodes"
 bash "$PANEL_ROOT/scripts/setup_linux_llama.sh"
+
+AJ_LLAMA_SOURCE="${H3_BUILD_ROOT:-$DATA_ROOT/.h3-build}/llama.cpp-$("$COMFY_PYTHON" "$PANEL_ROOT/scripts/runtime_config.py" constant LLAMA_TAG)"
+"$COMFY_PYTHON" -m pip install -r "$AJ_LLAMA_SOURCE/requirements/requirements-convert_hf_to_gguf.txt"
+AJ_DOWNLOAD_VENV="$DATA_ROOT/.aj-download-venv"
+if [[ ! -x "$AJ_DOWNLOAD_VENV/bin/python" ]]; then "$COMFY_PYTHON" -m venv "$AJ_DOWNLOAD_VENV"; fi
+"$AJ_DOWNLOAD_VENV/bin/python" -m pip install -r "$PANEL_ROOT/download-requirements.txt"
+HF_TOKEN="$AJ_DOWNLOAD_HF_TOKEN" "$AJ_DOWNLOAD_VENV/bin/python" "$PANEL_ROOT/scripts/provision_models.py" \
+  --manifest "$PANEL_ROOT/config/models_manifest.json" --models-root "$COMFY_ROOT/models" --toolchain "$AJ_LLAMA_SOURCE"
+unset AJ_DOWNLOAD_HF_TOKEN HF_TOKEN
 "$COMFY_PYTHON" -m pip check
 
 "$COMFY_PYTHON" - "$COMFY_ROOT/input" <<'PY'
@@ -72,6 +91,7 @@ PY
 export RENDER_PORT="${RENDER_PORT:-8188}" PROMPT_PORT="${PROMPT_PORT:-8189}" H3_PANEL_PORT="${H3_PANEL_PORT:-7860}"
 export RENDER_COMFY_URL="http://127.0.0.1:$RENDER_PORT" PROMPT_COMFY_URL="http://127.0.0.1:$PROMPT_PORT"
 export H3_PANEL_URL="http://127.0.0.1:$H3_PANEL_PORT"
+export H3_ALLOW_SUBMISSIONS=0
 export VAST_CLI="${VAST_CLI:-$(command -v vastai || echo vastai)}" SERVICE_CTL="$PANEL_ROOT/scripts/service_ctl.sh"
 export COMFY_INPUT_DIR="$COMFY_ROOT/input" COMFY_OUTPUT_DIR="$COMFY_ROOT/output" COMFY_MODELS_DIR="$COMFY_ROOT/models"
 COMFY_PYTHON=$COMFY_PYTHON "$COMFY_PYTHON" "$PANEL_ROOT/scripts/runtime_config.py" write-env "$PANEL_ROOT/runtime.env"
@@ -96,5 +116,5 @@ atomic_private_text(target,f'#!/usr/bin/env bash\n{marker}\nset -euo pipefail\ns
 target.chmod(0o700)
 PY
 bash "$PANEL_ROOT/scripts/service_ctl.sh" restart all
-echo "Provisioning finished. Credentials are retained privately in $PANEL_ROOT/runtime.env (mode 600); no credentials are printed."
-echo "Models and GPU acceptance are still required; run preflight and smoke before inference."
+echo "Provisioning finished. Panel runtime credentials are private in $PANEL_ROOT/runtime.env (mode 600); one-time download credentials are discarded."
+echo "Model integrity is verified; GPU acceptance remains pending. Run preflight and smoke before explicit acceptance."
