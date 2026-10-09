@@ -1,5 +1,9 @@
 # Full pre-rental audit — FINAL RC2
 
+Historical diagnostic-stack audit. Current production routing is documented in
+`README.md` and `../docs/MODEL_MIGRATION_2026-10-09.md`: exact v20, H3 Full and
+10Eros Full. This document's INT8 defaults do not select production models.
+
 ## 1. H3 render workflow — PASS offline
 - UI graph link integrity checked.
 - Native `minimax_h3_ref2va_pruned_int8_convrot.safetensors` is the default.

@@ -15,7 +15,7 @@ def all_nodes(doc):
 master=json.loads((ROOT/'workflows/VAST_H3_MASTER_NATIVE_INT8_96GB.json').read_text())
 prompt=json.loads((ROOT/'workflows/VAST_H3_PROMPT_ONLY_STAGE2.json').read_text())
 api_map=json.loads((ROOT/'config/VAST_H3_API_MAP.json').read_text())
-manifest=json.loads((ROOT/'config/models_manifest.json').read_text())
+manifest=json.loads((ROOT/'config/legacy_models_manifest.json').read_text())
 html=(ROOT/'static/index.html').read_text()
 
 # A. Workflow topology / release branch
@@ -29,7 +29,8 @@ assert ml['widgets_values'][0]==api_map['nodes']['model_loader']['default']
 # B. Model / frontend / API contract
 assert api_map['nodes']['model_loader']['alternatives']['native_int8']=='minimax_h3_ref2va_pruned_int8_convrot.safetensors'
 assert api_map['nodes']['model_loader']['alternatives']['10eros_hybrid']=='10Eros_Max_h3_hybrid_beta5_int8.safetensors'
-assert 'value="native_int8"' in html and 'value="10eros_hybrid"' in html
+assert 'value="h3_full"' in html and 'value="10eros_full"' in html
+assert 'value="native_int8"' not in html and 'value="10eros_hybrid"' not in html
 assert 'refs.length!==5' in html and 'max 1' in html
 req={x['file'] for x in manifest['required_primary']}
 for f in ['minimax_h3_ref2va_pruned_int8_convrot.safetensors','qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors','minimax_h3_video_vae_int8_convrot.safetensors','minimax_h3_audio_vae_fp32.safetensors','minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors','Llama-Joycaption-Beta-One-Hf-Llava-Q4_K.gguf','Qwen3VL-8B-Instruct-Q4_K_M.gguf','Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.i1-Q6_K.gguf','MN-Violet-Lotus-12B.Q5_K_M.gguf']:

@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio, base64, errno, hashlib, hmac, json, math, os, shutil, signal, subprocess, sys, time, uuid
+import asyncio, base64, copy, errno, hashlib, hmac, json, math, os, shutil, signal, subprocess, sys, time, uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlencode, parse_qs
@@ -13,7 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, Response, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "static"
@@ -25,6 +25,79 @@ STATE.mkdir(exist_ok=True)
 MASTER = WORKFLOWS / "VAST_H3_MASTER_NATIVE_INT8_96GB.json"
 PROMPT_ONLY = WORKFLOWS / "VAST_H3_PROMPT_ONLY_STAGE2.json"
 MAP = json.loads((CONFIG / "VAST_H3_API_MAP.json").read_text(encoding="utf-8"))
+from .production import read_profiles, read_loras, read_bridge, resolve_loras, patch_lora_slots, PROFILE_LABELS, functional_policy
+from .analysis_cache import AnalysisCache, prompt_admission
+from .v20 import compose as compose_v20, set_widget as set_v20_widget
+from .writer_policy import MODEL_FIELDS, validate_stages, stage_routes, validate_writer_graph, final_answer
+from .temporal import duration_identity, validate_duration, final_timeline
+from .redaction import redact
+
+PRODUCTION = read_profiles(CONFIG / "production_profiles.json")
+LORA_REGISTRY = read_loras(CONFIG / "lora_registry.json")
+CONDITIONING_BRIDGE = read_bridge(CONFIG / "lora_registry.json")
+analysis_cache = AnalysisCache()
+overlap_telemetry = {"free_vram_mb": None, "sampled_at": 0.0}
+
+
+def job_profile(job: dict) -> str:
+    profile = job.get("profile")
+    if profile not in PROFILE_LABELS or not isinstance(job.get("context"), dict) or job["context"].get("profile") != profile:
+        raise ValueError("job has no consistent persisted production profile; explicit migration is required")
+    identity = job["context"].get("profile_identity")
+    if not isinstance(identity, dict):
+        raise ValueError("persisted writer identity missing; explicit reconciliation is required")
+    if any(identity.get(key) != PRODUCTION["profiles"][profile][key] for key in MODEL_FIELDS):
+        raise ValueError("persisted profile model routing changed; explicit reconciliation is required")
+    validate_stages(identity.get("writer_stages"))
+    functional_policy(identity)
+    if identity.get("writer_runtime") != PRODUCTION["writer_runtime"]:
+        raise ValueError("persisted writer runtime changed; explicit reconciliation is required")
+    if identity.get("manifest_identity") != manifest_identity(profile):
+        raise ValueError("persisted model provenance changed; explicit reconciliation is required")
+    validate_duration(job["context"])
+    if job["context"]["duration_seconds"] != job["context"]["requested_duration_seconds"]:
+        raise ValueError("persisted requested duration differs from job context")
+    lora_identity = job["context"].get("lora_identity")
+    if lora_identity is not None and any(key not in LORA_REGISTRY or LORA_REGISTRY[key]["filename"] != value for key, value in lora_identity.items()):
+        raise ValueError("persisted LoRA routing changed; explicit reconciliation is required")
+    bridge = job["context"].get("conditioning_bridge")
+    if bridge is not None and (bridge.get("id") != CONDITIONING_BRIDGE["id"] or bridge.get("filename") != CONDITIONING_BRIDGE["filename"]):
+        raise ValueError("persisted conditioning bridge routing changed")
+    return profile
+
+
+def profile_identity(profile: str) -> dict:
+    return copy.deepcopy({**{key: PRODUCTION["profiles"][profile][key] for key in MODEL_FIELDS},
+                          **functional_policy(PRODUCTION["profiles"][profile]),
+                          "writer_stages": PRODUCTION["profiles"][profile]["writer_stages"],
+                          "writer_runtime": PRODUCTION["writer_runtime"], "manifest_identity": manifest_identity(profile)})
+
+
+def manifest_identity(profile: str) -> str:
+    manifest = json.loads((CONFIG / "models_manifest.json").read_text())
+    facts = ("provider", "repository", "revision", "repository_path", "destination", "size_bytes", "sha256", "generation",
+             "source_repository", "source_revision", "observed_source_revision", "llama_cpp_revision", "converter_revision", "converter_sha256")
+    entries = [item for item in [*manifest["artifacts"], *manifest.get("pending_artifacts", [])]
+               if item["required"] and (profile in item["profiles"] or "shared" in item["profiles"])]
+    # GPU-validation flags and human diagnostics do not change artifact identity.
+    identity = [{key: item.get(key) for key in facts} for item in sorted(entries, key=lambda item: item["destination"])]
+    return hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()).hexdigest()
+
+
+def production_workflow(job: dict) -> Path:
+    return WORKFLOWS / PRODUCTION["profiles"][job_profile(job)]["render_template"]
+
+
+def execution_workflow(job: dict, service: str) -> Path:
+    if job.get("profile") in PROFILE_LABELS:
+        return production_workflow(job)
+    if os.getenv("H3_ALLOW_DIAGNOSTIC_SUBMISSIONS", "0") == "1":
+        return PROMPT_ONLY if service == "prompt" else MASTER
+    raise ValueError("legacy job requires explicit diagnostic mode or recreation with a production profile")
+
+
+def batch_for_job(job: dict) -> dict | None:
+    return next((batch for batch in batches if batch.get("id") == job.get("batch_id")), None)
 
 # Stage 3 audited: prompt and render are truly separate ComfyUI services.
 RENDER_COMFY_URL = os.getenv("RENDER_COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
@@ -63,7 +136,9 @@ def prompt_prefetch_target(value: str | None) -> int:
 
 
 H3_PROMPT_PREFETCH = prompt_prefetch_target(os.getenv("H3_PROMPT_PREFETCH", "3"))
-H3_ENABLE_TERMINAL = os.getenv("H3_ENABLE_TERMINAL", "0").strip() == "1"
+# Production containment: the PTY supervisor cannot guarantee ownership of
+# detached descendants after its death. No runtime setting enables this feature.
+H3_ENABLE_TERMINAL = False
 
 from .terminal import PTYSession, SessionTokens, TOKEN_TTL_SECONDS, TERMINAL_PROTOCOL, bridge_terminal, websocket_ticket
 
@@ -125,7 +200,8 @@ async def require_panel_auth(request: Request, call_next):
 
 
 class LoraSetting(BaseModel):
-    name: str
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(validation_alias=AliasChoices("id", "name"))
     enabled: bool
     # Project-approved inclusive range, within ComfyUI v0.38's loader bounds.
     strength: float = Field(ge=-2, le=2, allow_inf_nan=False)
@@ -141,9 +217,12 @@ class LoraSetting(BaseModel):
 
 
 class BatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     request_id: uuid.UUID | None = None
     prompt: str
-    model: str = "native_int8"
+    profile: str | None = None
+    model: str | None = None
+    duration_seconds: float = Field(20, ge=1, le=120, allow_inf_nan=False)
     batches: int = Field(1, ge=1, le=100)
     seed: int | None = None
     random_each: bool = True
@@ -223,7 +302,9 @@ def submissions_allowed() -> bool:
 def lifecycle_dispatch_blocked() -> bool:
     plan = str(vast_control.get("plan") or "none")
     inflight = lifecycle_action_task is not None and not lifecycle_action_task.done()
-    return bool(state_load_error or queue_persistence_error or vast_control_load_error or
+    return bool(any(j.get("status") == "reconciliation_required" and any(
+        _known_prompt_id(j, service) for service in ("render", "prompt")) for j in queue) or
+                state_load_error or queue_persistence_error or vast_control_load_error or
                 (controller_started and _worker_health()[1])) or inflight or plan.startswith("executing_") or plan in {
         "action_failed", "action_interrupted", "blocked_unsafe_persistence",
     }
@@ -235,9 +316,15 @@ def shutdown_armed() -> bool:
     }
 
 
+def quarantined_execution_ids() -> list[str]:
+    return [j["id"] for j in queue if j.get("status") == "reconciliation_required" and any(
+        _known_prompt_id(j, service) for service in ("render", "prompt"))]
+
+
 def service_recovering(service: str) -> bool:
     return service in recovering_services or any(
-        j.get("status") in {f"recovery_{service}", f"{service}_submission_uncertain"} for j in queue
+        j.get("status") in {f"recovery_{service}", f"{service}_submission_uncertain"} or
+        j.get("status") == "reconciliation_required" and _known_prompt_id(j, service) for j in queue
     )
 
 
@@ -258,7 +345,11 @@ def _preserve_recovery(job: dict, service: str, warning: str) -> None:
     save_state()
 
 
-def _record_cancel_confirmation(job: dict, service: str, prompt_id: str, confirmed: bool) -> None:
+def _record_cancel_confirmation(job: dict, service: str, prompt_id: str, confirmed) -> None:
+    if isinstance(confirmed, dict) and confirmed.get("protocol") == "aj-terminal-v1" and confirmed.get("prompt_id") == prompt_id:
+        if confirmed.get("state") == "pending_deleted":
+            job[f"{service}_pending_deleted"] = dict(confirmed)
+        confirmed = confirmed.get("state") in {"pending_deleted", "running_signalled"}
     if confirmed is True:
         job[f"{service}_cancel_confirmed"] = True
         job[f"{service}_cancel_confirmed_id"] = prompt_id
@@ -279,15 +370,16 @@ def state_diagnostics() -> dict[str, Any]:
     if vast_control.get("plan") in {"action_failed", "action_interrupted", "blocked_unsafe_persistence"}:
         lifecycle_error = lifecycle_error or vast_control.get("reason") or "Lifecycle requires manual reconciliation"
     workers, worker_error = _worker_health()
-    return {
-        "ready": not (state_load_error or queue_persistence_error or lifecycle_error or worker_error),
+    return redact({
+        "ready": not (state_load_error or queue_persistence_error or lifecycle_error or worker_error or quarantined_execution_ids()),
+        "reconciliation_jobs": quarantined_execution_ids(),
         "queue_error": state_load_error,
         "persistence_error": queue_persistence_error,
         "worker_error": worker_error,
         "workers": workers,
         "lifecycle_error": lifecycle_error,
         "service_maintenance": dict(service_maintenance),
-    }
+    })
 
 
 def load_vast_control() -> dict[str, Any]:
@@ -320,7 +412,7 @@ def load_vast_control() -> dict[str, Any]:
         for key in ("idle_minutes", "cost_guard_usd"):
             if key in data and (not isinstance(data[key], (int, float)) or isinstance(data[key], bool) or not math.isfinite(data[key]) or data[key] < 0):
                 raise ValueError(f"invalid lifecycle field: {key}")
-        default.update(data)
+        default.update(redact(data))
         if type(default["control_generation"]) is not int or default["control_generation"] < 0:
             raise ValueError("invalid lifecycle control generation")
         if "armed_generation" in data and data["armed_generation"] is not None and (
@@ -353,6 +445,8 @@ def lifecycle_decision_response(**fields) -> dict:
 
 
 def _atomic_json_write(path: Path, payload: Any) -> None:
+    if path == VAST_CONTROL_FILE:
+        payload = redact(payload)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
@@ -378,6 +472,9 @@ def save_vast_control() -> None:
     if vast_control_load_error:
         raise RuntimeError(vast_control_load_error)
     vast_control.pop("persistence_error", None)
+    sanitized = redact(vast_control)
+    vast_control.clear()
+    vast_control.update(sanitized)
     try:
         _atomic_json_write(VAST_CONTROL_FILE, vast_control)
     except Exception as error:
@@ -454,6 +551,14 @@ def load_state() -> None:
         if type(generation) is not int or generation < 0 or not isinstance(loaded_requests, dict):
             raise ValueError("invalid queue idempotency/safety state")
         batch_ids = {batch.get("id") for batch in loaded_batches if isinstance(batch.get("id"), str)}
+        profiles_by_batch, incompatible_batches = {}, {}
+        for batch in loaded_batches:
+            if batch.get("profile") is not None:
+                if batch["profile"] not in PROFILE_LABELS or not isinstance(batch.get("context"), dict) or batch["context"].get("profile") != batch["profile"]:
+                    incompatible_batches[batch["id"]] = "batch persisted profile is inconsistent"
+                    batch["reconciliation_required"] = incompatible_batches[batch["id"]]
+                    continue
+                profiles_by_batch[batch["id"]] = batch["profile"]
         for key, record in loaded_requests.items():
             if str(uuid.UUID(key)) != key or not isinstance(record, dict) or not isinstance(record.get("request_hash"), str):
                 raise ValueError("invalid idempotency record")
@@ -464,9 +569,25 @@ def load_state() -> None:
                 not isinstance(batch_id, str) or batch_id not in batch_ids for batch_id in result["created_batches"]
             ):
                 raise ValueError("idempotency result refers to an unavailable batch")
-        queue, batches = loaded_queue, loaded_batches
-        request_results, queue_persistence_epoch = loaded_requests, generation
-        for j in queue:
+        for j in loaded_queue:
+            # Legacy state remains available for UUID reconciliation. It cannot
+            # acquire a new production identity from a mutable runtime default.
+            if j.get("profile") is not None:
+                try:
+                    if j.get("batch_id") in incompatible_batches:
+                        raise ValueError(incompatible_batches[j["batch_id"]])
+                    job_profile(j)
+                    if j.get("batch_id") in profiles_by_batch and profiles_by_batch[j["batch_id"]] != j["profile"]:
+                        raise ValueError("job persisted profile differs from batch")
+                except (ValueError, KeyError, TypeError) as error:
+                    j["reconciliation_required"] = str(error)
+                    if j.get("status") not in {"completed", "cancelled", "failed", "prompt_failed", "render_failed", "stuck_skipped",
+                                               "prompt_stuck_skipped", "render_stuck_skipped", "rejected", "review_skipped_shutdown"}:
+                        j.setdefault("reconciliation_from_status", j.get("status"))
+                        j["status"] = "reconciliation_required"
+                    continue
+            else:
+                j["profile_migration_required"] = True
             old_status = j.get("status")
             if old_status in {"prompt_running", "prompt_preparing", "prompt_submitting", "prompt_submission_uncertain"}:
                 j["status"] = "recovery_prompt"
@@ -477,6 +598,8 @@ def load_state() -> None:
             elif old_status in ("soft_timeout_cancelling", "hard_timeout_restarting_comfy", "cancelling"):
                 j["status"] = "recovery_render" if j.get("active_service") == "render" else "recovery_prompt"
                 j["recovery_from_status"] = old_status
+        queue, batches = loaded_queue, loaded_batches
+        request_results, queue_persistence_epoch = loaded_requests, generation
     except Exception as error:
         state_load_error = f"Queue state could not be loaded; existing file preserved: {error}"
 
@@ -535,6 +658,8 @@ def validate_input_filename(name: str) -> str:
 
 
 def model_path_for_preset(preset: str) -> Path:
+    if preset in PRODUCTION["profiles"]:
+        return COMFY_MODELS_DIR / "diffusion_models" / PRODUCTION["profiles"][preset]["checkpoint"]
     filename = MAP["nodes"]["model_loader"]["alternatives"].get(preset)
     if not filename:
         raise HTTPException(400, f"unknown model preset: {preset}")
@@ -550,21 +675,20 @@ def validate_requested_assets(req: BatchRequest) -> tuple[list[str], list[str]]:
     pictures = [validate_input_filename(x) for x in req.pictures]
     audio = [validate_input_filename(x) for x in req.audio]
 
-    model_path = model_path_for_preset(req.model)
+    model_path = model_path_for_preset(req.profile or req.model or PRODUCTION["default_profile"])
     if not model_path.is_file():
         raise HTTPException(409, f"selected render model is not installed: {model_path.name}")
 
     if len({lora.name for lora in req.loras}) != len(req.loras):
         raise HTTPException(400, "Duplicate LoRA settings are ambiguous")
-    from .workflow_validation import lora_slots
-    supported = [item["lora"] for item in MAP["nodes"]["first_pass_loras"]["entries"]]
-    for template in (MASTER, PROMPT_ONLY):
-        slots = lora_slots(json.loads(template.read_text(encoding="utf-8")), supported)
-        if any(lora.name not in slots for lora in req.loras):
-            raise HTTPException(400, "Requested LoRA does not have a supported template slot")
+    try:
+        resolved = resolve_loras(LORA_REGISTRY, req.profile or req.model or PRODUCTION["default_profile"], [item.model_dump() for item in req.loras])
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
     for lora in req.loras:
         if lora.enabled:
-            lp = COMFY_MODELS_DIR / "loras" / lora.name
+            lp = COMFY_MODELS_DIR / "loras" / next(item["filename"] for key, item in LORA_REGISTRY.items()
+                if key == lora.name or item["filename"] == lora.name)
             if not lp.is_file():
                 raise HTTPException(409, f"enabled LoRA is not installed: {lora.name}")
     return pictures, audio
@@ -650,7 +774,8 @@ def patch_llm_pipeline_seeds(wf: dict, analysis_seed: int, prompt_seed: int) -> 
         raise RuntimeError(f"Missing LLM processor nodes: {sorted(missing)}")
     for nid, seed in mirrors.items():
         n = downstream[nid]
-        if n.get("type") != "LLMTextProcessor":
+        expected_type = "AJCompilerTextProcessor" if nid == 4275 and wf.get("extra", {}).get("aj_production") else "LLMTextProcessor"
+        if n.get("type") != expected_type:
             raise RuntimeError(f"Expected LLMTextProcessor at {nid}, got {n.get('type')}")
         n.setdefault("widgets_values_named", {})["seed"] = int(seed)
         if len(n.get("widgets_values", [])) <= 13:
@@ -659,12 +784,25 @@ def patch_llm_pipeline_seeds(wf: dict, analysis_seed: int, prompt_seed: int) -> 
 
 
 def patch_workflow(job: dict, workflow_template: Path, *, approved_prompt: str | None = None) -> Path:
-    wf = json.loads(workflow_template.read_text(encoding="utf-8"))
+    requested_phase = "prompt" if workflow_template == PROMPT_ONLY else "render"
+    if job.get("profile") in PROFILE_LABELS and workflow_template in (MASTER, PROMPT_ONLY):
+        workflow_template = production_workflow(job)
+    is_production = workflow_template.name in {profile["render_template"] for profile in PRODUCTION["profiles"].values()}
+    if is_production:
+        if workflow_template != production_workflow(job):
+            raise ValueError("workflow does not match job's persisted profile")
+        wf = compose_v20(workflow_template, PRODUCTION, LORA_REGISTRY,
+                         writer_stages=job["context"]["profile_identity"]["writer_stages"])
+    else:
+        # These explicitly addressed legacy templates are diagnostic artifacts.
+        # Normal workers always select production_workflow(job).
+        wf = json.loads(workflow_template.read_text(encoding="utf-8"))
     from .workflow_validation import validate_ui_workflow, lora_slots
     validate_ui_workflow(wf, patch_contract=True)
     ctx = job["context"]
 
-    checkpoint = MAP["nodes"]["model_loader"]["alternatives"].get(ctx["model"])
+    checkpoint = (PRODUCTION["profiles"][job_profile(job)]["checkpoint"] if is_production else
+                  MAP["nodes"]["model_loader"]["alternatives"].get(ctx["model"]))
     if not checkpoint:
         raise ValueError(f"Unknown model preset: {ctx['model']}")
     set_named_and_positional(node_by_id(wf, 4595), "unet_name", checkpoint)
@@ -699,14 +837,22 @@ def patch_workflow(job: dict, workflow_template: Path, *, approved_prompt: str |
 
     # One analysis token per batch stabilizes Step 0-2 input text.
     patch_rgthree_seed(wf, 7360, int(job["analysis_seed"]))
-    if workflow_template == PROMPT_ONLY:
+    if workflow_template == PROMPT_ONLY or is_production:
         patch_llm_pipeline_seeds(
             wf,
             int(job["analysis_seed"]),
             int(job["prompt_seed"]),
         )
 
-    if ctx.get("loras"):
+    if is_production:
+        patch_lora_slots(node_by_id(wf, 6164), LORA_REGISTRY,
+                         resolve_loras(LORA_REGISTRY, job_profile(job), ctx.get("loras"), frozen=True))
+        set_v20_widget(node_by_id(wf, 1731), "value", ctx["duration_seconds"])
+        defaults = ctx.get("conditioning_bridge", CONDITIONING_BRIDGE["defaults"][job_profile(job)])
+        set_v20_widget(node_by_id(wf, 7362), "enabled", defaults["enabled"])
+        set_v20_widget(node_by_id(wf, 7362), "alpha", defaults["strength"])
+        wf["extra"]["aj_production"].update(job_id=job["id"], phase=job.get("active_service", requested_phase))
+    elif ctx.get("loras"):
         n = node_by_id(wf, 6164)
         settings = [LoraSetting.model_validate(value) for value in ctx["loras"]]
         if len({setting.name for setting in settings}) != len(settings):
@@ -726,7 +872,7 @@ def patch_workflow(job: dict, workflow_template: Path, *, approved_prompt: str |
 
     validate_ui_workflow(wf, patch_contract=True)
 
-    phase = "prompt" if workflow_template == PROMPT_ONLY else "render"
+    phase = job.get("active_service", requested_phase) if is_production else requested_phase
     out = STATE / f"job_{job['id']}_{phase}.json"
     out.write_text(json.dumps(wf, ensure_ascii=False, indent=2), encoding="utf-8")
     return out
@@ -856,19 +1002,19 @@ async def run_cli_envelope(service: str, *args: str) -> dict:
     return envelope
 
 
-async def cancel_prompt(service: str, prompt_id: str) -> bool:
-    # ComfyUI 0.38 cancels this id atomically under the queue mutex. CLI 1.21
-    # instead checks the queue then interrupts globally, risking the next job.
+async def cancel_prompt(service: str, prompt_id: str) -> dict:
+    # AJ persists pending deletion under the pinned queue mutex, before removal.
     from urllib.parse import quote
     async with httpx.AsyncClient(timeout=15) as client:
         response = await client.post(
-            f"{service_url(service)}/api/jobs/{quote(prompt_id, safe='')}/cancel"
+            f"{service_url(service)}/aj/cancel/{quote(prompt_id, safe='')}"
         )
         response.raise_for_status()
         result = response.json()
-    if not isinstance(result, dict) or type(result.get("cancelled")) is not bool:
+    if (not isinstance(result, dict) or result.get("protocol") != "aj-terminal-v1" or result.get("prompt_id") != prompt_id
+            or result.get("state") not in {"pending_deleted", "running_signalled", "unknown"}):
         raise RuntimeError("ComfyUI returned an invalid cancellation acknowledgement")
-    return result["cancelled"]
+    return result
 
 
 _RESTART_GATE = """import os, sys
@@ -964,7 +1110,7 @@ async def _cleanup_owned_restart(proc, descriptor: int | None, communication: as
 
 
 async def _run_owned_restart(command: list[str], *, preserve_success: bool = False,
-                             cooperative_stop: bool = False) -> tuple[int, bytes, bytes]:
+                             cooperative_stop: bool = False, environment: dict | None = None) -> tuple[int, bytes, bytes]:
     _require_restart_group_control()
     proc = None
     descriptor = None
@@ -975,7 +1121,7 @@ async def _run_owned_restart(command: list[str], *, preserve_success: bool = Fal
         # cannot execute the command before capture, and exits on parent EOF.
         proc = subprocess.Popen([sys.executable, "-c", _RESTART_GATE, *command],
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                start_new_session=True, close_fds=True)
+                                start_new_session=True, close_fds=True, env=environment)
         descriptor = os.pidfd_open(proc.pid)
         communication = asyncio.create_task(asyncio.to_thread(proc.communicate, b"G"))
         out, err = await asyncio.shield(communication)
@@ -1044,9 +1190,46 @@ async def _run_owned_restart(command: list[str], *, preserve_success: bool = Fal
 
 
 async def restart_comfy(service: str) -> None:
+    await quiesce_service(service)
     returncode, _out, _err = await _run_owned_restart(["/bin/sh", "-c", restart_cmd(service)], cooperative_stop=True)
     if returncode != 0:
         raise RuntimeError(f"{service} restart failed with exit code {returncode}")
+
+
+async def arm_execution_protocol(service: str) -> None:
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get(f"{service_url(service)}/aj/execution_protocol")
+        response.raise_for_status()
+        body = response.json()
+    if body.get("protocol") != "aj-terminal-v1" or body.get("quiesced") is not False:
+        raise SubmissionRejected("Worker durable-result protocol unavailable or quiesced")
+
+
+async def quiesce_service(service: str) -> None:
+    owned_ids = sorted({pid for job in queue if (pid := _known_prompt_id(job, service))})
+    deadline = time.monotonic() + 5
+    async with httpx.AsyncClient(timeout=5) as client:
+        while True:
+            response = await client.post(f"{service_url(service)}/aj/quiesce", json={"owned_ids": owned_ids})
+            response.raise_for_status()
+            body = response.json()
+            if body.get("protocol") != "aj-terminal-v1" or type(body.get("ready")) is not bool:
+                raise RuntimeError("Worker restart barrier acknowledgement invalid")
+            if body["ready"]:
+                return
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Worker cannot durably settle running work; restart refused")
+            await asyncio.sleep(.1)
+
+
+async def fetch_durable_result(service: str, prompt_id: str) -> dict:
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get(f"{service_url(service)}/aj/results/{prompt_id}")
+        response.raise_for_status()
+        body = response.json()
+    if not isinstance(body, dict):
+        raise RuntimeError("Invalid durable worker result")
+    return body
 
 
 async def fetch_history(service: str, prompt_id: str, *, retries: int = 8, delay: float = 0.4) -> dict:
@@ -1062,6 +1245,12 @@ async def fetch_history(service: str, prompt_id: str, *, retries: int = 8, delay
                 return entry
         except Exception as e:
             last_error = e
+        try:
+            entry = await fetch_durable_result(service, prompt_id)
+            if entry:
+                return entry
+        except Exception as error:
+            last_error = error
         if attempt + 1 < retries:
             await asyncio.sleep(delay)
     if last_error is not None:
@@ -1211,10 +1400,23 @@ def _apply_history_outcome(job: dict, service: str, entry: dict) -> bool:
         capture_error = None
         try:
             captured = extract_prompt_texts(entry)
+            if job.get("profile") in PROFILE_LABELS:
+                job_profile(job)
+                validate_writer_graph(_prompt_graph_from_history(entry), stage_routes(job["context"]["profile_identity"]))
+                from .production_api import validate_temporal_graph
+                validate_temporal_graph(_prompt_graph_from_history(entry), job["context"])
+                final_timeline(captured.get("final_h3_prompt"), captured.get("creative_plan"), job["context"]["effective_duration_seconds"])
+                job["temporal_guard_status"] = "verified"
         except ValueError as error:
             captured = {key: None for key in ("visual_facts", "expanded_intent", "reference_map", "creative_plan", "final_h3_prompt")}
             capture_error = f"Prompt capture failed: {error}"
+            if job.get("profile") in PROFILE_LABELS:
+                job["temporal_guard_status"] = "failed"
         job.update(captured)
+        if job.get("profile") in PROFILE_LABELS:
+            batch = batch_for_job(job)
+            if batch is not None:
+                analysis_cache.record(job, batch, captured, execution_epoch=job.get("prompt_cache_epoch", ""))
         if job.get("cancel_requested"):
             job["status"] = "cancelled"
             job["finished_at"] = time.time()
@@ -1437,6 +1639,9 @@ async def watch_prompt(job: dict, prompt_id: str, service: str) -> dict:
                         job[progress_at] = job["last_progress_at"]
                         if ev.get("node") is not None:
                             job["current_node"] = ev.get("title") or ev.get("node")
+                            if service == "render" and job.get("profile") in PROFILE_LABELS:
+                                from .production_api import event_phase
+                                job["render_phase"] = event_phase(str(ev["node"]), job.get("render_phase_nodes", {}))
                         save_state()
 
                     if typ == "output" and ev.get("url"):
@@ -1552,6 +1757,32 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
         if approved is None:
             approved = override["widgets_values"][0]
     prepared = prepare_api_prompt(data["prompt"], catalog, phase=service, approved_prompt=approved)
+    production = ui_workflow.get("extra", {}).get("aj_production")
+    if production:
+        job = find_job(production["job_id"])
+        profile = job_profile(job)
+        if production.get("profile") != profile or production.get("phase") != service:
+            raise ValueError("prepared workflow/profile identity mismatch")
+        from .production_api import phase_boundaries, reuse_analysis, frozen_duration, temporal_guards, validate_temporal_graph
+        prepared = frozen_duration(prepared, job["context"], catalog)
+        if service == "render":
+            final_timeline(approved, job.get("creative_plan"), job["context"]["effective_duration_seconds"])
+            values = PRODUCTION["profiles"][profile]
+            for node, field, expected in (("4595:4529", "unet_name", values["checkpoint"]),
+                ("4595:130", "clip_name", values["encoder"]), ("4595:121", "vae_name", values["video_vae"]),
+                ("4595:122", "vae_name", values["audio_vae"])):
+                if prepared.get(node, {}).get("inputs", {}).get(field) != expected:
+                    raise ValueError("converted render loader differs from persisted production profile")
+            prepared, mapping = phase_boundaries(prepared, catalog, job["context"]["profile_identity"]["memory_policy"])
+            job["render_phase_nodes"] = mapping
+        else:
+            batch = batch_for_job(job)
+            job["prompt_kind"] = analysis_cache.classify(job, batch)
+            if job["prompt_kind"] != "cold_analysis":
+                prepared = reuse_analysis(prepared, batch["analysis"]["texts"], catalog)
+            prepared = temporal_guards(prepared, catalog)
+            validate_writer_graph(prepared, stage_routes(job["context"]["profile_identity"]))
+            validate_temporal_graph(prepared, job["context"])
     api_path = workflow.with_suffix(".api.json")
     catalog_path = workflow.with_suffix(".catalog.json")
     _atomic_json_write(api_path, prepared)
@@ -1588,6 +1819,26 @@ async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
     maintenance_epoch = service_maintenance_epochs[service]
     if service in service_maintenance:
         raise SubmissionDeferred("service maintenance is in progress")
+    production = job.get("profile") in PROFILE_LABELS
+    if not production and os.getenv("H3_ALLOW_DIAGNOSTIC_SUBMISSIONS", "0") != "1":
+        raise SubmissionRejected("legacy submission requires explicit diagnostic mode")
+    if production:
+        assert_phase_admission(job, service)
+        await verify_production_files(job, service)
+    await arm_execution_protocol(service)
+    cache_epoch = None
+    if production and service == "prompt":
+        await refresh_prompt_epoch()
+        cache_epoch = analysis_cache.epoch
+        job["prompt_cache_epoch"] = cache_epoch
+        job["prompt_kind"] = analysis_cache.classify(job, batch_for_job(job))
+    if production and service == "render":
+        # Only the Render Worker owns this idle render process. Clear cached CPU
+        # model objects at each new render/profile boundary, before preparation.
+        # /free does not submit inference and never touches Prompt ComfyUI.
+        await prepare_render_model_boundary()
+    if production:
+        assert_phase_admission(job, service)
     try:
         prepared = await _prepare_workflow_api(workflow, service)
     except Exception as error:
@@ -1596,6 +1847,17 @@ async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
         raise
     if service in service_maintenance or maintenance_epoch != service_maintenance_epochs[service]:
         raise SubmissionDeferred("service restarted during preparation")
+    if production and service == "prompt":
+        await refresh_prompt_epoch()
+        if cache_epoch != analysis_cache.epoch:
+            raise SubmissionDeferred("Prompt Worker epoch changed during preparation")
+    if service in service_maintenance or maintenance_epoch != service_maintenance_epochs[service]:
+        raise SubmissionDeferred("service restarted during final epoch check")
+    if production:
+        # The last synchronous admission check precedes the durable UUID arm.
+        # A renderer/prompt reservation made while conversion awaited cannot
+        # create an unsafe cold-analysis/conditioning race.
+        assert_phase_admission(job, service)
     if job.get("cancel_requested"):
         raise SubmissionCancelled("job cancelled during preparation")
     if lifecycle_dispatch_blocked() or vast_control.get("plan") == "stop_after_current":
@@ -1654,6 +1916,11 @@ async def submit_and_watch(job: dict, workflow: Path, service: str, approved_pro
     job["active_service"] = service
     job["status"] = f"{service}_preparing"
     job[f"{service}_submission_state"] = "preparing"
+    if job.get("profile") in PROFILE_LABELS:
+        if service == "prompt":
+            job["prompt_kind"] = analysis_cache.classify(job, batch_for_job(job))
+        else:
+            job["render_phase"] = "conditioning"
     try:
         save_state()
     except Exception:
@@ -1718,7 +1985,7 @@ async def generate_prompt_candidate(job: dict) -> None:
         job["status"] = "cancelled"
         save_state()
         return
-    res = await submit_and_watch(job, PROMPT_ONLY, "prompt")
+    res = await submit_and_watch(job, execution_workflow(job, "prompt"), "prompt")
     await _finish_watched_job(job, "prompt", res)
 
 
@@ -1736,13 +2003,18 @@ def instance_id_from_env() -> str | None:
 async def run_vast_cli(*args: str, expect_json: bool = False) -> Any:
     cmd = [VAST_CLI, *args]
     api_key = os.getenv("CONTAINER_API_KEY", "").strip()
+    environment = os.environ.copy()
     if api_key:
-        cmd.extend(["--api-key", api_key])
-    returncode, out, err = await _run_owned_restart(cmd, preserve_success=True)
-    sout = out.decode(errors="replace").strip()
-    serr = err.decode(errors="replace").strip()
+        environment["VAST_API_KEY"] = api_key
+    environment.pop("CONTAINER_API_KEY", None)
+    try:
+        returncode, out, err = await _run_owned_restart(cmd, preserve_success=True, environment=environment)
+    except Exception as error:
+        raise RuntimeError(redact(str(error))) from None
+    sout = redact(out.decode(errors="replace").strip())
     if returncode != 0:
-        raise RuntimeError(serr or sout or f"vastai exited {returncode}")
+        # Provider text is untrusted and may include transformed credentials.
+        raise RuntimeError(f"vastai exited {returncode}; provider output suppressed")
     if expect_json:
         if not sout:
             return {}
@@ -1755,7 +2027,7 @@ async def run_vast_cli(*args: str, expect_json: bool = False) -> Any:
                     return json.loads(line)
                 except Exception:
                     pass
-            raise RuntimeError(f"Could not parse vastai JSON: {sout[:500]}")
+            raise RuntimeError("Could not parse vastai JSON; provider output suppressed")
     return sout
 
 
@@ -1982,7 +2254,7 @@ async def vast_instance_status() -> dict[str, Any]:
 
 def _lifecycle_failure(reason: str, *, plan: str = "action_failed") -> None:
     """Block dispatch in memory even when the failure cannot be persisted."""
-    vast_control.update({"plan": plan, "reason": reason})
+    vast_control.update({"plan": plan, "reason": redact(reason)})
     try:
         save_vast_control()
     except Exception as error:
@@ -2048,7 +2320,10 @@ async def restart_local_service(service: str) -> None:
     async with lock:
         service_maintenance[service] = "restarting"
         service_maintenance_epochs[service] += 1
+        if service == "prompt":
+            analysis_cache.invalidate()
         try:
+            await quiesce_service(service)
             returncode, out, err = await _run_owned_restart(["bash", SERVICE_CTL, "restart", service], cooperative_stop=True)
             if returncode != 0:
                 raise RuntimeError(err.decode(errors="replace") or out.decode(errors="replace"))
@@ -2149,6 +2424,106 @@ def prompt_prefetch_status() -> dict:
             "buffer": ready + preparing}
 
 
+async def refresh_prompt_epoch() -> None:
+    try:
+        async with httpx.AsyncClient(timeout=2) as client:
+            response = await client.get(f"{PROMPT_COMFY_URL}/aj/service_epoch")
+            response.raise_for_status()
+            analysis_cache.observe_service(response.json()["service_epoch"])
+    except Exception as error:
+        analysis_cache.invalidate()
+        raise SubmissionDeferred("Prompt Worker service epoch is unavailable") from error
+
+
+async def prepare_render_model_boundary() -> None:
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.post(f"{RENDER_COMFY_URL}/free", json={"unload_models": True, "free_memory": True})
+        response.raise_for_status()
+
+
+async def verify_production_files(job: dict, service: str) -> None:
+    from .artifacts import validate_manifest, read_json
+    from .model_health import artifact_health
+    profile = job_profile(job)
+    def verify():
+        manifest = json.loads((CONFIG / "models_manifest.json").read_text())
+        entries = validate_manifest(manifest)
+        for item in entries.values():
+            if item["required"] and ("shared" in item["profiles"] or profile in item["profiles"]):
+                if artifact_health(COMFY_MODELS_DIR, item)["status"] != "verified_file":
+                    raise ValueError("required production artifact is not integrity-verified")
+        if service == "render":
+            from .artifacts import verify_file
+            settings = resolve_loras(LORA_REGISTRY, profile, job["context"].get("loras"), frozen=True)
+            expected = [(setting["id"], "loras/" + LORA_REGISTRY[setting["id"]]["filename"], LORA_REGISTRY[setting["id"]])
+                        for setting in settings if setting["enabled"]]
+            bridge = CONDITIONING_BRIDGE
+            if job["context"].get("conditioning_bridge", bridge["defaults"][profile])["enabled"]:
+                expected.append((bridge["id"], "semantic_bridge/" + bridge["filename"], bridge))
+            enrolled = None
+            for identifier, destination, metadata in expected:
+                if type(metadata.get("size_bytes")) is int and metadata.get("sha256"):
+                    if identifier == bridge["id"]:
+                        from .model_health import verify_bridge_files
+                        verify_bridge_files(COMFY_MODELS_DIR, COMFY_ROOT, bridge, metadata)
+                    else:
+                        verify_file(COMFY_MODELS_DIR, destination, metadata)
+                    continue
+                if enrolled is None:
+                    enrolled = read_json(COMFY_MODELS_DIR, ".external_loras.json")
+                receipt = enrolled.get("artifacts", {}).get(identifier)
+                if not isinstance(receipt, dict) or receipt.get("destination") != destination:
+                    raise ValueError("external LoRA needs explicit local checksum enrollment")
+                verify_file(COMFY_MODELS_DIR, destination, receipt)
+    try:
+        await asyncio.to_thread(verify)
+    except Exception:
+        raise SubmissionRejected("Production model/LoRA provenance or file integrity is incomplete; run provisioning and preflight") from None
+
+
+def active_render_policy() -> dict | None:
+    active = [job for job in queue if job.get("status") in {
+        "render_preparing", "render_submitting", "render_running", "recovery_render", "render_submission_uncertain"}
+        or job.get("active_service") == "render" and job.get("status") in {
+            "cancelling", "soft_timeout_cancelling", "hard_timeout_restarting_comfy"}]
+    if not active:
+        return None
+    if len(active) != 1:
+        return {"profile": None, "phase": "recovery"}
+    job = active[0]
+    try:
+        functional_policy(job.get("context", {}).get("profile_identity", {}))
+    except ValueError:
+        return {"profile": job.get("profile"), "phase": "recovery"}
+    return {"profile": job.get("profile"), "policy": job.get("context", {}).get("profile_identity"), "phase": job.get("render_phase", "unknown")
+            if job.get("status") == "render_running" else "recovery"}
+
+
+def phase_admission(job: dict, service: str) -> tuple[bool, str]:
+    if job.get("profile") not in PROFILE_LABELS:
+        return True, "explicit diagnostic fixture; normal workers require persisted profiles"
+    if service == "render":
+        if any(other is not job and (other.get("status") in {
+            "render_preparing", "render_submitting", "render_running", "recovery_render", "render_submission_uncertain"}
+            or other.get("active_service") == "render" and other.get("status") in {
+                "cancelling", "soft_timeout_cancelling", "hard_timeout_restarting_comfy"}) for other in queue):
+            return False, "another heavy render owns the renderer"
+        if service_work_active("prompt") or service_recovering("prompt"):
+            return False, "conditioning window waits for the active Prompt Worker to settle"
+        return True, "exclusive render conditioning window"
+    free = overlap_telemetry["free_vram_mb"] if time.monotonic() - overlap_telemetry["sampled_at"] <= 3 else None
+    return prompt_admission(prompt_kind=analysis_cache.classify(job, batch_for_job(job)),
+        prompt_profile=job_profile(job), active_render=active_render_policy(), profiles=PRODUCTION,
+        prompt_policy=job["context"]["profile_identity"], free_vram_mb=free)
+
+
+def assert_phase_admission(job: dict, service: str) -> None:
+    allowed, reason = phase_admission(job, service)
+    job["overlap_admission"] = reason
+    if not allowed:
+        raise SubmissionDeferred(reason)
+
+
 def pick_next_prompt_job() -> dict | None:
     if "prompt" in service_maintenance or lifecycle_dispatch_blocked() or service_recovering("prompt"):
         return None
@@ -2161,9 +2536,15 @@ def pick_next_prompt_job() -> dict | None:
             return None
         if pending_auto:
             pending_auto.sort(key=lambda j: (j["batch_seq"], j["candidate_index"]))
-            return pending_auto[0]
+            return next((job for job in pending_auto if phase_admission(job, "prompt")[0]), None)
         return None
     pending = [j for j in queue if j.get("status") == "prompt_queued"]
+    # A phase-deferred automatic candidate retains its accepted priority over
+    # all unstarted reviews. Admission cannot turn a warm review into a bypass
+    # of cold automatic work in another batch.
+    pending_auto = [job for job in pending if not job.get("review_required")]
+    if pending_auto:
+        pending = pending_auto
     if not pending:
         return None
     # Keep renderer fed: all auto candidates (#1-5) outrank review candidates (#6-10),
@@ -2173,7 +2554,7 @@ def pick_next_prompt_job() -> dict | None:
         j["batch_seq"],
         j["candidate_index"],
     ))
-    return pending[0]
+    return next((job for job in pending if phase_admission(job, "prompt")[0]), None)
 
 
 def pick_next_render_job() -> dict | None:
@@ -2190,7 +2571,7 @@ def pick_next_render_job() -> dict | None:
         j["batch_seq"],
         j["candidate_index"],
     ))
-    return candidates[0]
+    return next((job for job in candidates if phase_admission(job, "render")[0]), None)
 
 
 async def render_job(job: dict) -> None:
@@ -2206,7 +2587,7 @@ async def render_job(job: dict) -> None:
         return
 
     job["render_started_at"] = time.time()
-    res = await submit_and_watch(job, MASTER, "render", approved_prompt=approved)
+    res = await submit_and_watch(job, execution_workflow(job, "render"), "render", approved_prompt=approved)
     await _finish_watched_job(job, "render", res)
 
 
@@ -2258,6 +2639,12 @@ async def prompt_worker() -> None:
     while True:
         if await _wait_for_queue_persistence():
             continue
+        if active_render_policy() is not None and time.monotonic() - overlap_telemetry["sampled_at"] >= 1:
+            sample = await asyncio.to_thread(gpu_status, timeout_seconds=1)
+            used, total = sample.get("vram_used_mb"), sample.get("vram_total_mb")
+            overlap_telemetry.update(free_vram_mb=int(total - used) if type(used) in (int, float)
+                                    and type(total) in (int, float) and math.isfinite(total - used) else None,
+                                    sampled_at=time.monotonic())
         job = pick_next_prompt_job()
         if job:
             try:
@@ -2300,6 +2687,10 @@ async def _recover_one_job(job: dict, service: str) -> None:
 
 async def _recover_one_job_impl(job: dict, service: str) -> None:
     pid = _known_prompt_id(job, service)
+    receipt = job.get(f"{service}_pending_deleted")
+    if (isinstance(receipt, dict) and receipt == {"protocol": "aj-terminal-v1", "prompt_id": pid, "state": "pending_deleted"}):
+        _apply_history_outcome(job, service, {"status": {"status_str": "error", "completed": True}})
+        return
     attempted = job.get(f"{service}_submission_attempted") or job.get(f"{service}_submission_state") in {
         "attempting", "accepted", "uncertain",
     }
@@ -2465,11 +2856,22 @@ async def index():
 
 @app.get("/api/config")
 async def config():
+    from .model_health import manifest_health, lora_health
     return {
-        "map": MAP,
+        "profiles": [{"id": key, **value} for key, value in PRODUCTION["profiles"].items()],
+        "default_profile": PRODUCTION["default_profile"],
         "render_comfy_url": RENDER_COMFY_URL,
         "prompt_comfy_url": PROMPT_COMFY_URL,
-        "loras": MAP["nodes"]["first_pass_loras"]["entries"],
+        "loras": [{"id": key, "display_name": value["display_name"], "defaults": value["defaults"],
+                   "strength_range": value["strength_range"], "compatibility": value["compatibility"],
+                   "gpu_validation": value["gpu_validation"], "help": value.get("help", ""),
+                   **lora_health(COMFY_MODELS_DIR, key, value)}
+                  for key, value in LORA_REGISTRY.items()],
+        "prompt_cache": {"epoch": analysis_cache.epoch, "service_epoch": analysis_cache.service_epoch},
+        "conditioning_bridge": {"id": CONDITIONING_BRIDGE["id"], "defaults": CONDITIONING_BRIDGE["defaults"],
+                                **lora_health(COMFY_MODELS_DIR, CONDITIONING_BRIDGE["id"], CONDITIONING_BRIDGE, bridge=True)},
+        "gpu_validation": "pending",
+        "models": await asyncio.to_thread(manifest_health, CONFIG / "models_manifest.json", COMFY_MODELS_DIR),
         "version": "pre-rental-final-rc5",
         "state": state_diagnostics(),
         "prompt_prefetch": H3_PROMPT_PREFETCH,
@@ -2529,11 +2931,19 @@ async def api_diagnostics():
         "storage": storage, "disk": disk, "queue": queue_summary(queue), "prefetch": prompt_prefetch_status(),
         "vast": {"cli_available": cli_available, "instance_id_available": bool(instance_id_from_env()),
                  "control_available": cli_available and bool(instance_id_from_env()) and submissions_allowed(),
-                 "remote_authorization": "not_probed"}, "models": models})
+                 "remote_authorization": "not_probed"}, "models": models,
+        "production": {"default_profile": PRODUCTION["default_profile"], "active_render": active_render_policy(),
+                       "profiles": PRODUCTION["profiles"], "prompt_cache_epoch": analysis_cache.epoch,
+                       "duration_jobs": [{"id": job["id"], "requested_duration_seconds": job.get("context", {}).get("requested_duration_seconds"),
+                           "effective_duration_seconds": job.get("context", {}).get("effective_duration_seconds"),
+                           "legal_frame_count": job.get("context", {}).get("legal_frame_count"),
+                           "temporal_guard_status": job.get("temporal_guard_status", "pending")}
+                           for job in queue if job.get("profile") in PROFILE_LABELS][:20],
+                       "prompt_service_epoch": analysis_cache.service_epoch, "gpu_validation": "pending"}})
     data["checks"] = checks_for(data)
     data["status"] = next((status for status in ("FAIL", "WARN") if any(
         check["status"] == status for check in data["checks"])), "PASS")
-    return data
+    return redact(data)
 
 
 @app.get("/api/logs/{service}")
@@ -2542,7 +2952,7 @@ async def api_logs(service: str, lines: int = Query(200, ge=1, le=1000)):
 
     if service not in LOG_FILES:
         raise HTTPException(400, "service must be render, prompt or panel")
-    return await asyncio.to_thread(tail_log, WORKSPACE, service, lines)
+    return redact(await asyncio.to_thread(tail_log, WORKSPACE, service, lines))
 
 
 @app.post("/api/terminal/session")
@@ -2727,6 +3137,11 @@ async def create_batches(req: BatchRequest):
             raise HTTPException(400, "A client-generated UUID request_id is required; reuse it when retrying")
         if not req.prompt.strip():
             raise HTTPException(400, "scene prompt is empty")
+        selected_profile = req.profile or req.model or PRODUCTION["default_profile"]
+        if selected_profile not in PROFILE_LABELS:
+            raise HTTPException(400, "unknown production profile")
+        if req.profile and req.model is not None and req.model != req.profile:
+            raise HTTPException(400, "conflicting profile identifiers")
         pictures, audio = validate_requested_assets(req)
         created_batches = []
         base_render_seed = req.seed if req.seed is not None else int(time.time_ns() & 0x7FFFFFFF)
@@ -2740,17 +3155,25 @@ async def create_batches(req: BatchRequest):
             batch_seq = batch_seq_start + batch_offset
             context = {
                 "prompt": req.prompt,
-                "model": req.model,
+                "model": selected_profile,
+                "profile": selected_profile,
+                "profile_identity": profile_identity(selected_profile),
+                "lora_identity": {key: entry["filename"] for key, entry in LORA_REGISTRY.items()},
+                "conditioning_bridge": {"id": CONDITIONING_BRIDGE["id"], "filename": CONDITIONING_BRIDGE["filename"],
+                                        **CONDITIONING_BRIDGE["defaults"][selected_profile]},
+                "duration_seconds": req.duration_seconds,
+                **duration_identity(req.duration_seconds),
                 "soft_timeout_minutes": req.soft_timeout_minutes,
                 "hard_restart_after_seconds": req.hard_restart_after_seconds,
                 "pictures": pictures,
                 "audio": audio,
-                "loras": [x.model_dump() for x in req.loras],
+                "loras": resolve_loras(LORA_REGISTRY, selected_profile, [x.model_dump() for x in req.loras]),
             }
 
             analysis_seed = base_analysis_seed + batch_offset
             batch = {
                 "id": batch_id,
+                "profile": selected_profile,
                 "seq": batch_seq,
                 "created_at": time.time(),
                 "context": context,
@@ -2771,6 +3194,7 @@ async def create_batches(req: BatchRequest):
                 next_queue.append({
                     "id": uuid.uuid4().hex,
                     "batch_id": batch_id,
+                    "profile": selected_profile,
                     "batch_seq": batch_seq,
                     "candidate_index": i + 1,
                     "render_seed": render_seed,
@@ -2843,6 +3267,12 @@ async def approve(controller_job_id: str, req: ApprovalRequest):
             raise HTTPException(409, f"job is {job.get('status')}, not pending_review")
         if not final_prompt or not str(final_prompt).strip():
             raise HTTPException(400, "final prompt is empty")
+        if job.get("profile") in PROFILE_LABELS:
+            try:
+                job_profile(job)
+                final_timeline(str(final_prompt), job.get("creative_plan"), job["context"]["effective_duration_seconds"])
+            except ValueError as error:
+                raise HTTPException(400, str(error)) from None
         staged_job = dict(job, approved_final_prompt=str(final_prompt), approved_at=time.time(),
                           render_priority=0, status="render_queued_review", approval_result={"ok": True, "priority": "top"})
         staged_queue = [staged_job if existing is job else existing for existing in queue]

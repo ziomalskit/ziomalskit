@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+set +x
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 PANEL_ROOT="${PANEL_ROOT:-/workspace/H3_VAST_MOBILE}"
@@ -9,6 +10,8 @@ if [[ -f "$RUNTIME_ENV" ]]; then
   source "$RUNTIME_ENV"
   set +a
 fi
+# One-time download credentials never enter long-lived panel/ComfyUI workers.
+unset HF_TOKEN HUGGING_FACE_HUB_TOKEN HF_HUB_TOKEN
 
 COMFY_ROOT="${COMFY_ROOT:-/workspace/ComfyUI}"
 WORKSPACE="${WORKSPACE:-/workspace}"

@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import io
+import os
 from unittest.mock import AsyncMock, Mock, patch
 import unittest
 
@@ -285,6 +286,7 @@ class PreflightControllerTests(unittest.TestCase):
                     return {"batch": {}, "state": state} if url.endswith("/api/config") else {cls: {} for cls in critical}
 
                 with patch.object(preflight, "get_json", side_effect=get), \
+                     patch.dict(os.environ, {"H3_ALLOW_DIAGNOSTIC_SUBMISSIONS": "1"}), \
                      patch.object(preflight, "verify_llama"), \
                      patch.object(preflight, "validate_gpu"), \
                      patch.object(preflight, "model_requirements", return_value=[]), \

@@ -1,0 +1,19 @@
+{
+  "repository": "KingManiya/ComfyUI-LLM-text-processor",
+  "revision": "65983de33681816f856db7e16767da906084c688",
+  "scope": "Verbatim pinned node/CLI source; CPU subprocess fixtures only, no model downloads or GPU",
+  "files": {
+    "LICENSE": {
+      "size_bytes": 35149,
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    },
+    "nodes.py": {
+      "size_bytes": 8240,
+      "sha256": "b44d1c21dceff6ee273ce8a8bda27642cbf16e4743df435fb1e71c5d6ae38588"
+    },
+    "llama_cli.py": {
+      "size_bytes": 7796,
+      "sha256": "ee5e9b8b88383b6ed5d529c92a2af14c7cfb5a4709fc9f43a7926ba4cc8eaa85"
+    }
+  }
+}

@@ -1,0 +1,275 @@
+{
+  "schema_version": 1,
+  "slots": 16,
+  "loras": [
+    {
+      "id": "hm-breasts-v2",
+      "filename": "HMBreastsV2.safetensors",
+      "display_name": "HM Breasts V2",
+      "source": {
+        "provider": "huggingface",
+        "repository": "Hearmeman/minimax-h3-loras"
+      },
+      "revision": "4b1d1def6d254290aac60c8223f0c562967a19cd",
+      "size_bytes": 77580016,
+      "sha256": "d260653bdf10775380a44c8f1486bcc4690bd57085cb034002a8fb878f1ad36f",
+      "compatibility": {
+        "h3_full": "pending",
+        "10eros_full": "pending"
+      },
+      "defaults": {
+        "h3_full": {
+          "enabled": true,
+          "strength": 1.0
+        },
+        "10eros_full": {
+          "enabled": false,
+          "strength": 1.0
+        }
+      },
+      "strength_range": [
+        -2,
+        2
+      ],
+      "help": "Full profile compatibility and strengths await GPU acceptance.",
+      "installation": "not_checked",
+      "gpu_validation": "pending",
+      "provenance_status": "verified_source",
+      "repository_path": "HMBreastsV2.safetensors",
+      "metadata_evidence": [
+        "https://huggingface.co/Hearmeman/minimax-h3-loras/commit/4b1d1def6d254290aac60c8223f0c562967a19cd",
+        "https://huggingface.co/Hearmeman/minimax-h3-loras/raw/4b1d1def6d254290aac60c8223f0c562967a19cd/HMBreastsV2.safetensors"
+      ]
+    },
+    {
+      "id": "mysticxxx-v4",
+      "filename": "MysticXXX_MMH3-V4-ref2va.safetensors",
+      "display_name": "MysticXXX V4",
+      "source": null,
+      "revision": null,
+      "size_bytes": null,
+      "sha256": null,
+      "compatibility": {
+        "h3_full": "pending",
+        "10eros_full": "pending"
+      },
+      "defaults": {
+        "h3_full": {
+          "enabled": true,
+          "strength": 0.6
+        },
+        "10eros_full": {
+          "enabled": false,
+          "strength": 0.6
+        }
+      },
+      "strength_range": [
+        -2,
+        2
+      ],
+      "help": "Full profile compatibility and strengths await GPU acceptance.",
+      "installation": "not_checked",
+      "gpu_validation": "pending",
+      "provenance_status": "external/user-provided"
+    },
+    {
+      "id": "movement-v1",
+      "filename": "movement_h3_lora_v1_500.safetensors",
+      "display_name": "Movement V1",
+      "source": null,
+      "revision": null,
+      "size_bytes": null,
+      "sha256": null,
+      "compatibility": {
+        "h3_full": "pending",
+        "10eros_full": "pending"
+      },
+      "defaults": {
+        "h3_full": {
+          "enabled": true,
+          "strength": 0.5
+        },
+        "10eros_full": {
+          "enabled": false,
+          "strength": 0.5
+        }
+      },
+      "strength_range": [
+        -2,
+        2
+      ],
+      "help": "Full profile compatibility and strengths await GPU acceptance.",
+      "installation": "not_checked",
+      "gpu_validation": "pending",
+      "provenance_status": "external/user-provided"
+    },
+    {
+      "id": "h3-turbo-8step",
+      "filename": "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+      "display_name": "H3 Turbo 8-step",
+      "source": {
+        "provider": "huggingface",
+        "repository": "Comfy-Org/MiniMax-H3"
+      },
+      "revision": "186455f4c2a878eb57d5c7916c5b0f71a77e8ceb",
+      "size_bytes": 1956193000,
+      "sha256": "2339acdf19bfe123f46b971ea35d367a84adb85de43627e1eceafa5a5b2b111e",
+      "compatibility": {
+        "h3_full": "pending",
+        "10eros_full": "pending"
+      },
+      "defaults": {
+        "h3_full": {
+          "enabled": false,
+          "strength": 1.0
+        },
+        "10eros_full": {
+          "enabled": false,
+          "strength": 1.0
+        }
+      },
+      "strength_range": [
+        -2,
+        2
+      ],
+      "help": "Full profile compatibility and strengths await GPU acceptance.",
+      "installation": "not_checked",
+      "gpu_validation": "pending",
+      "provenance_status": "verified_source",
+      "repository_path": "loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+      "metadata_evidence": [
+        "https://huggingface.co/Comfy-Org/MiniMax-H3/commit/186455f4c2a878eb57d5c7916c5b0f71a77e8ceb",
+        "https://huggingface.co/Comfy-Org/MiniMax-H3/raw/186455f4c2a878eb57d5c7916c5b0f71a77e8ceb/loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
+      ]
+    },
+    {
+      "id": "hm-nsfw-aio-v25",
+      "filename": "HMNSFW-AIO-V2.5.safetensors",
+      "display_name": "HM NSFW AIO V2.5",
+      "source": {
+        "provider": "huggingface",
+        "repository": "Hearmeman/minimax-h3-loras"
+      },
+      "revision": "f85a4b77aa9bc1a81a96855d1e792a779743b322",
+      "size_bytes": 86040232,
+      "sha256": "a07732a84fd733085eb5d910f602f918fa7a3658117116927e4329f5951a9d2d",
+      "compatibility": {
+        "h3_full": "pending",
+        "10eros_full": "pending"
+      },
+      "defaults": {
+        "h3_full": {
+          "enabled": false,
+          "strength": 0.6
+        },
+        "10eros_full": {
+          "enabled": false,
+          "strength": 0.6
+        }
+      },
+      "strength_range": [
+        -2,
+        2
+      ],
+      "help": "Full profile compatibility and strengths await GPU acceptance.",
+      "installation": "not_checked",
+      "gpu_validation": "pending",
+      "provenance_status": "verified_source",
+      "repository_path": "HMNSFW-AIO-V2.5.safetensors",
+      "metadata_evidence": [
+        "https://huggingface.co/Hearmeman/minimax-h3-loras/commit/f85a4b77aa9bc1a81a96855d1e792a779743b322",
+        "https://huggingface.co/Hearmeman/minimax-h3-loras/raw/f85a4b77aa9bc1a81a96855d1e792a779743b322/HMNSFW-AIO-V2.5.safetensors"
+      ]
+    },
+    {
+      "id": "h3-mpov",
+      "filename": "MMH3-MPOV.safetensors",
+      "display_name": "H3 MPOV",
+      "source": null,
+      "revision": null,
+      "size_bytes": null,
+      "sha256": null,
+      "compatibility": {
+        "h3_full": "pending",
+        "10eros_full": "pending"
+      },
+      "defaults": {
+        "h3_full": {
+          "enabled": false,
+          "strength": 0.6
+        },
+        "10eros_full": {
+          "enabled": false,
+          "strength": 0.6
+        }
+      },
+      "strength_range": [
+        -2,
+        2
+      ],
+      "help": "Full profile compatibility and strengths await GPU acceptance.",
+      "installation": "not_checked",
+      "gpu_validation": "pending",
+      "provenance_status": "external/user-provided"
+    },
+    {
+      "id": "h3-combat-v2",
+      "filename": "H3_Combat_V2.safetensors",
+      "display_name": "H3 Combat V2",
+      "source": null,
+      "revision": null,
+      "size_bytes": null,
+      "sha256": null,
+      "compatibility": {
+        "h3_full": "pending",
+        "10eros_full": "pending"
+      },
+      "defaults": {
+        "h3_full": {
+          "enabled": false,
+          "strength": 0.6
+        },
+        "10eros_full": {
+          "enabled": false,
+          "strength": 0.6
+        }
+      },
+      "strength_range": [
+        -2,
+        2
+      ],
+      "help": "Full profile compatibility and strengths await GPU acceptance.",
+      "installation": "not_checked",
+      "gpu_validation": "pending",
+      "provenance_status": "external/user-provided"
+    }
+  ],
+  "conditioning_bridge": {
+    "id": "bunny-actionlogic-v1",
+    "filename": "BUNNY_H3_ActionLogic_Bridge_V1.safetensors",
+    "source": {
+      "provider": "huggingface",
+      "repository": "JOKER141/BUNNY_H3_Conditioning_Bridge"
+    },
+    "revision": "bdb78f29216fe16ae97c7177325abc16689b17bd",
+    "size_bytes": 22045536,
+    "sha256": "983380be6bf790544dbfa9be1bbe42e60ea841c7b6f7c5aac668de9380ab277a",
+    "provenance_status": "verified_source",
+    "gpu_validation": "pending",
+    "defaults": {
+      "h3_full": {
+        "enabled": true,
+        "strength": 0.1
+      },
+      "10eros_full": {
+        "enabled": false,
+        "strength": 0.1
+      }
+    },
+    "repository_path": "BUNNY_H3_ActionLogic_Bridge_V1.safetensors",
+    "metadata_evidence": [
+      "https://huggingface.co/JOKER141/BUNNY_H3_Conditioning_Bridge/commit/bdb78f29216fe16ae97c7177325abc16689b17bd",
+      "https://huggingface.co/JOKER141/BUNNY_H3_Conditioning_Bridge/raw/bdb78f29216fe16ae97c7177325abc16689b17bd/BUNNY_H3_ActionLogic_Bridge_V1.safetensors"
+    ]
+  }
+}

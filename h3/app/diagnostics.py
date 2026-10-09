@@ -46,6 +46,9 @@ def model_status(manifest_path: Path, models_root: Path, comfy_root: Path) -> di
               "files": []}
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("schema_version") == 2:
+            from .model_health import manifest_health
+            return manifest_health(manifest_path, models_root)
         required = [(item, [models_root / item["dir"] / item["file"]])
                     for item in manifest["required_primary"]]
         required.extend((item, [models_root / "loras" / item["file"]])
@@ -112,6 +115,19 @@ def checks_for(data: dict) -> list[dict]:
         "Local CLI and instance ID available; remote authorization not probed" if vast["control_available"]
         else "CLI, instance ID or runtime control unavailable")
     models = data["models"]
-    add("models", "Model files (provisional)", models["status"],
-        models.get("error") or f"{models.get('missing', 0)} missing/empty; presence only, production stack not frozen")
+    add("models", "Production model integrity", models["status"],
+        models.get("error") or models.get("detail") or f"{models.get('missing', 0)} missing/empty; legacy diagnostic presence only")
+    production = data.get("production")
+    if production:
+        active = production.get("active_render") or {}
+        identifier = active.get("profile") or production["default_profile"]
+        profile = production["profiles"].get(identifier)
+        if profile:
+            compiler = profile["writer_stages"]["step4"]
+            add("memory", profile["label"] + " memory / overlap", "WARN",
+                profile["memory_policy"]["label"] + "; " + profile["overlap_policy"]["label"] + "; GPU validation pending; " +
+                f"Step 3 OFF; Step 4 ON, native budget {compiler['reasoning_budget']}, total {compiler['max_tokens']}, "
+                f"final allowance {compiler['final_answer_tokens']}, context {compiler['ctx_size']}; model benchmark pending")
+        add("prompt_cache", "Prompt cache epoch", "PASS",
+            "Controller " + production["prompt_cache_epoch"] + "; service " + str(production["prompt_service_epoch"] or "not observed"))
     return checks

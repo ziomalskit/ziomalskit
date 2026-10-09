@@ -27,7 +27,7 @@ const source=fs.readFileSync(process.argv[1],'utf8').match(/<script>([\s\S]*?)<\
 const scenario=process.argv[2],stored=new Map(),requests=[];
 let uploadCount=0,uuidCount=0,promptCount=0,loseReply=scenario!=='replacement';
 const elements={pic:{files:['anchor']},refs:{files:['r1','r2','r3','r4','r5']},audio:{files:[]},
- prompt:{value:'identical scene'},model:{value:'native_int8'},batches:{value:'1'},timeout:{value:'8'},
+ prompt:{value:'identical scene'},model:{value:'h3_full'},batches:{value:'1'},timeout:{value:'8'},
  generateBatch:{},newBatch:{}};
 function load(){
  const context=vm.createContext({

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "kind": "v20_render_template",
+  "profile": "h3_full",
+  "baseline": "H3_v20_heretic_MASTER_DURATION_EXACT.json",
+  "baseline_sha256": "276621a1992a8b8da40d981a79417fd5eb3617b44166d890c8c82ffd8eb96222",
+  "phase": "render",
+  "lora_slots": 16
+}

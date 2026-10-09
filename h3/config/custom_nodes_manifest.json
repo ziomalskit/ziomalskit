@@ -1,4 +1,15 @@
 {
+  "bundled_backend_classes": [
+    "AJAnalysisText",
+    "AJCompilerTextProcessor",
+    "AJFrozenDuration",
+    "AJCreativeTimelineGuard",
+    "AJFinalPromptTimeGuard",
+    "AJConditioningBoundary",
+    "AJLateUNETLoader",
+    "AJVideoBoundary"
+  ],
+  "bundled_backend_source": "custom_nodes/aj_production",
   "strategy": "install from workflow metadata with comfy-cli first; explicit IDs are fallback/reference",
   "registry_ids_seen_in_workflow": [
     "comfyui-kjnodes",

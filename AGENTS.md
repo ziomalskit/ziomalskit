@@ -4,7 +4,7 @@ Read `README.md`, then `docs/ROADMAP.md`, `docs/FINAL_CPU_ACCEPTANCE_2026-10-08.
 
 - Use the existing `/workspace/ziomalskit` checkout. Every cloud task is isolated; do not create Git worktrees unless the user explicitly asks.
 - Preserve `migration/` and `archive/` byte for byte. Their checksums establish the received baseline.
-- Current baseline on `main` is CPU/runtime accepted. `make setup`, `make test` and `make audit` are expected to pass. The accepted baseline records 290 tests for `make test` and `make audit`, with 16 additional HTTP smoke checks in `make test`. Do not revive historical expectations that `make audit` should fail.
+- PR #4 at `bfcc2bb22ff9691fda924fe17bd060a7e131c2e2` is CPU/runtime accepted. `make setup`, `make test` and `make audit` are expected to pass. That baseline records 358 tests for `make test` and `make audit`, with 16 additional HTTP smoke checks in `make test`. Do not revive historical expectations that `make audit` should fail.
 - GPU/live acceptance is still pending. CPU PASS does not prove model loading, real ComfyUI `/object_info`, VRAM behaviour, actual H3 video generation or Vast STOP/DESTROY behaviour.
 - Product goal: keep AJ a simple Ref2Video service. Primary UX is references + parameters -> job -> final MP4 link. Avoid adding platform features that are not in `docs/ROADMAP.md`.
 - Target is one GPU. Preserve the two ComfyUI services: render on 8188 and prompt on 8189. Only one heavy H3 render may run at a time; the prompt worker may overlap on the same GPU. The current product direction is Parallel only; do not add Parallel/Idle/Pre-buffer selectors unless scope changes.

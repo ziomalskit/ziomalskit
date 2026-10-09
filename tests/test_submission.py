@@ -198,27 +198,30 @@ class SubmissionAdapterTests(unittest.IsolatedAsyncioTestCase):
             def respond(request):
                 requests.append(request)
                 self.assertEqual(request.method, "POST")
-                self.assertEqual(str(request.url), module.RENDER_COMFY_URL + "/api/jobs/specific-job/cancel")
-                return httpx.Response(200, json={"cancelled": True})
+                self.assertEqual(str(request.url), module.RENDER_COMFY_URL + "/aj/cancel/specific-job")
+                return httpx.Response(200, json={"protocol": "aj-terminal-v1", "prompt_id": "specific-job", "state": "running_signalled"})
             with patch.object(module.asyncio, "create_subprocess_exec", AsyncMock()) as spawn, patch.object(
                 module.httpx, "AsyncClient", side_effect=client_factory(respond)
             ):
-                self.assertTrue(await module.cancel_prompt("render", "specific-job"))
+                self.assertEqual(await module.cancel_prompt("render", "specific-job"),
+                                 {"protocol": "aj-terminal-v1", "prompt_id": "specific-job", "state": "running_signalled"})
                 spawn.assert_not_awaited()
             self.assertEqual(len(requests), 1)
 
     async def test_invalid_or_failed_cancel_acknowledgement_is_not_confirmation(self):
         with load_controller() as module:
-            for status, body in ((500, {}), (200, {}), (200, {"cancelled": "yes"})):
+            for status, body in ((500, {}), (200, {}), (200, {"cancelled": "yes"}), (200, {"cancelled": True}),
+                                 (200, {"protocol": "aj-terminal-v1", "prompt_id": "other-job", "state": "pending_deleted"}),
+                                 (200, {"protocol": "aj-terminal-v1", "prompt_id": "job", "state": "invalid"})):
                 def respond(request):
                     return httpx.Response(status, json=body)
                 with patch.object(module.httpx, "AsyncClient", side_effect=client_factory(respond)):
                     with self.assertRaises((RuntimeError, httpx.HTTPStatusError)):
                         await module.cancel_prompt("prompt", "job")
             with patch.object(module.httpx, "AsyncClient", side_effect=client_factory(
-                lambda request: httpx.Response(200, json={"cancelled": False})
+                lambda request: httpx.Response(200, json={"protocol": "aj-terminal-v1", "prompt_id": "finished-job", "state": "unknown"})
             )):
-                self.assertFalse(await module.cancel_prompt("prompt", "finished-job"))
+                self.assertEqual((await module.cancel_prompt("prompt", "finished-job"))["state"], "unknown")
 
 
 if __name__ == "__main__":

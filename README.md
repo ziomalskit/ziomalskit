@@ -1,6 +1,10 @@
 # AJ — panel mobilny i generowanie wideo H3
 
-Projekt przyjmuje **6 obrazów i opcjonalnie 1 plik audio**, analizuje referencje, przygotowuje 10 wariantów promptu i generuje wideo przez ComfyUI na GPU Vast.ai. Docelowym domyślnym wariantem pozostaje native MiniMax H3 INT8; 10Eros to opcjonalny wariant porównawczy. Dokładny stos produkcyjnych modeli nie jest jeszcze zamrożony.
+Projekt przyjmuje **6 obrazów i opcjonalnie 1 plik audio**, analizuje referencje, przygotowuje 10 wariantów promptu i generuje wideo przez ComfyUI na GPU Vast.ai. Produkcyjne profile to wyłącznie **H3 Full** i **10Eros Full**, ze wspólną, dokładnie zachowaną logiką promptów **v20 Heretic**. Legacy INT8 pozostaje tylko jawną ścieżką diagnostyczną.
+
+**Poprawki Ultra w Draft PR #5:** [raport i dowody testowe](docs/PR5_ULTRA_FIXES_2026-10-09.md).
+Terminal pozostaje niedostępny w produkcji, również przy `H3_ENABLE_TERMINAL=1`.
+Rzeczywista walidacja pochodzenia/build/load modelu DavidAU 9B nadal blokuje produkcję; GPU/live acceptance pozostaje pending.
 
 **Stan po audycie CPU/runtime, 8 października 2026:** wszystkie znane merge-blocking problemy wykryte w STEP 1–3 i cross-step zostały naprawione, niezależnie zweryfikowane i scalone do `main` w PR #1. Końcowy merge commit to `4ea3fdd1b9d41e2475c52ed5f705b52af35df5b0`.
 
@@ -14,24 +18,32 @@ Baseline z 8 października przechodzi:
 
 To oznacza **CPU/runtime acceptance PASS**. Nie oznacza jeszcze pełnego GPU acceptance: na aktualnym kodzie po merge nie wykonano jeszcze realnej instalacji na docelowym RTX PRO 6000, prawdziwego `/object_info`, prompt-only acceptance, renderu H3, benchmarku VRAM ani lifecycle STOP/DESTROY na wynajętej instancji.
 
-**Feature set offline/CPU, 9 października 2026**, na gałęzi
-`feat/h3-cpu-product-completion`: `make setup` PASS, `make test`
+**Zaakceptowany feature set z PR #4, 9 października 2026**, scalony do `main`
+w commicie `bfcc2bb22ff9691fda924fe17bd060a7e131c2e2`: `make setup` PASS, `make test`
 **358 testów PASS + 16 HTTP smoke checks**, `make audit` **358 testów PASS**; zero failures, errors
 i skips, zakończony teardown. Dodano 68 testów dla MP4, prefetch, Diagnostics,
 Live Logs i opcjonalnego terminala. [Raport CPU i self-review](docs/CPU_PRODUCT_ACCEPTANCE_2026-10-09.md)
 opisuje dokładne testowane źródła, izolację środowiska testowego i ograniczenia
 weryfikacji CPU. GPU/live acceptance nadal jest pending.
 
-Aktualna kolejność produktu: **feature set offline/CPU -> pełna regresja/audyt CPU
--> osobny wybór i zamrożenie finalnych modeli -> jedna skonsolidowana sesja
-Vast/GPU na końcu**. Manifest modeli pozostaje provisional. Szczegóły funkcji,
-Advanced, prefetch i opcjonalnego terminala: [h3/README.md](h3/README.md).
+**Migracja modeli:** [raport i ograniczenia](docs/MODEL_MIGRATION_2026-10-09.md).
+`make setup` PASS, `make test` **439 PASS + 16 HTTP checks**, `make audit`
+**439 PASS**, focused migration checks **81 PASS**; zero failures/errors/skips.
+17 artefaktów ma niezależnie sprawdzone immutable revisions, dokładne rozmiary
+i SHA256. Pełne metadata źródłowego 9B BF16 writera nadal blokuje zamrożenie
+całego manifestu; provisioning i production preflight zatrzymują się na tym
+braku. To nie jest jeszcze stan gotowy do końcowej sesji GPU. Nie wykonano
+realnych działań Vast ani inference/renderowania GPU.
+
+Kolejność: **zamknięcie provenance 9B -> provisioning/preflight -> jedna
+skonsolidowana sesja Vast/GPU**. Szczegóły profili, pamięci, persistent storage,
+LoRA i tokenów jednorazowych: [h3/README.md](h3/README.md).
 
 ## Od czego zacząć
 
 1. [Roadmap produktu i aktualny scope](docs/ROADMAP.md) — kanoniczny plan dalszych etapów i rzeczy świadomie odłożonych.
 2. [CPU feature acceptance i self-review](docs/CPU_PRODUCT_ACCEPTANCE_2026-10-09.md) — stan finalnego feature set na gałęzi PR; [baseline z 8 października](docs/FINAL_CPU_ACCEPTANCE_2026-10-08.md) opisuje wcześniejszy stan po merge.
-3. [Przygotowanie i acceptance na Vast GPU](docs/GPU_ACCEPTANCE.md) — końcowa sesja po feature set, regresji CPU i osobnym wyborze modeli.
+3. [Przygotowanie i acceptance na Vast GPU](docs/GPU_ACCEPTANCE.md) — końcowa sesja po pełnym zamrożeniu provenance modeli.
 4. [H3 Vast Mobile](h3/README.md) — wymagania runtime, persistent volume i sterowanie usługami.
 5. [Historyczny audyt z 6 października](docs/AUDIT_2026-10-06.md) — źródło wcześniejszych blockerów; nie jest już aktualnym statusem produkcyjnym.
 6. [Oryginalny stan projektu](migration/00_START_HERE/CURRENT_STATE.md) — materiał migracyjny i historia decyzji.
@@ -66,14 +78,20 @@ cd h3
 bash INSTALL_ON_VAST.sh
 ```
 
-Po obecności wszystkich wymaganych modeli:
+Installer pobiera i weryfikuje zamrożone artefakty na persistent volume oraz
+pozostawia `H3_ALLOW_SUBMISSIONS=0`. Dopóki provenance 9B jest niekompletne,
+instalacja zatrzymuje się przed pobieraniem wag. Po zamknięciu tego blokera:
 
 ```bash
 bash <PANEL_ROOT>/scripts/preflight.sh
 bash <PANEL_ROOT>/scripts/smoke_test.sh
 ```
 
-Nie uruchamiaj pełnego batcha jako pierwszego testu GPU. Po preflight/smoke wykonaj najpierw kontrolowany prompt-only acceptance, a następnie **jeden** natywny render H3. Szczegóły i kryteria zaliczenia są w [docs/GPU_ACCEPTANCE.md](docs/GPU_ACCEPTANCE.md).
+Nie uruchamiaj pełnego batcha jako pierwszego testu GPU. Po preflight/smoke
+wykonaj kontrolowany prompt-only acceptance, potem pojedyncze rendery Full
+i przełączenie H3 → 10Eros → H3. Full/BF16 H3 ma historyczne zgłoszenia czarnych
+klatek na niektórych konfiguracjach ComfyUI/Blackwell; CPU nie dowodzi naprawy.
+Szczegóły są w [docs/GPU_ACCEPTANCE.md](docs/GPU_ACCEPTANCE.md).
 
 ## Układ repozytorium
 

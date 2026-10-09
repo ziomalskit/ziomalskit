@@ -73,10 +73,11 @@ a{color:#9ecbff}
 
 <div class="card">
 <label>Scene / user prompt</label><textarea id="prompt"></textarea>
-<label>Render model</label><select id="model">
-<option value="native_int8">Native MiniMax H3 INT8</option>
-<option value="10eros_hybrid">10Eros Hybrid (A/B)</option>
+<label>Render model</label><select id="model" onchange="profileChanged()">
+<option value="h3_full">H3 Full</option>
+<option value="10eros_full">10Eros Full</option>
 </select>
+<label>Clip duration (seconds)</label><input id="duration" type="number" value="20" min="1" max="120" step="1">
 <div class="row">
 <div><label>Batches</label><input id="batches" type="number" value="1" min="1" max="100"></div>
 <div><label>Stuck timeout (min)</label><input id="timeout" type="number" value="8" min="1"></div>
@@ -147,7 +148,7 @@ a{color:#9ecbff}
 </details>
 
 <script>
-let loras=[], selected=null, lastJobs=[];
+let loras=[], productionProfiles=[], selected=null, lastJobs=[];
 let batchInFlight=false, approvalInFlight=new Set();
 let jobsGeneration=0, promptsGeneration=0, vastGeneration=0;
 let lifecycleInFlight=false, lifecycleToken=null, backendVast=null;
@@ -184,10 +185,23 @@ async function init(){
   document.getElementById('terminalSection').hidden=!terminalEnabled;
   terminalButtonState();
   loras=c.loras||[];
-  document.getElementById('loras').innerHTML=loras.map((x,i)=>
-    `<label><input style="width:auto" type="checkbox" id="le${i}" ${x.on?'checked':''}> ${x.lora}</label>
-     <input id="ls${i}" type="number" min="-2" max="2" step="0.05" value="${x.strength}">`).join('');
+  productionProfiles=c.profiles||[];
+  if(productionProfiles.length){
+    const selector=document.getElementById('model');
+    selector.innerHTML=productionProfiles.map(x=>`<option value="${esc(x.id)}">${esc(x.label)}</option>`).join('');
+    selector.value=c.default_profile;
+  }
+  profileChanged();
   await refresh(); setInterval(refresh,2500);
+}
+function profileChanged(){
+  const profile=document.getElementById('model').value;
+  document.getElementById('loras').innerHTML=loras.map((x,i)=>{
+    const defaults=x.defaults[profile];
+    return `<label><input style="width:auto" type="checkbox" id="le${i}" ${defaults.enabled?'checked':''}> ${esc(x.display_name)}</label>
+     <input id="ls${i}" type="number" min="${x.strength_range[0]}" max="${x.strength_range[1]}" step="0.05" value="${defaults.strength}">
+     <div class="tiny">${esc(x.help||'GPU compatibility pending')}</div>`;
+  }).join('');
 }
 async function up(f){
   let fd=new FormData(); fd.append('file',f);
@@ -210,11 +224,12 @@ async function generate(){
     for(let f of refs) pics.push(await up(f));
     let aud=[];
     for(let f of document.getElementById('audio').files) aud.push(await up(f));
-    let ls=loras.map((x,i)=>({name:x.lora,enabled:document.getElementById('le'+i).checked,strength:+document.getElementById('ls'+i).value}));
+    let ls=loras.map((x,i)=>({id:x.id,enabled:document.getElementById('le'+i).checked,strength:+document.getElementById('ls'+i).value}));
     body={
       request_id:requestUUID(),
       prompt:document.getElementById('prompt').value,
-      model:document.getElementById('model').value,
+      profile:document.getElementById('model').value,
+      duration_seconds:+(document.getElementById('duration')?.value||20),
       batches:+document.getElementById('batches').value,
       soft_timeout_minutes:+document.getElementById('timeout').value,
       pictures:pics,audio:aud,loras:ls

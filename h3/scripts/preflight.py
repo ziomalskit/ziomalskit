@@ -13,10 +13,10 @@ import sys
 import urllib.request
 
 try:
-    from .runtime_config import COMFY_COMMIT
+    from .runtime_config import COMFY_COMMIT, LLAMA_COMMIT, LLM_NODE_COMMIT, read_env
     from .llama_runtime import verify_llama
 except ImportError:
-    from runtime_config import COMFY_COMMIT
+    from runtime_config import COMFY_COMMIT, LLAMA_COMMIT, LLM_NODE_COMMIT, read_env
     from llama_runtime import verify_llama
 
 
@@ -105,6 +105,44 @@ def model_requirements(comfy: Path, manifest: dict) -> list[tuple[Path, dict]]:
     return required
 
 
+def cpu_invariants(panel: Path, *, allow_pending=False) -> dict:
+    sys.path.insert(0, str(panel))
+    from app.production import read_profiles, read_loras, read_bridge
+    from app.v20 import compose, verified_baseline, instruction_snapshot, BASELINE_FILE
+    from app.artifacts import validate_manifest
+    profiles = read_profiles(panel / "config/production_profiles.json")
+    if profiles["writer_runtime"] != {"llama_cpp_revision": LLAMA_COMMIT, "llm_node_revision": LLM_NODE_COMMIT}:
+        raise ValueError("writer native controls/runtime pins differ")
+    registry = read_loras(panel / "config/lora_registry.json")
+    bridge = read_bridge(panel / "config/lora_registry.json")
+    baseline = verified_baseline(panel / "workflows" / BASELINE_FILE)
+    for profile in profiles["profiles"].values():
+        workflow = compose(panel / "workflows" / profile["render_template"], profiles, registry)
+        if instruction_snapshot(workflow) != instruction_snapshot(baseline):
+            raise ValueError("v20 production prompt baseline changed")
+    manifest = json.loads((panel / "config/models_manifest.json").read_text())
+    entries = validate_manifest(manifest, allow_pending=allow_pending)
+    filenames = {Path(item["destination"]).name for item in entries.values()}
+    for profile in profiles["profiles"].values():
+        for field in ("checkpoint", "encoder", "video_vae", "audio_vae"):
+            if profile[field] not in filenames:
+                raise ValueError("production workflow model is absent from pinned manifest")
+        if not allow_pending and profile["writer"] not in filenames:
+            raise ValueError("production writer is absent from frozen manifest")
+    for item in [*registry.values(), bridge]:
+        if item["provenance_status"] == "verified_source":
+            matches = [entry for entry in entries.values() if Path(entry["destination"]).name == item["filename"]]
+            if len(matches) != 1 or any(matches[0][key] != item[key] for key in ("revision", "repository_path", "size_bytes", "sha256")) or matches[0]["repository"] != item["source"]["repository"]:
+                raise ValueError("registered LoRA provenance differs from production manifest")
+    runtime = panel / "runtime.env"
+    if runtime.exists():
+        if any(key in read_env(runtime) for key in ("HF_TOKEN", "HF_HUB_TOKEN", "HUGGING_FACE_HUB_TOKEN")):
+            raise ValueError("ephemeral download credential was persisted")
+    return {"profiles": list(profiles["profiles"]), "baseline": "verified_v20", "manifest_status": manifest["status"],
+            "known_artifacts": len(entries), "writer_stages": {key: profile["writer_stages"] for key, profile in profiles["profiles"].items()},
+            "gpu_validation": "pending"}
+
+
 def run_checks(environment: dict[str, str] | None = None) -> list[str]:
     env = dict(os.environ if environment is None else environment)
     panel = Path(env.get("PANEL_ROOT") or "/workspace/H3_VAST_MOBILE")
@@ -142,6 +180,24 @@ def run_checks(environment: dict[str, str] | None = None) -> list[str]:
 
     def models():
         manifest = json.loads((panel / "config/models_manifest.json").read_text())
+        if manifest.get("schema_version") == 2:
+            cpu_invariants(panel)
+            from app.model_health import manifest_health
+            result = manifest_health(panel / "config/models_manifest.json", comfy / "models", full_hash=True)
+            if result["status"] == "FAIL":
+                raise ValueError("production artifact integrity/provenance is incomplete")
+            from app.model_health import lora_health, verify_bridge_files
+            from app.production import read_loras, read_bridge
+            registry = read_loras(panel / "config/lora_registry.json")
+            bridge = read_bridge(panel / "config/lora_registry.json")
+            for identifier, entry in [*registry.items(), (bridge["id"], bridge)]:
+                if any(default["enabled"] for default in entry["defaults"].values()) and lora_health(
+                    comfy / "models", identifier, entry, bridge=entry is bridge, full_hash=True)["installation"] != "verified_file":
+                    raise ValueError("default LoRA/bridge requires exact integrity verification")
+            verify_bridge_files(comfy / "models", comfy, bridge, bridge)
+            return
+        if env.get("H3_ALLOW_DIAGNOSTIC_SUBMISSIONS") != "1":
+            raise ValueError("legacy manifest requires explicit diagnostic mode")
         configured = env.get("H3_MODEL_CHECKSUMS_FILE", "")
         checksums = json.loads(Path(configured).read_text()) if configured else {}
         for path, item in model_requirements(comfy, manifest):
@@ -152,6 +208,9 @@ def run_checks(environment: dict[str, str] | None = None) -> list[str]:
 
     critical = ["LLMTextProcessor", "BunnyH3ConditioningBridge", "MinimaxH3LatentUpscaler3D",
                 "MergeImageBatchAndAudioList", "Power Lora Loader (rgthree)", "Seed (rgthree)"]
+    if env.get("H3_ALLOW_DIAGNOSTIC_SUBMISSIONS") != "1":
+        critical.extend(["AJAnalysisText", "AJCompilerTextProcessor", "AJFrozenDuration", "AJCreativeTimelineGuard", "AJFinalPromptTimeGuard",
+                         "AJConditioningBoundary", "AJLateUNETLoader", "AJVideoBoundary"])
     for name, base in service_urls(env).items():
         def service(name=name, base=base):
             info = get_json(base.rstrip('/') + ("/api/config" if name == "panel" else "/object_info"), env, name == "panel")
@@ -177,6 +236,14 @@ def run_checks(environment: dict[str, str] | None = None) -> list[str]:
 
 
 def main() -> int:
+    if "--offline" in sys.argv[1:]:
+        try:
+            panel = Path(os.environ.get("PANEL_ROOT") or Path(__file__).resolve().parents[1])
+            print(json.dumps(cpu_invariants(panel)))
+        except Exception:
+            print("OFFLINE PREFLIGHT: production provenance/configuration incomplete; GPU acceptance pending")
+            return 1
+        return 0
     errors = run_checks()
     for error in errors:
         print("ERROR:", error)
