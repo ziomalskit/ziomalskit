@@ -1,10 +1,12 @@
 # AJ / H3 Ref2Video — product roadmap
 
-Status: the `main` baseline is CPU/runtime accepted. The final offline feature set
-and full CPU regression/audit are **PASS** on `feat/h3-cpu-product-completion`:
+Status: PR #4 is merged at `bfcc2bb22ff9691fda924fe17bd060a7e131c2e2`.
+Its offline feature set and full CPU regression/audit are **PASS**:
 [9 October evidence and safety review](CPU_PRODUCT_ACCEPTANCE_2026-10-09.md).
-Final model selection is a separate pending decision; GPU/live Vast acceptance
-remains **pending**.
+Production selection is **H3 Full + 10Eros Full with exact v20 Heretic**.
+Complete 9B writer source provenance remains blocked, so the migration is not
+ready for GPU acceptance. See [model migration evidence](MODEL_MIGRATION_2026-10-09.md).
+GPU/live Vast acceptance remains **pending**.
 
 ## Product goal
 
@@ -33,8 +35,12 @@ behavior. No live/GPU acceptance PASS has been recorded.
 - Exactly six images and at most one audio reference.
 - Completed jobs expose canonical video outputs and a direct **OPEN MP4** link.
 - Retained Vast Local Volume is the durability boundary across compute destruction.
-- The current model manifest is **provisional**. Native H3 INT8 remains the intended
-  default; exact production weights/encoders/VAE/LoRAs are not frozen.
+- Only `h3_full` / **H3 Full** and `10eros_full` / **10Eros Full** are normal
+  production profiles. H3 Full is the runtime default. Each batch/job freezes its
+  profile, model route, LoRA selection and bridge settings before publication.
+- The canonical prompt is the exact v20 attachment; no v21/v22 prompt revisions.
+- The production manifest pins 17 artifacts; complete 9B source metadata is
+  still missing. Provisioning/preflight fail closed rather than substitute a quant.
 - Terminal is an optional admin tool, disabled by default: `H3_ENABLE_TERMINAL=0`.
 
 Out of scope:
@@ -88,8 +94,10 @@ Read-only `/api/diagnostics`, with PASS / WARN / FAIL:
 - persistent-storage proof and disk free space;
 - queue summary and ready/preparing/prefetch target;
 - local Vast CLI/control availability, clearly separate from remote authorization;
-- required model-file presence, explicitly **provisional**, without claiming
-  integrity, final model selection or loader readiness.
+- production profiles, memory/overlap policy, cache/service epoch and LoRA defaults;
+- model/provenance health: missing, wrong size/hash, verification required or
+  verified file, with GPU validation still pending. Opening Diagnostics does not
+  hash hundreds of GB, download weights or build artifacts.
 
 Manual refresh is sufficient. Diagnostics must never submit, restart, mutate queue
 state or invoke Vast. Preserve Render/Prompt restart controls in Advanced.
@@ -153,17 +161,25 @@ volume verification. Simulate these boundaries locally; do not execute live acti
 CPU evidence belongs to the exact tested commit and must report live-only limits
 separately. Open one feature PR against `main`; do not merge automatically.
 
-## Phase 3 — choose/freeze final production models separately
+## Phase 3 — full model migration (source-provenance blocker remains)
 
-This is a separate decision, after CPU feature/regression completion and before
-the consolidated GPU session. Do not silently turn the provisional manifest into
-production truth.
+Implemented: shared exact v20 prompt composition, two full render templates,
+profile-specific writers, dynamic 16-slot LoRAs, per-profile defaults, explicit
+conditioning-before-transformer dependencies, phase-aware overlap, cache epochs,
+durable profile routing, persistent checksum reuse and ephemeral HF/Xet downloads.
 
-Decide the exact H3 variant, Prompt Worker LLM/VLM stack, encoders, VAE, required
-LoRAs/strengths and intentionally supported optional comparison variants.
-Only after those choices, record trusted sources, exact revisions/filenames,
-sizes/checksums and fail-closed provisioning for missing/corrupt artifacts.
-Do not invent or freeze production model URLs/checksums in the CPU feature task.
+H3 uses the 4B Heretic Q8_0 writer. 10Eros requires deterministic BF16 GGUF
+conversion from the canonical DavidAU 9B source using the unchanged pinned
+llama.cpp. The converter contains Qwen3.5 support, but full source shard/config/
+tokenizer metadata and exact source compatibility have not been verified.
+Resolve that blocker before freezing the recipe or running provisioning; never
+substitute the public IQ4_XS/Q4 build. External LoRAs require explicit local
+checksum enrollment when trustworthy upstream provenance is unavailable.
+
+H3 cold Step 0–2 waits while Full H3 samples. Cached/durable analysis permits
+the small writer with measured headroom. 10Eros permits analysis overlap only
+with measured headroom. Conditioning/decoding/recovery close the overlap window;
+one heavy render owns the renderer. Limits remain GPU benchmark hypotheses.
 
 ## Phase 4 — one consolidated Vast/GPU acceptance session (pending)
 
@@ -177,8 +193,9 @@ Order inside the single rented session:
 3. Run infrastructure preflight and conversion smoke without inference; inspect
    real `/object_info`.
 4. Run a separate prompt-only test, with no Render POST.
-5. Run exactly one controlled native H3 render and verify playable MP4/Range through
-   the authenticated proxy, canonical outputs and timing.
+5. Run controlled H3 Full and 10Eros Full renders, then H3 → 10Eros → H3.
+   Verify black frames, encoder release, peak VRAM, playable MP4/Range, outputs
+   and timing before starting a normal five-render automatic batch.
 6. Benchmark render-only versus Parallel overlap. Measure wall time, peak VRAM,
    OOM/restarts and useful prompt throughput. Refine the bounded prefetch target
    using evidence; scheduling remains Parallel only.

@@ -1,10 +1,11 @@
-# H3 Vast Mobile — PRE-RENTAL FINAL RC5
+# AJ / H3 Full production migration
 
 Current AJ/H3 runtime for CPU development and the eventual consolidated Vast
 acceptance session. Live GPU/Vast acceptance is still pending. Follow
 [`docs/ROADMAP.md`](../docs/ROADMAP.md): finish the feature set, run the full CPU
-regression/audit, choose and freeze final models as a separate decision, then
-perform one consolidated GPU/Vast session.
+regression/audit, close the remaining 9B provenance blocker, then perform one
+consolidated GPU/Vast session. [Migration evidence and self-review](../docs/MODEL_MIGRATION_2026-10-09.md)
+records what is verified and what still blocks readiness.
 
 Target:
 - RTX PRO 6000 Blackwell 96 GB
@@ -18,8 +19,9 @@ Target:
 Conservative first-release input contract:
 - exactly 6 images: Picture 1 + 5 supporting references
 - 0 or 1 audio reference
-- native MiniMax H3 INT8 is the intended default; the exact production stack and manifest remain provisional
-- 10Eros Hybrid remains optional A/B
+- exactly two normal production profiles: H3 Full (default) and 10Eros Full
+- exact v20 Heretic prompt baseline, shared Step 0–2 and profile-specific Step 3/4
+- legacy INT8 graphs are explicit diagnostic artifacts only
 
 If preserving data, set `H3_PERSISTENCE_MODE=volume` and
 `H3_PERSISTENT_ROOT=<actual mounted Local Volume path>` BEFORE installation.
@@ -52,7 +54,9 @@ Run:
 bash INSTALL_ON_VAST.sh
 ```
 
-After all required models are present:
+The installer downloads/verifies the pinned stack and builds the 9B BF16 GGUF
+when its complete recipe is frozen. It currently stops before model downloads
+because 9B source metadata is incomplete. After that blocker is closed:
 ```bash
 bash <PANEL_ROOT>/scripts/preflight.sh
 bash <PANEL_ROOT>/scripts/smoke_test.sh
@@ -60,7 +64,98 @@ bash <PANEL_ROOT>/scripts/smoke_test.sh
 
 Do not start a real H3 render until both pass.
 
-See `FULL_PRE_RENTAL_AUDIT.md` for the complete audit and remaining live-only risks.
+Provisioning leaves `H3_ALLOW_SUBMISSIONS=0`, including on an existing deployment,
+so it cannot resume queued paid renders or Vast lifecycle actions automatically.
+After preflight, the operator deliberately enables submissions for the controlled
+acceptance session. Keep inference/lifecycle controls disabled during setup.
+
+## Profiles, prompts and LoRAs
+
+Choose H3 Full or 10Eros Full and optional registered LoRAs. The UI loads display
+names, ranges and defaults from `/api/config`; it submits canonical IDs only.
+H3 defaults retain HM Breasts 1.0, MysticXXX 0.6 and Movement 0.5. 10Eros starts
+with optional LoRAs off. All Full GPU compatibility and strengths remain pending.
+Sixteen dynamic slots support future registered LoRAs; unused slots are disabled.
+
+Jobs freeze their profile, core model route, LoRA selection and Bunny bridge
+settings at creation. Changing runtime defaults cannot modify queued work.
+Recovery reconciles the original UUID/profile; it never guesses from a loaded
+model. Pre-migration jobs without profiles require explicit diagnostic mode or
+recreation for new production dispatch. Existing remote UUIDs are still reconciled.
+
+`H3_v20_heretic_MASTER_DURATION_EXACT.json` is byte exact (3,084,071 bytes;
+SHA256 `276621a1992a8b8da40d981a79417fd5eb3617b44166d890c8c82ffd8eb96222`).
+Two small render descriptors compose it without duplicated prompt instructions.
+Duration remains synchronized through v20's Generation Settings and both duration
+locks. Seeds remain Step 0 stable, Step 1 analysis seed, Step 2 +1, Step 3 candidate
+seed and Step 4 +1. Writer/temperature/output separation remains intact.
+
+Normal compilation uses each profile's writer for both Step 3 and Step 4, without
+a vision projector or thinking. `compiler: shared_gemma` is a server-configured
+acceptance benchmark only; it retains v20 instructions and raises overlap headroom.
+It is not a third production profile or a normal UI choice.
+
+## Phase boundaries and shared analysis
+
+The render graph computes both conditioning branches before its late transformer
+loader. An AJ node releases ComfyUI-managed encoder models at that boundary,
+then sampling gets VRAM priority. Another boundary releases resources after video
+creation. Render `/free` clears the idle renderer at job/model boundaries; it
+does not touch Prompt ComfyUI. No per-sampling-step CPU/GPU streaming was added.
+
+H3 Full defers cold Step 0–2 during sampling. Valid saved Step 0–2 text lets the
+smaller 4B writer overlap with measured headroom. 10Eros's balanced policy also
+permits analysis when measured headroom is sufficient. Conditioning, decoding,
+unknown phase and recovery defer prompt work. Thresholds in
+`config/production_profiles.json` are conservative, adjustable acceptance inputs.
+The 66 GB transformer and 51 GB encoder must not be assumed simultaneously resident.
+
+Step 0–2 text is shared per batch, independent of render profile/candidate seed.
+Prompt ComfyUI exposes a process UUID epoch. Restart invalidates assumed live
+cache residency, while verified durable text can feed Step 3/4 directly.
+The pinned LLM node launches/reaps a separate llama-cli process per stage;
+an epoch never claims that those model weights remain resident.
+
+## Persistent model integrity and downloads
+
+Weights, LoRAs, GGUF source/build files, receipts and generated provenance live
+under `$COMFY_ROOT/models` on the retained volume. Controller state/input/output
+retain the existing persistent deployment layout. Code updates do not change
+artifact identities or force verified weights to download again.
+
+`config/models_manifest.json` has shared/profile artifacts and a link to the
+canonical LoRA registry. Each downloaded file has a pinned commit, exact bytes
+and SHA256. The 13 required core artifacts total **219,551,087,416 bytes**;
+all 17 pinned downloads total **221,692,946,200 bytes**, before 9B source/output,
+external LoRAs and staging. `provision_models.py --plan` reports disk requirements
+and fails when known required storage exceeds available space.
+
+Existing correct bytes are rehashed and reused. Wrong size/hash, symlinks and
+untrusted same-name generated files fail closed. HF/Xet downloads resume in
+isolated staging; partial files never become runtime models. Generated receipts
+bind all source files, toolchain/converter pins, command, output size and SHA256.
+Completed build journals recover publication crashes without a second conversion.
+
+Pass `HF_TOKEN` only through the provisioning environment. The separate download
+venv uses pinned modern `huggingface-hub` + `hf-xet`; optional
+`HF_XET_HIGH_PERFORMANCE=1` is inherited. No login/token-save operation is used.
+Download tokens never reach `runtime.env`, model provenance, controller state,
+worker environments, Diagnostics or SDK/native output. Verified startup/reuse
+requires no download token.
+
+HM Breasts, HM NSFW AIO, Turbo 8-step and Bunny have verified HF provenance.
+MysticXXX, Movement, MPOV and Combat remain external/user-provided; put only the
+registered files under persistent `models/loras`, then explicitly enroll IDs:
+
+```bash
+<COMFY_PYTHON> <PANEL_ROOT>/scripts/enroll_external_loras.py \
+  --models-root <COMFY_ROOT>/models --registry <PANEL_ROOT>/config/lora_registry.json \
+  mysticxxx-v4 movement-v1
+```
+
+Enrollment records actual local bytes, not upstream identity or GPU compatibility.
+Changed enrolled bytes fail verification. Bunny bundled copies are verified too,
+because the pinned node prefers bundled files over `models/semantic_bridge`.
 
 ## Ref2Video results
 
@@ -125,11 +220,11 @@ Each independent probe has a short deadline (at most two seconds) and runs
 concurrently. A dead service produces FAIL while other checks still return.
 Vast remote authorization is explicitly **not probed**.
 
-Model diagnostics use the **provisional** `config/models_manifest.json`: required
-primary files, default LoRAs and accepted bridge locations. Missing/empty files
-produce FAIL; even complete presence stays WARN because presence cannot prove
-integrity, loader readiness or final model selection. Existing preflight integrity
-checks are unchanged. Production model sources/checksums must be decided separately.
+Model diagnostics report missing, wrong size/hash/provenance, hash verification
+required or verified file. Fast read-only reports use private verification receipts
+bound to file identity/size/mtime/ctime; explicit preflight performs full hashing.
+Verified file is separate from GPU validated. Memory/overlap policy and cache epochs
+appear in Advanced; opening Diagnostics never downloads or builds models.
 
 Diagnostics and logs refresh manually when their sections are open. Logs use
 `GET /api/logs/{service}?lines=200`, with only `render`, `prompt` and `panel`:
