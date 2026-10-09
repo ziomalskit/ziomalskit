@@ -223,10 +223,10 @@ def download(**kwargs):
  for descriptor in (1,2): os.write(descriptor,os.environ['HF_TOKEN'].encode()+b'\\n')
  raise RuntimeError(os.environ['HF_TOKEN'])
 module.hf_hub_download=download;sys.modules['huggingface_hub']=module
-try: download_sdk({'repository':'fixture/model','revision':'1'*40,'repository_path':'model.gguf'},Path('/tmp'))
+try: download_sdk({'repository':'fixture/model','revision':'1'*40,'repository_path':'model.gguf'},Path(sys.argv[1]))
 except ValueError as error: print(str(error))
 '''
-        result = subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).resolve().parents[1],
+        result = subprocess.run([sys.executable, "-c", code, str(self.root)], cwd=Path(__file__).resolve().parents[1],
                                 env={**os.environ, "HF_TOKEN": SENTINEL}, text=True, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn(SENTINEL, result.stdout + result.stderr)
