@@ -168,6 +168,14 @@ profile-specific writers, dynamic 16-slot LoRAs, per-profile defaults, explicit
 conditioning-before-transformer dependencies, phase-aware overlap, cache epochs,
 durable profile routing, persistent checksum reuse and ephemeral HF/Xet downloads.
 
+PR #5 finalization adds persisted Step 3 OFF / Step 4 ON native reasoning policy
+and a safe final-channel adapter without changing runtime pins or v20 instructions.
+Absolute timeline arithmetic is deterministic: v20 legal-frame duration is frozen
+per job, Step 3 shot weights are retimed in integer milliseconds, Step 4 cuts are
+bound to that schedule, and controller/recovery/render checks fail closed. The
+90-second-plan → 20.040-second-timeline regression is covered offline. See
+[finalization evidence](PR5_FINALIZATION_2026-10-09.md) for limits and validation.
+
 H3 uses the 4B Heretic Q8_0 writer. 10Eros requires deterministic BF16 GGUF
 conversion from the canonical DavidAU 9B source using the unchanged pinned
 llama.cpp. The converter contains Qwen3.5 support, but full source shard/config/

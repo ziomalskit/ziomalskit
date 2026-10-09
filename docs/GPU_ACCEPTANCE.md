@@ -112,8 +112,18 @@ Kryteria PASS:
 - kolejka/persistence pozostają zdrowe.
 - full/F16 JoyCaption + mmproj, verifier V4.5 F16 + mmproj oraz Gemma F16 + mmproj;
 - 4B Heretic Q8_0 dla H3, wygenerowany z canonical 9B BF16 GGUF dla 10Eros;
-- osobne Step 3/4 prompts, seeds, temperatury i outputs, bez vision mmproj/thinking;
+- osobne Step 3/4 prompts, seeds, temperatury i outputs, bez vision mmproj;
+- Step 3 thinking OFF; Step 4 ON, natywny budget 4096, total 12352/context 29184;
+- reasoning nie dociera do final prompt; natywny output file i guarded final channel;
 - sześć sekcji i pełne pokrycie requested runtime, szczególnie 20 sekund;
+- requested duration, legal frames i effective duration muszą odpowiadać v20:
+  dla request 20 s jest 481 klatek, effective timeline 20.040 s, dokładne
+  481/24 ≈ 20.041667 s. Zapisz quantization delta i różnicę centisecond floor;
+- Step 3 Timeline kończy się dokładnie na effective duration, bez luk/overlap;
+  również raw plan 90 s musi zostać deterministycznie retimed przed Step 4;
+- Step 4 cuts odpowiadają canonical Step 3 starts; Shot 1 nie ma timestamp;
+- rzeczywisty MP4 frame count/FPS/duration potwierdza legal frames. Nie oceniaj
+  quantization delta jako błędu; odróżnij request, timeline i frame duration;
 - zmiana profilu nie powtarza Step 0–2, a restart Prompt Worker zmienia epoch;
 - durable tekst po restarcie nie wymaga założenia, że modele/cache GPU przetrwały;
 - writer → Gemma compiler można porównać jako osobny acceptance benchmark,

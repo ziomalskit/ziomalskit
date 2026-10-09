@@ -47,8 +47,13 @@ seed, Step 4 = candidate seed + 1; Step 0 retains its stable baseline seeds.
 H3 Step 3/4 use the independently pinned Heretic 4B Q8_0 writer. 10Eros Step 3/4
 route to the intended generated 9B **BF16** GGUF, whose build is currently
 blocked. The two stages preserve separate prompts, seeds, temperatures and
-outputs, with no vision projector and reasoning off. Their v20 8,192-token /
-24,576-context budgets remain. A configuration-only writer-to-Gemma Step 4
+outputs, with no vision projector. Finalization changes Step 3 to native thinking
+OFF and Step 4 to ON with a 4,096-token native budget. Step 3 remains 8,192 /
+24,576; Step 4 uses 12,352 generation / 29,184 context to retain final-answer and
+input capacity. The CLI native file adapter separates final text safely. See
+[PR #5 finalization](PR5_FINALIZATION_2026-10-09.md) for temporal guards, exact
+duration arithmetic, pinned-runtime evidence and updated validation counts.
+A configuration-only writer-to-Gemma Step 4
 alternative is an acceptance benchmark option; it is not a normal UI control.
 
 Existing OPEN MP4, render timing, authenticated Range playback, bounded prefetch,
@@ -180,9 +185,10 @@ provider/panel/Vast credentials. SDK exceptions and Python/native output are
 suppressed; generic failures do not echo secret values or request URLs. Sentinel
 tests inspect runtime.env, logs, config/Diagnostics, state and generated evidence.
 
-## CPU validation
+## Original migration CPU validation
 
-Final validation on the implementation and test trees below:
+Evidence for the original PR #5 head `b19b54adb28fa5e851ce35d09ef1351940fa1777`.
+Finalization evidence and current counts are in the linked report above.
 
 | Command/check | Result |
 | --- | --- |
