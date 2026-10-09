@@ -22,25 +22,36 @@ def install(source: Path, custom_nodes: Path) -> None:
     target = custom_nodes / name
     if source.is_symlink() or (source / "__init__.py").is_symlink():
         raise ValueError("owned node source is symlinked")
-    body = (source / "__init__.py").read_bytes()
-    digest = hashlib.sha256(body).hexdigest()
+    bodies = {}
+    for filename in ("__init__.py", "temporal.py"):
+        path = source / filename
+        if path.is_symlink():
+            raise ValueError("owned node source is symlinked")
+        if path.exists():
+            bodies[filename] = path.read_bytes()
+    digests = {name: hashlib.sha256(body).hexdigest() for name, body in bodies.items()}
     if target.exists() or target.is_symlink():
         if target.is_symlink() or not target.is_dir():
             raise ValueError("AJ node destination is unrelated or symlinked")
         owner = target / ".aj-owner.json"
-        module = target / "__init__.py"
-        if owner.is_symlink() or module.is_symlink():
+        if owner.is_symlink():
             raise ValueError("AJ node ownership files are symlinked")
         previous = json.loads(owner.read_text())
-        if previous.get("owner") != "AJ" or hashlib.sha256(module.read_bytes()).hexdigest() != previous.get("sha256"):
+        previous_files = previous.get("files_sha256", {"__init__.py": previous.get("sha256")})
+        if previous.get("owner") != "AJ" or not isinstance(previous_files, dict) or not previous_files or set(previous_files) - {"__init__.py", "temporal.py"}:
             raise ValueError("AJ node local edits preserved; reconcile before provisioning")
-        if previous["sha256"] == digest:
-            return
-        if set(path.name for path in target.iterdir()) - {"__init__.py", ".aj-owner.json", "__pycache__"}:
+        for name, digest in previous_files.items():
+            module = target / name
+            if module.is_symlink() or not module.is_file() or hashlib.sha256(module.read_bytes()).hexdigest() != digest:
+                raise ValueError("AJ node local edits preserved; reconcile before provisioning")
+        if set(path.name for path in target.iterdir()) - (set(previous_files) | {".aj-owner.json", "__pycache__"}):
             raise ValueError("AJ node contains unrelated files; preserved")
+        if previous_files == digests:
+            return
     stage = Path(tempfile.mkdtemp(prefix=".aj-node-", dir=custom_nodes))
     try:
-        for filename, content in (("__init__.py", body), (".aj-owner.json", json.dumps({"owner": "AJ", "sha256": digest}).encode())):
+        receipt = {"owner": "AJ", "sha256": digests["__init__.py"], "files_sha256": digests}
+        for filename, content in [*bodies.items(), (".aj-owner.json", json.dumps(receipt).encode())]:
             descriptor = os.open(stage / filename, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             with os.fdopen(descriptor, "wb") as handle:
                 handle.write(content)

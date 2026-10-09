@@ -79,7 +79,7 @@ class ProductionArchitectureTests(unittest.TestCase):
                 values = nodes[nid]["widgets_values_named"]
                 self.assertEqual(values["model"], profile["writer"])
                 self.assertEqual(values["mmproj"], "none")
-                self.assertEqual(values["reasoning"], "off")
+                self.assertEqual(values["reasoning"], "off" if nid == 2445 else "on")
             self.assertNotEqual(nodes[2445]["widgets_values_named"]["temperature"], nodes[4275]["widgets_values_named"]["temperature"])
 
     def test_v20_duration_contract_and_six_section_instruction_remain_exact(self):
@@ -103,8 +103,8 @@ class ProductionArchitectureTests(unittest.TestCase):
         self.assertEqual(instruction_snapshot(workflow), instruction_snapshot(self.baseline))
         self.assertFalse(prompt_admission(prompt_kind="cached_text", prompt_profile="h3_full", profiles=profiles,
             active_render={"profile": "h3_full", "phase": "sampling"}, free_vram_mb=16000)[0])
-        self.assertEqual(nodes[4275]["widgets_values_named"]["max_tokens"], 8192)
-        self.assertEqual(nodes[4275]["widgets_values_named"]["ctx_size"], 24576)
+        self.assertEqual(nodes[4275]["widgets_values_named"]["max_tokens"], 12352)
+        self.assertEqual(nodes[4275]["widgets_values_named"]["ctx_size"], 29184)
 
     def test_shared_analysis_identity_excludes_profile_and_candidate_seed(self):
         first, second = self.job(), self.job("10eros_full")

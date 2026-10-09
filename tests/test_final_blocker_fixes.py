@@ -19,7 +19,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from tests.helpers import load_controller
+from tests.helpers import load_controller, production_fixture_context, production_fixture_texts, production_fixture_history
 from tests.test_controller import history
 from h3.scripts import process_identity
 
@@ -36,9 +36,11 @@ def request(m, key=None):
 
 
 def prior_review(m, req):
+    context=production_fixture_context(m,req)
+    plan,final=production_fixture_texts(context,"confirmed scene")
     job = dict(id="review", batch_id="prior", batch_seq=1, candidate_index=6, created_at=1, profile="h3_full",
-               status="pending_review", review_required=True, final_h3_prompt="confirmed scene",
-               render_seed=1, prompt_seed=2, analysis_seed=3, context=req.model_dump(mode="json"))
+               status="pending_review", review_required=True, final_h3_prompt=final, creative_plan=plan,
+               render_seed=1, prompt_seed=2, analysis_seed=3, context=context)
     m.queue.append(job)
     m.batches.append(dict(id="prior", seq=1))
     m.save_state()
@@ -55,10 +57,7 @@ def remote(m, calls):
         return pid
 
     async def terminal(service, _pid, **_options):
-        return history(video=True) if service == "render" else {
-            "status": {"status_str": "success", "completed": True},
-            "prompt": {"5732": {"class_type": "PreviewAny", "inputs": {}}},
-            "outputs": {"5732": {"text": ["confirmed terminal prompt"]}}}
+        return history(video=True) if service == "render" else production_fixture_history(m,_pid,"confirmed terminal prompt")
 
     stack.enter_context(patch.object(m, "_prepare_workflow_api", AsyncMock(return_value={})))
     stack.enter_context(patch.object(m, "_dispatch_prepared_workflow", side_effect=post))

@@ -22,12 +22,16 @@ def production_catalog():
         ("ImageBatch", {"image1": ["IMAGE", {}], "image2": ["IMAGE", {}]}, ["IMAGE"]),
         ("RepeatImageBatch", {"image": ["IMAGE", {}], "amount": ["INT", {}]}, ["IMAGE"]),
         ("AJAnalysisText", {"text": ["STRING", {"multiline": True}]}, ["STRING"]),
+        ("AJFrozenDuration", {"legal_frame_count": ["INT", {}], "effective_duration_seconds": ["FLOAT", {}]}, ["INT", "FLOAT"]),
+        ("AJCreativeTimelineGuard", {"creative_plan": ["STRING", {"forceInput": True}], "effective_duration_seconds": ["FLOAT", {}]}, ["STRING"]),
+        ("AJFinalPromptTimeGuard", {"final_h3_prompt": ["STRING", {"forceInput": True}], "canonical_creative_plan": ["STRING", {"forceInput": True}], "effective_duration_seconds": ["FLOAT", {}]}, ["STRING"]),
         ("AJConditioningBoundary", {"first": ["CONDITIONING", {}], "second": ["CONDITIONING", {}],
                                    "release_encoder": ["BOOLEAN", {}]}, ["CONDITIONING", "CONDITIONING", "INT"]),
         ("AJVideoBoundary", {"video": ["VIDEO", {}], "release_models": ["BOOLEAN", {}]}, ["VIDEO"]),
     ):
         catalog[name] = {"input": {"required": fields}, "output": outputs, "output_node": False}
     catalog["AJLateUNETLoader"] = copy.deepcopy(catalog["UNETLoader"])
+    catalog["AJCompilerTextProcessor"] = copy.deepcopy(catalog["LLMTextProcessor"])
     catalog["AJLateUNETLoader"]["input"]["required"]["after_conditioning"] = ["INT", {"forceInput": True}]
     return catalog
 
@@ -81,7 +85,7 @@ class ProductionAPITests(unittest.TestCase):
         texts = {field: field + " exact preserved text" for field in ("visual_facts", "expanded_intent", "reference_map")}
         for identifier, profile in self.profiles["profiles"].items():
             prepared = reuse_analysis(self.convert(identifier, "prompt"), texts, self.catalog)
-            processors = [node for node in prepared.values() if node["class_type"] == "LLMTextProcessor"]
+            processors = [node for node in prepared.values() if node["class_type"] in {"LLMTextProcessor", "AJCompilerTextProcessor"}]
             self.assertEqual(len(processors), 2)
             self.assertEqual({node["inputs"]["model"] for node in processors}, {profile["writer"]})
             self.assertTrue(all(node["inputs"]["mmproj"] == "none" for node in processors))

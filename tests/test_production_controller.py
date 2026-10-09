@@ -138,6 +138,134 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("routing changed", self.m.state_load_error)
         self.assertEqual(self.m.queue, [])
 
+    async def prepared_prompt(self,job):
+        job["active_service"]="prompt"
+        path=self.m.patch_workflow(job,self.m.production_workflow(job))
+        converted=exact_convert(json.loads(path.read_text()),production_catalog())
+        transport,_=self.transport()
+        with transport,patch.object(self.m,"run_cli_envelope",AsyncMock(return_value={"data":{"valid":True,"error_count":0}})):
+            return await self.m._prepare_workflow_api(path,"prompt",preview_envelope={"data":{"status":"preview","prompt":converted}})
+
+    def guarded_history(self,graph,plan,final):
+        values={"STEP 0 — JoyCaption Visual Facts / Output":TEXTS["visual_facts"],
+                "STEP 1 — Expanded Intent / Output":TEXTS["expanded_intent"],
+                "STEP 2 — Reference Map / Output":TEXTS["reference_map"],
+                "STEP 3 — Creative Director / Output":plan,"STEP 4 — Final H3 Prompt / Output":final}
+        outputs={key:{"text":[values[node["_meta"]["title"]]]} for key,node in graph.items()
+                 if node.get("_meta",{}).get("title") in values}
+        outputs["5732"]={"text":[final]}
+        return {"prompt":graph,"outputs":outputs,"status":{"completed":True,"status_str":"success"}}
+
+    async def test_reasoning_and_duration_identity_are_frozen_before_publication(self):
+        for profile in ("h3_full","10eros_full"):
+            self.req=self.req.model_copy(update={"request_id":__import__("uuid").uuid4()})
+            first=len(self.m.queue)
+            await self.batch(profile)
+            snapshot=json.loads(self.m.QUEUE_FILE.read_text())
+            for job in snapshot["queue"][first:]:
+                ctx=job["context"]
+                self.assertEqual((ctx["requested_duration_seconds"],ctx["effective_duration_seconds"],ctx["legal_frame_count"]),(20,20.04,481))
+                self.assertEqual(ctx["profile_identity"]["writer_stages"]["step3"]["reasoning"],"off")
+                self.assertEqual(ctx["profile_identity"]["writer_stages"]["step4"]["reasoning"],"on")
+
+    async def test_recovery_uses_persisted_writer_budget_and_duration_after_default_changes(self):
+        from tests.test_temporal_contract import CANONICAL,FINAL
+        job=await self.batch("10eros_full")
+        graph=await self.prepared_prompt(job)
+        job["status"]="prompt_running"
+        self.m.save_state()
+        stages=self.m.PRODUCTION["profiles"]["10eros_full"]["writer_stages"]
+        stages["step4"].update(reasoning_budget=5120,max_tokens=13376,ctx_size=30208)
+        self.m.PRODUCTION["default_profile"]="h3_full"
+        self.m.BatchRequest.model_fields["duration_seconds"].default=30
+        self.m.queue.clear();self.m.batches.clear();self.m.load_state()
+        recovered=self.m.find_job(job["id"])
+        self.assertEqual(recovered["status"],"recovery_prompt")
+        after=await self.prepared_prompt(recovered)
+        self.assertEqual(after["2551:2640:4275"]["inputs"]["max_tokens"],12352)
+        self.assertEqual(after["aj_frozen_duration"]["inputs"],{"legal_frame_count":481,"effective_duration_seconds":20.04})
+        self.assertTrue(self.m._apply_history_outcome(recovered,"prompt",self.guarded_history(graph,CANONICAL,FINAL)))
+        self.assertEqual(recovered["status"],"render_queued_auto")
+        self.assertEqual(recovered["temporal_guard_status"],"verified")
+
+    async def test_old_jobs_without_stage_or_effective_duration_identity_require_reconciliation(self):
+        job=await self.batch()
+        for field,container in (("writer_stages",job["context"]["profile_identity"]),("effective_duration_seconds",job["context"])):
+            saved=container.pop(field)
+            with self.assertRaises(ValueError):self.m.job_profile(job)
+            container[field]=saved
+
+    async def test_invalid_temporal_result_never_becomes_renderable_or_reaches_post(self):
+        from tests.test_temporal_contract import RAW_NINETY,CANONICAL,FINAL
+        job=await self.batch();graph=await self.prepared_prompt(job)
+        for plan,final in ((RAW_NINETY,FINAL),(CANONICAL,FINAL.replace("00:06.680","01:30.000")),
+                           (CANONICAL,FINAL.replace("[Shot 3]","[Shot 4]")),(CANONICAL,"[Start thinking]\nPrivate\n"+FINAL)):
+            with patch.object(self.m,"_dispatch_prepared_workflow",AsyncMock()) as post:
+                self.assertTrue(self.m._apply_history_outcome(job,"prompt",self.guarded_history(graph,plan,final)))
+                self.assertEqual(job["status"],"prompt_failed")
+                self.assertEqual(job["temporal_guard_status"],"failed")
+                self.assertLess(len(job["error"]),180)
+                self.assertIsNone(job["final_h3_prompt"])
+                post.assert_not_awaited()
+
+    async def test_review_edit_cannot_bypass_the_canonical_schedule(self):
+        from tests.test_temporal_contract import CANONICAL,FINAL
+        job=await self.batch();job.update(status="pending_review",creative_plan=CANONICAL,final_h3_prompt=FINAL)
+        with self.assertRaises(self.m.HTTPException):
+            await self.m.approve(job["id"],self.m.ApprovalRequest(final_prompt=FINAL.replace("00:06.680","01:30.000")))
+        self.assertEqual(job["status"],"pending_review")
+        result=await self.m.approve(job["id"],self.m.ApprovalRequest(final_prompt=FINAL))
+        self.assertEqual(result,{"ok":True,"priority":"top"})
+        self.assertEqual(job["approved_final_prompt"],FINAL)
+
+    async def test_review_candidate_is_published_only_after_temporal_validation(self):
+        from tests.test_temporal_contract import CANONICAL,FINAL
+        await self.batch();job=self.m.queue[5]
+        graph=await self.prepared_prompt(job)
+        self.assertTrue(self.m._apply_history_outcome(job,"prompt",self.guarded_history(graph,CANONICAL,FINAL)))
+        self.assertEqual(job["status"],"pending_review")
+        self.assertEqual(job["temporal_guard_status"],"verified")
+
+    async def test_changed_writer_runtime_requires_explicit_reconciliation(self):
+        job=await self.batch()
+        self.m.PRODUCTION["writer_runtime"]["llm_node_revision"]="a"*40
+        with self.assertRaisesRegex(ValueError,"writer runtime changed"):
+            self.m.production_workflow(job)
+
+    async def test_same_filename_writer_hash_or_conversion_identity_change_is_fenced(self):
+        job=await self.batch()
+        manifest=self.m.CONFIG/"models_manifest.json"
+        data=json.loads(manifest.read_text())
+        writer=next(item for item in data["artifacts"] if item["destination"].endswith("Qwen3.5-4B-Heretic-Q8_0.gguf"))
+        writer["sha256"]="a"*64
+        manifest.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError,"model provenance changed"):self.m.production_workflow(job)
+        self.req=self.req.model_copy(update={"request_id":__import__("uuid").uuid4()})
+        first=len(self.m.queue);await self.batch("10eros_full");eros=self.m.queue[first]
+        data["pending_artifacts"][0]["converter_sha256"]="b"*64
+        manifest.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError,"model provenance changed"):self.m.production_workflow(eros)
+
+    async def test_gpu_validation_labels_do_not_change_a_queued_model_identity(self):
+        job=await self.batch()
+        manifest=self.m.CONFIG/"models_manifest.json"
+        data=json.loads(manifest.read_text())
+        for item in data["artifacts"]:item["gpu_validation"]="validated"
+        manifest.write_text(json.dumps(data))
+        self.assertEqual(self.m.job_profile(job),"h3_full")
+
+    async def test_real_render_preparation_rejects_a_temporally_invalid_approved_prompt(self):
+        from tests.test_temporal_contract import CANONICAL,FINAL
+        job=await self.batch();job.update(active_service="render",creative_plan=CANONICAL)
+        wrong=FINAL.replace("00:06.680","01:30.000")
+        path=self.m.patch_workflow(job,self.m.production_workflow(job),approved_prompt=wrong)
+        converted=exact_convert(json.loads(path.read_text()),production_catalog())
+        transport,_=self.transport()
+        with transport,patch.object(self.m,"_dispatch_prepared_workflow",AsyncMock()) as post:
+            with self.assertRaisesRegex(ValueError,"canonical creative timeline"):
+                await self.m._prepare_workflow_api(path,"render",preview_envelope={"data":{"status":"preview","prompt":converted}})
+            post.assert_not_awaited()
+
     async def test_inconsistent_persisted_batch_profile_is_rejected(self):
         await self.batch()
         self.m.batches[0]["profile"] = "10eros_full"
@@ -312,7 +440,7 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         verdict = {"data": {"valid": True, "error_count": 0}}
         with transport, patch.object(self.m, "run_cli_envelope", AsyncMock(return_value=verdict)):
             prepared = await self.m._prepare_workflow_api(path, "prompt", preview_envelope={"data": {"status": "preview", "prompt": converted}})
-        models = [node["inputs"]["model"] for node in prepared.values() if node["class_type"] == "LLMTextProcessor"]
+        models = [node["inputs"]["model"] for node in prepared.values() if node["class_type"] in {"LLMTextProcessor", "AJCompilerTextProcessor"}]
         self.assertEqual(models, [self.m.PRODUCTION["profiles"]["10eros_full"]["writer"]] * 2)
         self.assertEqual(job["prompt_kind"], "durable_text")
         self.assertEqual(calls, [("GET", 8189, "/object_info")])

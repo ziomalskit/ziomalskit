@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio, base64, errno, hashlib, hmac, json, math, os, shutil, signal, subprocess, sys, time, uuid
+import asyncio, base64, copy, errno, hashlib, hmac, json, math, os, shutil, signal, subprocess, sys, time, uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlencode, parse_qs
@@ -28,6 +28,8 @@ MAP = json.loads((CONFIG / "VAST_H3_API_MAP.json").read_text(encoding="utf-8"))
 from .production import read_profiles, read_loras, read_bridge, resolve_loras, patch_lora_slots, PROFILE_LABELS
 from .analysis_cache import AnalysisCache, prompt_admission
 from .v20 import compose as compose_v20, set_widget as set_v20_widget
+from .writer_policy import MODEL_FIELDS, validate_stages, stage_routes, validate_writer_graph, final_answer
+from .temporal import duration_identity, validate_duration, final_timeline
 
 PRODUCTION = read_profiles(CONFIG / "production_profiles.json")
 LORA_REGISTRY = read_loras(CONFIG / "lora_registry.json")
@@ -41,8 +43,18 @@ def job_profile(job: dict) -> str:
     if profile not in PROFILE_LABELS or job.get("context", {}).get("profile") != profile:
         raise ValueError("job has no consistent persisted production profile; explicit migration is required")
     identity = job["context"].get("profile_identity")
-    if identity is not None and identity != profile_identity(profile):
+    if not isinstance(identity, dict):
+        raise ValueError("persisted writer identity missing; explicit reconciliation is required")
+    if any(identity.get(key) != PRODUCTION["profiles"][profile][key] for key in MODEL_FIELDS):
         raise ValueError("persisted profile model routing changed; explicit reconciliation is required")
+    validate_stages(identity.get("writer_stages"))
+    if identity.get("writer_runtime") != PRODUCTION["writer_runtime"]:
+        raise ValueError("persisted writer runtime changed; explicit reconciliation is required")
+    if identity.get("manifest_identity") != manifest_identity(profile):
+        raise ValueError("persisted model provenance changed; explicit reconciliation is required")
+    validate_duration(job["context"])
+    if job["context"]["duration_seconds"] != job["context"]["requested_duration_seconds"]:
+        raise ValueError("persisted requested duration differs from job context")
     lora_identity = job["context"].get("lora_identity")
     if lora_identity is not None and any(key not in LORA_REGISTRY or LORA_REGISTRY[key]["filename"] != value for key, value in lora_identity.items()):
         raise ValueError("persisted LoRA routing changed; explicit reconciliation is required")
@@ -53,8 +65,20 @@ def job_profile(job: dict) -> str:
 
 
 def profile_identity(profile: str) -> dict:
-    return {key: PRODUCTION["profiles"][profile][key] for key in
-            ("checkpoint", "writer", "compiler", "encoder", "video_vae", "audio_vae")}
+    return copy.deepcopy({**{key: PRODUCTION["profiles"][profile][key] for key in MODEL_FIELDS},
+                          "writer_stages": PRODUCTION["profiles"][profile]["writer_stages"],
+                          "writer_runtime": PRODUCTION["writer_runtime"], "manifest_identity": manifest_identity(profile)})
+
+
+def manifest_identity(profile: str) -> str:
+    manifest = json.loads((CONFIG / "models_manifest.json").read_text())
+    facts = ("provider", "repository", "revision", "repository_path", "destination", "size_bytes", "sha256", "generation",
+             "source_repository", "source_revision", "observed_source_revision", "llama_cpp_revision", "converter_revision", "converter_sha256")
+    entries = [item for item in [*manifest["artifacts"], *manifest.get("pending_artifacts", [])]
+               if item["required"] and (profile in item["profiles"] or "shared" in item["profiles"])]
+    # GPU-validation flags and human diagnostics do not change artifact identity.
+    identity = [{key: item.get(key) for key in facts} for item in sorted(entries, key=lambda item: item["destination"])]
+    return hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()).hexdigest()
 
 
 def production_workflow(job: dict) -> Path:
@@ -715,7 +739,8 @@ def patch_llm_pipeline_seeds(wf: dict, analysis_seed: int, prompt_seed: int) -> 
         raise RuntimeError(f"Missing LLM processor nodes: {sorted(missing)}")
     for nid, seed in mirrors.items():
         n = downstream[nid]
-        if n.get("type") != "LLMTextProcessor":
+        expected_type = "AJCompilerTextProcessor" if nid == 4275 and wf.get("extra", {}).get("aj_production") else "LLMTextProcessor"
+        if n.get("type") != expected_type:
             raise RuntimeError(f"Expected LLMTextProcessor at {nid}, got {n.get('type')}")
         n.setdefault("widgets_values_named", {})["seed"] = int(seed)
         if len(n.get("widgets_values", [])) <= 13:
@@ -731,7 +756,8 @@ def patch_workflow(job: dict, workflow_template: Path, *, approved_prompt: str |
     if is_production:
         if workflow_template != production_workflow(job):
             raise ValueError("workflow does not match job's persisted profile")
-        wf = compose_v20(workflow_template, PRODUCTION, LORA_REGISTRY)
+        wf = compose_v20(workflow_template, PRODUCTION, LORA_REGISTRY,
+                         writer_stages=job["context"]["profile_identity"]["writer_stages"])
     else:
         # These explicitly addressed legacy templates are diagnostic artifacts.
         # Normal workers always select production_workflow(job).
@@ -1296,9 +1322,18 @@ def _apply_history_outcome(job: dict, service: str, entry: dict) -> bool:
         capture_error = None
         try:
             captured = extract_prompt_texts(entry)
+            if job.get("profile") in PROFILE_LABELS:
+                job_profile(job)
+                validate_writer_graph(_prompt_graph_from_history(entry), stage_routes(job["context"]["profile_identity"]))
+                from .production_api import validate_temporal_graph
+                validate_temporal_graph(_prompt_graph_from_history(entry), job["context"])
+                final_timeline(captured.get("final_h3_prompt"), captured.get("creative_plan"), job["context"]["effective_duration_seconds"])
+                job["temporal_guard_status"] = "verified"
         except ValueError as error:
             captured = {key: None for key in ("visual_facts", "expanded_intent", "reference_map", "creative_plan", "final_h3_prompt")}
             capture_error = f"Prompt capture failed: {error}"
+            if job.get("profile") in PROFILE_LABELS:
+                job["temporal_guard_status"] = "failed"
         job.update(captured)
         if job.get("profile") in PROFILE_LABELS:
             batch = batch_for_job(job)
@@ -1650,8 +1685,10 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
         profile = job_profile(job)
         if production.get("profile") != profile or production.get("phase") != service:
             raise ValueError("prepared workflow/profile identity mismatch")
-        from .production_api import phase_boundaries, reuse_analysis
+        from .production_api import phase_boundaries, reuse_analysis, frozen_duration, temporal_guards, validate_temporal_graph
+        prepared = frozen_duration(prepared, job["context"], catalog)
         if service == "render":
+            final_timeline(approved, job.get("creative_plan"), job["context"]["effective_duration_seconds"])
             values = PRODUCTION["profiles"][profile]
             for node, field, expected in (("4595:4529", "unet_name", values["checkpoint"]),
                 ("4595:130", "clip_name", values["encoder"]), ("4595:121", "vae_name", values["video_vae"]),
@@ -1665,6 +1702,9 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
             job["prompt_kind"] = analysis_cache.classify(job, batch)
             if job["prompt_kind"] != "cold_analysis":
                 prepared = reuse_analysis(prepared, batch["analysis"]["texts"], catalog)
+            prepared = temporal_guards(prepared, catalog)
+            validate_writer_graph(prepared, stage_routes(job["context"]["profile_identity"]))
+            validate_temporal_graph(prepared, job["context"])
     api_path = workflow.with_suffix(".api.json")
     catalog_path = workflow.with_suffix(".catalog.json")
     _atomic_json_write(api_path, prepared)
@@ -2800,6 +2840,11 @@ async def api_diagnostics():
                  "remote_authorization": "not_probed"}, "models": models,
         "production": {"default_profile": PRODUCTION["default_profile"], "active_render": active_render_policy(),
                        "profiles": PRODUCTION["profiles"], "prompt_cache_epoch": analysis_cache.epoch,
+                       "duration_jobs": [{"id": job["id"], "requested_duration_seconds": job.get("context", {}).get("requested_duration_seconds"),
+                           "effective_duration_seconds": job.get("context", {}).get("effective_duration_seconds"),
+                           "legal_frame_count": job.get("context", {}).get("legal_frame_count"),
+                           "temporal_guard_status": job.get("temporal_guard_status", "pending")}
+                           for job in queue if job.get("profile") in PROFILE_LABELS][:20],
                        "prompt_service_epoch": analysis_cache.service_epoch, "gpu_validation": "pending"}})
     data["checks"] = checks_for(data)
     data["status"] = next((status for status in ("FAIL", "WARN") if any(
@@ -3023,6 +3068,7 @@ async def create_batches(req: BatchRequest):
                 "conditioning_bridge": {"id": CONDITIONING_BRIDGE["id"], "filename": CONDITIONING_BRIDGE["filename"],
                                         **CONDITIONING_BRIDGE["defaults"][selected_profile]},
                 "duration_seconds": req.duration_seconds,
+                **duration_identity(req.duration_seconds),
                 "soft_timeout_minutes": req.soft_timeout_minutes,
                 "hard_restart_after_seconds": req.hard_restart_after_seconds,
                 "pictures": pictures,
@@ -3127,6 +3173,12 @@ async def approve(controller_job_id: str, req: ApprovalRequest):
             raise HTTPException(409, f"job is {job.get('status')}, not pending_review")
         if not final_prompt or not str(final_prompt).strip():
             raise HTTPException(400, "final prompt is empty")
+        if job.get("profile") in PROFILE_LABELS:
+            try:
+                job_profile(job)
+                final_timeline(str(final_prompt), job.get("creative_plan"), job["context"]["effective_duration_seconds"])
+            except ValueError as error:
+                raise HTTPException(400, str(error)) from None
         staged_job = dict(job, approved_final_prompt=str(final_prompt), approved_at=time.time(),
                           render_priority=0, status="render_queued_review", approval_result={"ok": True, "priority": "top"})
         staged_queue = [staged_job if existing is job else existing for existing in queue]

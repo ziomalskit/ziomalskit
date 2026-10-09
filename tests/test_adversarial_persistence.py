@@ -12,7 +12,7 @@ from contextlib import redirect_stdout
 from unittest.mock import AsyncMock, patch
 
 from h3.scripts import preflight
-from tests.helpers import load_controller
+from tests.helpers import load_controller, production_fixture_context, production_fixture_texts, production_fixture_history
 from tests.test_controller import history
 
 
@@ -39,11 +39,13 @@ class AdversarialPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.fixture.__exit__(None, None, None)
 
     def review_job(self):
+        context=production_fixture_context(self.m,self.request)
+        plan,final=production_fixture_texts(context,"prior candidate")
         job = {"id": "prior-review", "status": "pending_review", "batch_id": "prior-batch", "profile": "h3_full",
                "batch_seq": 1, "candidate_index": 6, "created_at": 1,
-               "review_required": True, "final_h3_prompt": "prior candidate",
+               "review_required": True, "final_h3_prompt": final, "creative_plan": plan,
                "render_seed": 1, "analysis_seed": 2, "prompt_seed": 3,
-               "context": self.request.model_dump(mode="json")}
+               "context": context}
         self.m.queue.append(job)
         self.m.batches.append({"id": "prior-batch", "seq": 1})
         self.m.save_state()
@@ -88,9 +90,7 @@ class AdversarialPersistenceTests(unittest.IsolatedAsyncioTestCase):
         async def fetch(service, _prompt_id, **_options):
             if service == "render":
                 return history(video=True)
-            return {"status": {"status_str": "success", "completed": True},
-                    "prompt": {"5732": {"class_type": "PreviewAny", "inputs": {}}},
-                    "outputs": {"5732": {"text": ["generated candidate"]}}}
+            return production_fixture_history(self.m,_prompt_id,"generated candidate")
 
         return calls, [patch.object(self.m, "_prepare_workflow_api", AsyncMock(return_value={})),
                        patch.object(self.m, "_dispatch_prepared_workflow", side_effect=dispatch),
@@ -101,7 +101,7 @@ class AdversarialPersistenceTests(unittest.IsolatedAsyncioTestCase):
         prior = self.review_job()
         queue_before, batches_before = copy.deepcopy(self.m.queue), copy.deepcopy(self.m.batches)
         queue_identity, batch_identity = self.m.queue, self.m.batches
-        invoke = (lambda: self.m.approve(prior["id"], self.m.ApprovalRequest(final_prompt="approved edit"))) if approval else (
+        invoke = (lambda: self.m.approve(prior["id"], self.m.ApprovalRequest(final_prompt=production_fixture_texts(prior["context"],"approved edit")[1]))) if approval else (
             lambda: self.m.create_batches(self.request))
         calls, boundaries = self.remote_boundaries()
         for boundary in boundaries:

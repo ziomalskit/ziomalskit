@@ -171,6 +171,8 @@ def validate_ui_workflow(document, catalog=None, *, patch_contract=False):
             raise WorkflowPreparationError("Duplicate UI link identity")
     if patch_contract:
         for nid, kind in PATCH_NODE_TYPES.items():
+            if nid == 4275 and document.get("extra", {}).get("aj_production"):
+                kind = "AJCompilerTextProcessor"
             matches = found[nid]
             if len(matches) != 1 or matches[0]["type"] != kind:
                 raise WorkflowPreparationError(f"Expected exactly one {kind} node at {nid}")

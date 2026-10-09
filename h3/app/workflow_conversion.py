@@ -160,7 +160,7 @@ def prepare_api_prompt(
     retained = _ancestors(prompt, roots)
     prepared = {node_id: node for node_id, node in prompt.items() if node_id in retained}
     classes = {node["class_type"] for node in prepared.values()}
-    if phase == "render" and "LLMTextProcessor" in classes:
+    if phase == "render" and classes & {"LLMTextProcessor", "AJCompilerTextProcessor"}:
         raise WorkflowPreparationError("Render output still depends on the autoprompter")
     if phase == "prompt" and classes & {"SamplerCustomAdvanced", "KSampler", "KSamplerAdvanced", "SaveVideo"}:
         raise WorkflowPreparationError("Prompt previews unexpectedly depend on rendering")

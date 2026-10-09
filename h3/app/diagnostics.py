@@ -123,8 +123,11 @@ def checks_for(data: dict) -> list[dict]:
         identifier = active.get("profile") or production["default_profile"]
         profile = production["profiles"].get(identifier)
         if profile:
+            compiler = profile["writer_stages"]["step4"]
             add("memory", profile["label"] + " memory / overlap", "WARN",
-                profile["memory_policy"]["label"] + "; " + profile["overlap_policy"]["label"] + "; GPU validation pending")
+                profile["memory_policy"]["label"] + "; " + profile["overlap_policy"]["label"] + "; GPU validation pending; " +
+                f"Step 3 OFF; Step 4 ON, native budget {compiler['reasoning_budget']}, total {compiler['max_tokens']}, "
+                f"final allowance {compiler['final_answer_tokens']}, context {compiler['ctx_size']}; model benchmark pending")
         add("prompt_cache", "Prompt cache epoch", "PASS",
             "Controller " + production["prompt_cache_epoch"] + "; service " + str(production["prompt_service_epoch"] or "not observed"))
     return checks

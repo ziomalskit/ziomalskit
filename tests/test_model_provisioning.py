@@ -244,6 +244,32 @@ class ModelProvisioningTests(unittest.TestCase):
             install(source, nodes)
         self.assertFalse((source / "aj_production").exists())
 
+    def test_owned_temporal_contract_is_installed_verified_reused_and_updated(self):
+        source,nodes=self.root/"source",self.root/"nodes"
+        source.mkdir();(source/"__init__.py").write_text("from .temporal import CONTRACT\n")
+        (source/"temporal.py").write_text("CONTRACT = 1\n")
+        install(source,nodes)
+        contract=nodes/"aj_production/temporal.py"
+        receipt=json.loads((contract.parent/".aj-owner.json").read_text())
+        self.assertEqual(receipt["files_sha256"]["temporal.py"],hashlib.sha256(contract.read_bytes()).hexdigest())
+        inode=contract.stat().st_ino;install(source,nodes);self.assertEqual(contract.stat().st_ino,inode)
+        (source/"temporal.py").write_text("CONTRACT = 2\n");install(source,nodes)
+        self.assertEqual(contract.read_text(),"CONTRACT = 2\n")
+        contract.write_text("LOCAL_EDIT = 3\n")
+        with self.assertRaisesRegex(ValueError,"local edits"):install(source,nodes)
+        self.assertEqual(contract.read_text(),"LOCAL_EDIT = 3\n")
+
+    def test_owned_temporal_contract_symlinks_and_untrusted_receipt_paths_fail_closed(self):
+        source,nodes=self.root/"source",self.root/"nodes"
+        source.mkdir();(source/"__init__.py").write_text("VALUE = 1\n")
+        (source/"temporal.py").symlink_to(source/"__init__.py")
+        with self.assertRaisesRegex(ValueError,"symlinked"):install(source,nodes)
+        (source/"temporal.py").unlink();(source/"temporal.py").write_text("VALUE = 2\n")
+        install(source,nodes)
+        owner=nodes/"aj_production/.aj-owner.json"
+        owner.write_text(json.dumps({"owner":"AJ","files_sha256":{"../escape":"a"*64}}))
+        with self.assertRaisesRegex(ValueError,"local edits"):install(source,nodes)
+
     def test_bunny_bundled_copy_cannot_shadow_verified_persistent_bytes(self):
         entry = {"filename": "Bridge.safetensors", "size_bytes": len(BODY), "sha256": hashlib.sha256(BODY).hexdigest()}
         persistent = self.root / "models/semantic_bridge/Bridge.safetensors"

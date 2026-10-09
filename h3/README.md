@@ -91,9 +91,29 @@ locks. Seeds remain Step 0 stable, Step 1 analysis seed, Step 2 +1, Step 3 candi
 seed and Step 4 +1. Writer/temperature/output separation remains intact.
 
 Normal compilation uses each profile's writer for both Step 3 and Step 4, without
-a vision projector or thinking. `compiler: shared_gemma` is a server-configured
+a vision projector. Step 3 thinking is OFF; Step 4 thinking is ON with the pinned
+CLI's native 4,096-token reasoning budget. Step 4 allows 12,352 generated tokens
+(8,192 final + 4,096 reasoning + 64 framing) and 29,184 context tokens, retaining
+the previous input allowance. These settings and runtime pins are frozen in each
+job; restart/default changes cannot change queued settings. The Step 4 adapter
+reads the CLI's native output file and forwards only its validated final channel.
+Actual writer quality and truncation remain model acceptance benchmarks.
+`compiler: shared_gemma` is a server-configured
 acceptance benchmark only; it retains v20 instructions and raises overlap headroom.
 It is not a third production profile or a normal UI choice.
+
+Absolute timeline arithmetic belongs to AJ. The unchanged v20 frame expressions
+derive and persist requested duration, legal frames and effective duration. A
+20-second request becomes 481 frames and the v20 duration length **20.040 s**
+(481/24 is approximately 20.041667 s; the centisecond floor is v20's existing
+behavior). Runtime composition feeds effective duration to all three duration
+locks. `AJCreativeTimelineGuard` treats proposed shot lengths as weights, assigns
+contiguous positive integer-millisecond intervals, and ends exactly at the target.
+`AJFinalPromptTimeGuard` binds final cut timestamps to that plan. Only Timeline
+fields and cut timecodes change; action prose and v20 instructions stay intact.
+The controller validates both again before review/automatic render, approval,
+recovery and render preparation. Older jobs missing these identities require
+explicit reconciliation/recreation; no new settings are silently applied.
 
 ## Phase boundaries and shared analysis
 

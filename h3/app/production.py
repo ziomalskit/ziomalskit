@@ -58,6 +58,10 @@ def read_profiles(path: Path) -> dict:
     profiles = data.get("profiles")
     if not isinstance(profiles, dict) or set(profiles) != set(PROFILE_LABELS):
         raise ValueError("exactly two production profiles are required")
+    runtime = data.get("writer_runtime", {})
+    if set(runtime) != {"llama_cpp_revision", "llm_node_revision"} or any(not re.fullmatch(r"[a-f0-9]{40}", value) for value in runtime.values()):
+        raise ValueError("immutable writer runtime identity is required")
+    from .writer_policy import validate_stages
     for identifier, profile in profiles.items():
         if profile.get("label") != PROFILE_LABELS[identifier] or profile.get("user_facing") is not True:
             raise ValueError("invalid production profile identity")
@@ -71,6 +75,7 @@ def read_profiles(path: Path) -> dict:
         overlap = profile.get("overlap_policy", {})
         if profile.get("compiler") not in {"profile_writer", "shared_gemma"}:
             raise ValueError("unknown controlled compiler benchmark route")
+        validate_stages(profile.get("writer_stages"))
         if type(overlap.get("cold_analysis_during_sampling")) is not bool:
             raise ValueError("explicit overlap policy is required")
         for field in ("analysis_headroom_mb", "writer_headroom_mb"):

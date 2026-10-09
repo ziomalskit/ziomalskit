@@ -13,10 +13,10 @@ import sys
 import urllib.request
 
 try:
-    from .runtime_config import COMFY_COMMIT, read_env
+    from .runtime_config import COMFY_COMMIT, LLAMA_COMMIT, LLM_NODE_COMMIT, read_env
     from .llama_runtime import verify_llama
 except ImportError:
-    from runtime_config import COMFY_COMMIT, read_env
+    from runtime_config import COMFY_COMMIT, LLAMA_COMMIT, LLM_NODE_COMMIT, read_env
     from llama_runtime import verify_llama
 
 
@@ -111,6 +111,8 @@ def cpu_invariants(panel: Path, *, allow_pending=False) -> dict:
     from app.v20 import compose, verified_baseline, instruction_snapshot, BASELINE_FILE
     from app.artifacts import validate_manifest
     profiles = read_profiles(panel / "config/production_profiles.json")
+    if profiles["writer_runtime"] != {"llama_cpp_revision": LLAMA_COMMIT, "llm_node_revision": LLM_NODE_COMMIT}:
+        raise ValueError("writer native controls/runtime pins differ")
     registry = read_loras(panel / "config/lora_registry.json")
     bridge = read_bridge(panel / "config/lora_registry.json")
     baseline = verified_baseline(panel / "workflows" / BASELINE_FILE)
@@ -137,7 +139,8 @@ def cpu_invariants(panel: Path, *, allow_pending=False) -> dict:
         if any(key in read_env(runtime) for key in ("HF_TOKEN", "HF_HUB_TOKEN", "HUGGING_FACE_HUB_TOKEN")):
             raise ValueError("ephemeral download credential was persisted")
     return {"profiles": list(profiles["profiles"]), "baseline": "verified_v20", "manifest_status": manifest["status"],
-            "known_artifacts": len(entries), "gpu_validation": "pending"}
+            "known_artifacts": len(entries), "writer_stages": {key: profile["writer_stages"] for key, profile in profiles["profiles"].items()},
+            "gpu_validation": "pending"}
 
 
 def run_checks(environment: dict[str, str] | None = None) -> list[str]:
@@ -206,7 +209,8 @@ def run_checks(environment: dict[str, str] | None = None) -> list[str]:
     critical = ["LLMTextProcessor", "BunnyH3ConditioningBridge", "MinimaxH3LatentUpscaler3D",
                 "MergeImageBatchAndAudioList", "Power Lora Loader (rgthree)", "Seed (rgthree)"]
     if env.get("H3_ALLOW_DIAGNOSTIC_SUBMISSIONS") != "1":
-        critical.extend(["AJAnalysisText", "AJConditioningBoundary", "AJLateUNETLoader", "AJVideoBoundary"])
+        critical.extend(["AJAnalysisText", "AJCompilerTextProcessor", "AJFrozenDuration", "AJCreativeTimelineGuard", "AJFinalPromptTimeGuard",
+                         "AJConditioningBoundary", "AJLateUNETLoader", "AJVideoBoundary"])
     for name, base in service_urls(env).items():
         def service(name=name, base=base):
             info = get_json(base.rstrip('/') + ("/api/config" if name == "panel" else "/object_info"), env, name == "panel")

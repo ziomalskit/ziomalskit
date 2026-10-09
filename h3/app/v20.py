@@ -75,7 +75,7 @@ def remove_passthrough(graph: dict, node_id: int) -> None:
     graph["nodes"] = [node for node in graph["nodes"] if node["id"] != node_id]
 
 
-def compose(template: Path, profiles: dict, registry: dict) -> dict:
+def compose(template: Path, profiles: dict, registry: dict, *, writer_stages: dict | None = None) -> dict:
     descriptor = json.loads(template.read_text())
     if descriptor.get("kind") != "v20_render_template" or descriptor.get("schema_version") != 1:
         raise ValueError("invalid production render template")
@@ -86,8 +86,24 @@ def compose(template: Path, profiles: dict, registry: dict) -> dict:
     if descriptor.get("baseline") != BASELINE_FILE or descriptor.get("baseline_sha256") != BASELINE_SHA256 or descriptor.get("lora_slots", 0) < 8:
         raise ValueError("render template v20 baseline lock mismatch")
     workflow = verified_baseline(template.parent / BASELINE_FILE)
+    from .writer_policy import stage_routes, native_extra_args
+    runtime_profile = dict(profile, writer_stages=writer_stages) if writer_stages is not None else profile
+    routes = stage_routes(runtime_profile)
     instructions = instruction_snapshot(workflow)
     nodes = {node["id"]: node for node in all_nodes(workflow)}
+    from .temporal import FRAME_EXPRESSION, LENGTH_EXPRESSION
+    if nodes[134]["widgets_values_named"]["expression"] != FRAME_EXPRESSION or nodes[137]["widgets_values_named"]["expression"] != LENGTH_EXPRESSION:
+        raise ValueError("canonical v20 legal-duration expression changed")
+    # v20 output 1 is the frame-derived duration_length, aliased duration_output.
+    # Correct the raw-target wiring without changing any instruction prose.
+    for nid in (5366, 7454):
+        set_widget(nodes[nid], "Constant", "duration_output")
+    master_link = next(link for link in workflow["links"] if link[0] == 46933)
+    if master_link[1:5] != [1731, 2, 7453, 1]:
+        raise ValueError("v20 master duration wiring changed")
+    master_link[2] = 1
+    nodes[1731]["outputs"][2]["links"].remove(46933)
+    nodes[1731]["outputs"][1]["links"].append(46933)
     loader = nodes[4595]
     for field, value in (("unet_name", profile["checkpoint"]), ("clip_name", profile["encoder"]),
                          ("vae_name", profile["video_vae"]), ("vae_name_1", profile["audio_vae"])):
@@ -97,11 +113,14 @@ def compose(template: Path, profiles: dict, registry: dict) -> dict:
         if node["type"] != "LLMTextProcessor":
             continue
         if node["id"] in (2445, 4275):
-            model = ("Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.f16.gguf"
-                     if node["id"] == 4275 and profile["compiler"] == "shared_gemma" else profile["writer"])
-            set_widget(node, "model", model)
+            policy = routes["step3" if node["id"] == 2445 else "step4"]
+            set_widget(node, "model", policy["model"])
             set_widget(node, "mmproj", "none")
-            set_widget(node, "reasoning", "off")
+            for field in ("reasoning", "max_tokens", "ctx_size"):
+                set_widget(node, field, policy[field])
+            set_widget(node, "extra_args", native_extra_args(policy))
+            if node["id"] == 4275:
+                node["type"] = "AJCompilerTextProcessor"
         else:
             name = node["widgets_values_named"]["model"]
             if "Joycaption" in name:

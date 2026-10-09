@@ -17,6 +17,47 @@ ACTIVE = ROOT / "h3"
 BASELINE = ROOT / "migration/01_CURRENT_TRUTH/H3_VAST_MOBILE_PRE_RENTAL_FINAL_RC5"
 
 
+def production_fixture_context(module, request):
+    """Valid durable production identity for scheduler fault fixtures."""
+    context=request.model_dump(mode="json")
+    profile=request.profile or module.PRODUCTION["default_profile"]
+    context.update(profile=profile,model=profile,profile_identity=module.profile_identity(profile),
+                   **module.duration_identity(request.duration_seconds))
+    return context
+
+
+def production_fixture_texts(context,label):
+    from h3.app.temporal import timecode,milliseconds
+    end=timecode(milliseconds(context["effective_duration_seconds"]))
+    plan=f"[Shot 1]\nTimeline: 00:00.000-{end}\nAction: {label}."
+    final=(f"subject_definitions: Reference 1 retained.\n\nsummary: {label}.\n\n"
+           "retention_analysis: All references retained.\n\ndetailed_description:\n"
+           f"[Shot 1] {label}, progressing continuously through the final frame.\n\n"
+           "overall_soundscape: Natural sounds.\n\nnon_diegetic_music: None.")
+    return plan,final
+
+
+def production_fixture_history(module,prompt_id,label):
+    """Actual pinned converter/guard graph with synthetic model output only."""
+    import json
+    from h3.app.production_api import frozen_duration,temporal_guards
+    from h3.app.workflow_conversion import prepare_api_prompt
+    from tests.test_production_api import production_catalog
+    from tests.test_workflows import exact_convert
+    job=next(job for job in module.queue if job.get("prompt_prompt_id")==prompt_id)
+    path=module.patch_workflow(job,module.production_workflow(job))
+    catalog=production_catalog()
+    graph=prepare_api_prompt(exact_convert(json.loads(path.read_text()),catalog),catalog,phase="prompt")
+    graph=temporal_guards(frozen_duration(graph,job["context"],catalog),catalog)
+    plan,final=production_fixture_texts(job["context"],label)
+    titles={"STEP 0 — JoyCaption Visual Facts / Output":"CPU facts", "STEP 1 — Expanded Intent / Output":"CPU intent",
+            "STEP 2 — Reference Map / Output":"CPU reference map", "STEP 3 — Creative Director / Output":plan,
+            "STEP 4 — Final H3 Prompt / Output":final}
+    outputs={key:{"text":[titles[node["_meta"]["title"]]]} for key,node in graph.items() if node.get("_meta",{}).get("title") in titles}
+    outputs["5732"]={"text":[final]}
+    return {"status":{"status_str":"success","completed":True},"prompt":graph,"outputs":outputs}
+
+
 @contextmanager
 def load_controller(source: Path = ACTIVE, *, production_probes: bool = False):
     """Fresh module, authentic workflow/config files, disposable runtime state."""
