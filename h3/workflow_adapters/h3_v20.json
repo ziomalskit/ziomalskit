@@ -118,7 +118,10 @@
       "mode": 0,
       "widget_names": ["expression"],
       "widget_defaults_sha256": "406c3be4473c73c07db79442dbf88c0409b8334e4982d882b3b0d5db9124316e",
-      "inputs": [{"name": "values.a", "type": "FLOAT,INT,BOOLEAN", "link": 248}, {"name": "values.b", "type": "FLOAT,INT,BOOLEAN", "shape": 7, "link": null}],
+      "inputs": [
+        {"name": "values.a", "type": "FLOAT,INT,BOOLEAN", "link": 248},
+        {"name": "values.b", "type": "FLOAT,INT,BOOLEAN", "shape": 7, "link": null}
+      ],
       "outputs": [
         {"name": "FLOAT", "type": "FLOAT", "links": []},
         {"name": "INT", "type": "INT", "links": [245, 283]},
@@ -132,7 +135,10 @@
       "mode": 0,
       "widget_names": ["expression"],
       "widget_defaults_sha256": "7cb6484d6c84a4a584d88a6d2337f5af4bb9caa82c9c6aef211562ba328111e9",
-      "inputs": [{"name": "values.a", "type": "FLOAT,INT,BOOLEAN", "link": 283}, {"name": "values.b", "type": "FLOAT,INT,BOOLEAN", "shape": 7, "link": null}],
+      "inputs": [
+        {"name": "values.a", "type": "FLOAT,INT,BOOLEAN", "link": 283},
+        {"name": "values.b", "type": "FLOAT,INT,BOOLEAN", "shape": 7, "link": null}
+      ],
       "outputs": [
         {"name": "FLOAT", "type": "FLOAT", "links": [311]},
         {"name": "INT", "type": "INT", "links": []},
@@ -500,7 +506,10 @@
       ],
       "widget_defaults_sha256": "14d9fa2a1e3a357b6701f4b041321d2f1f1428b355dba4da82e2d308cc284feb",
       "inputs": [{"name": "model", "type": "MODEL", "link": 45633}, {"name": "clip", "type": "CLIP", "link": null}],
-      "outputs": [{"name": "MODEL", "type": "MODEL", "shape": 3, "links": [45634]}, {"name": "CLIP", "type": "CLIP", "shape": 3, "links": []}],
+      "outputs": [
+        {"name": "MODEL", "type": "MODEL", "shape": 3, "links": [45634]},
+        {"name": "CLIP", "type": "CLIP", "shape": 3, "links": []}
+      ],
       "lora_slots": {
         "lora_1": ["on", "lora", "strength", "strengthTwo"],
         "lora_2": ["on", "lora", "strength", "strengthTwo"],
@@ -518,7 +527,8 @@
         "lora_14": ["on", "lora", "strength", "strengthTwo"],
         "lora_15": ["on", "lora", "strength", "strengthTwo"],
         "lora_16": ["on", "lora", "strength", "strengthTwo"]
-      }
+      },
+      "positional_defaults_sha256": "5268b2fe66e2fc8f8f5ff9c51cdb15347de72020450d50602e4ec3cc46b4084a"
     },
     "bridge": {
       "graph": "root",
@@ -589,7 +599,10 @@
       "mode": 0,
       "widget_names": ["fps", "bit_depth", "color_space", "codec"],
       "widget_defaults_sha256": "eca8cf77ed128388ac48f81880ab14f197007bfd0bed95dc9c6dbd62342c9d90",
-      "inputs": [{"name": "images", "type": "IMAGE", "link": 46937}, {"name": "audio", "type": "AUDIO", "shape": 7, "link": 46938}],
+      "inputs": [
+        {"name": "images", "type": "IMAGE", "link": 46937},
+        {"name": "audio", "type": "AUDIO", "shape": 7, "link": 46938}
+      ],
       "outputs": [{"name": "VIDEO", "type": "VIDEO", "links": [46735]}]
     },
     "resolution": {
@@ -650,7 +663,10 @@
         {"name": "sigmas", "type": "SIGMAS", "link": 45242},
         {"name": "latent_image", "type": "LATENT", "link": 46033}
       ],
-      "outputs": [{"name": "output", "type": "LATENT", "links": [46023]}, {"name": "denoised_output", "type": "LATENT", "links": null}]
+      "outputs": [
+        {"name": "output", "type": "LATENT", "links": [46023]},
+        {"name": "denoised_output", "type": "LATENT", "links": null}
+      ]
     },
     "second_sampler": {
       "graph": "f9092623-6d48-4b5a-b478-6b65bfaf31eb",
@@ -666,7 +682,10 @@
         {"name": "sigmas", "type": "SIGMAS", "link": 45242},
         {"name": "latent_image", "type": "LATENT", "link": 46762}
       ],
-      "outputs": [{"name": "output", "type": "LATENT", "links": [45647, 46083, 46761, 46765]}, {"name": "denoised_output", "type": "LATENT", "links": null}]
+      "outputs": [
+        {"name": "output", "type": "LATENT", "links": [45647, 46083, 46761, 46765]},
+        {"name": "denoised_output", "type": "LATENT", "links": null}
+      ]
     },
     "first_guider": {
       "graph": "62fc1cf4-4ac3-413d-bafc-12558c24914e",
@@ -675,7 +694,10 @@
       "mode": 0,
       "widget_names": null,
       "widget_defaults_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
-      "inputs": [{"name": "model", "type": "MODEL", "link": 46043}, {"name": "conditioning", "type": "CONDITIONING", "link": 46032}],
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 46043},
+        {"name": "conditioning", "type": "CONDITIONING", "link": 46032}
+      ],
       "outputs": [{"name": "GUIDER", "type": "GUIDER", "links": [45240]}]
     },
     "second_guider": {
@@ -685,7 +707,10 @@
       "mode": 0,
       "widget_names": null,
       "widget_defaults_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
-      "inputs": [{"name": "model", "type": "MODEL", "link": 45679}, {"name": "conditioning", "type": "CONDITIONING", "link": 46084}],
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 45679},
+        {"name": "conditioning", "type": "CONDITIONING", "link": 46084}
+      ],
       "outputs": [{"name": "GUIDER", "type": "GUIDER", "links": [45240]}]
     },
     "latent_upscaler": {
@@ -693,9 +718,21 @@
       "node_id": 6175,
       "expected_type": "MinimaxH3LatentUpscaler3D",
       "mode": 4,
-      "widget_names": ["model_name", "mode", "mode.megapixels", "align", "enable_temporal_chunking", "force_unload", "device", "precision"],
+      "widget_names": [
+        "model_name",
+        "mode",
+        "mode.megapixels",
+        "align",
+        "enable_temporal_chunking",
+        "force_unload",
+        "device",
+        "precision"
+      ],
       "widget_defaults_sha256": "e83c6c76c4961836fe8b5509a3fa5a88316b82f6f868771de2e174c42a50613d",
-      "inputs": [{"name": "latent", "type": "*", "link": 46543}, {"name": "model_name", "type": "COMBO", "widget": {"name": "model_name"}, "link": null}],
+      "inputs": [
+        {"name": "latent", "type": "*", "link": 46543},
+        {"name": "model_name", "type": "COMBO", "widget": {"name": "model_name"}, "link": null}
+      ],
       "outputs": [{"name": "latent", "type": "*", "links": [45657]}]
     },
     "final_capture": {
@@ -1331,7 +1368,10 @@
       "mode": 0,
       "widget_names": null,
       "widget_defaults_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
-      "inputs": [{"name": "anything", "type": "*", "shape": 7, "link": 45852}, {"name": "default", "type": "*", "shape": 7, "link": null}],
+      "inputs": [
+        {"name": "anything", "type": "*", "shape": 7, "link": 45852},
+        {"name": "default", "type": "*", "shape": 7, "link": null}
+      ],
       "outputs": [{"name": "output", "type": "*", "links": [45855]}, {"name": "is_none", "type": "BOOLEAN", "links": [45853]}]
     },
     "second_pass_output_switch": {
@@ -1347,6 +1387,245 @@
         {"name": "switch", "type": "BOOLEAN", "widget": {"name": "switch"}, "link": 45856}
       ],
       "outputs": [{"name": "output", "type": "LATENT", "links": [45648]}]
+    },
+    "upscale_video_split": {
+      "graph": "root",
+      "node_id": 6176,
+      "expected_type": "LTXVSeparateAVLatent",
+      "mode": 4,
+      "widget_names": null,
+      "widget_defaults_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "inputs": [{"name": "av_latent", "type": "LATENT", "link": 46745}],
+      "outputs": [
+        {"name": "video_latent", "type": "LATENT", "links": [46543]},
+        {"name": "audio_latent", "type": "LATENT", "links": []}
+      ]
+    },
+    "upscale_audio_split": {
+      "graph": "root",
+      "node_id": 6177,
+      "expected_type": "LTXVSeparateAVLatent",
+      "mode": 4,
+      "widget_names": null,
+      "widget_defaults_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "inputs": [{"name": "av_latent", "type": "LATENT", "link": 46746}],
+      "outputs": [
+        {"name": "video_latent", "type": "LATENT", "links": []},
+        {"name": "audio_latent", "type": "LATENT", "links": [45658]}
+      ]
+    },
+    "upscale_av_join": {
+      "graph": "root",
+      "node_id": 6178,
+      "expected_type": "LTXVConcatAVLatent",
+      "mode": 4,
+      "widget_names": null,
+      "widget_defaults_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "inputs": [
+        {"name": "video_latent", "type": "LATENT", "link": 45657},
+        {"name": "audio_latent", "type": "LATENT", "link": 45658}
+      ],
+      "outputs": [{"name": "latent", "type": "LATENT", "links": [46747]}]
+    },
+    "second_lora_stack": {
+      "graph": "root",
+      "node_id": 6165,
+      "expected_type": "Power Lora Loader (rgthree)",
+      "mode": 4,
+      "widget_names": ["divider", "PowerLoraLoaderHeaderWidget", "➕ Add Lora"],
+      "widget_defaults_sha256": "b365bb790ba9a748b869ea32316acab6e331bdb1be1e697fc28c369d9fcecd79",
+      "inputs": [{"name": "model", "type": "MODEL", "link": 45637}, {"name": "clip", "type": "CLIP", "link": null}],
+      "outputs": [
+        {"name": "MODEL", "type": "MODEL", "shape": 3, "links": [45638]},
+        {"name": "CLIP", "type": "CLIP", "shape": 3, "links": []}
+      ],
+      "positional_defaults_sha256": "f01bc2df70aaa233198a65eb965a362ac9d04fc0cc2aa0648e0d15d27636387b"
+    },
+    "second_model_patches": {
+      "graph": "root",
+      "node_id": 6161,
+      "expected_type": "5118e6a5-671c-4fc6-9e58-805df7045e52",
+      "mode": 4,
+      "widget_names": ["value", "value_1", "value_2", "value_4", "selection", "value_3"],
+      "widget_defaults_sha256": "d0eae609a1794416481d0bd514965b645de8e4410575c22ec5be4afcb814126d",
+      "inputs": [
+        {"name": "value", "type": "BOOLEAN", "widget": {"name": "value"}, "link": null},
+        {"name": "value_1", "type": "BOOLEAN", "widget": {"name": "value_1"}, "link": null},
+        {"name": "value_2", "type": "BOOLEAN", "widget": {"name": "value_2"}, "link": null},
+        {"name": "value_4", "type": "BOOLEAN", "widget": {"name": "value_4"}, "link": null},
+        {"name": "selection", "type": "COMFY_DYNAMICCOMBO_V3", "widget": {"name": "selection"}, "link": null},
+        {"name": "value_3", "type": "BOOLEAN", "widget": {"name": "value_3"}, "link": null},
+        {"name": "model", "type": "MODEL", "link": 45635}
+      ],
+      "outputs": [{"name": "model", "type": "MODEL", "links": [45637]}]
+    },
+    "second_model_alias": {
+      "graph": "root",
+      "node_id": 6166,
+      "expected_type": "SetNode",
+      "mode": 4,
+      "widget_names": ["Constant"],
+      "widget_defaults_sha256": "df1a10af20527716714520c8bacd20e7b9a058625c9a6b13d9318a306459a24b",
+      "inputs": [{"name": "MODEL", "type": "MODEL", "link": 45638}],
+      "outputs": [{"name": "MODEL", "type": "MODEL", "links": null}]
+    },
+    "attention_model": {
+      "graph": "root",
+      "node_id": 6091,
+      "expected_type": "5abc5ffb-b441-44d8-893e-92ebd215b94c",
+      "mode": 0,
+      "widget_names": ["choice", "sage_attention"],
+      "widget_defaults_sha256": "d24e5187a6fc92d6f8140663b9add5b3f4d2abbd4fe1bf51ba98a329f23c54d0",
+      "inputs": [
+        {"name": "choice", "type": "COMBO", "widget": {"name": "choice"}, "link": null},
+        {"name": "sage_attention", "type": "COMBO", "widget": {"name": "sage_attention"}, "link": null},
+        {"name": "model", "type": "MODEL", "link": 45545}
+      ],
+      "outputs": [{"name": "model", "type": "MODEL", "links": [45635, 45636]}]
+    },
+    "first_model_alias": {
+      "graph": "root",
+      "node_id": 1710,
+      "expected_type": "SetNode",
+      "mode": 0,
+      "widget_names": ["Constant"],
+      "widget_defaults_sha256": "1f3eace6870f147188fd77a2cf49320e8aabaa4e70429a91e4d1f6ef4b3034d7",
+      "inputs": [{"name": "MODEL", "type": "MODEL", "link": 45634}],
+      "outputs": [{"name": "MODEL", "type": "MODEL", "links": null}]
+    },
+    "first_model_get": {
+      "graph": "root",
+      "node_id": 4596,
+      "expected_type": "GetNode",
+      "mode": 0,
+      "widget_names": ["Constant"],
+      "widget_defaults_sha256": "1f3eace6870f147188fd77a2cf49320e8aabaa4e70429a91e4d1f6ef4b3034d7",
+      "inputs": [],
+      "outputs": [{"name": "MODEL", "type": "MODEL", "links": [22124]}]
+    },
+    "first_model_preview": {
+      "graph": "root",
+      "node_id": 1977,
+      "expected_type": "ModelPreviewOverrideKJ",
+      "mode": 4,
+      "widget_names": [
+        "max_resolution",
+        "jpeg_quality",
+        "suppress_default_preview",
+        "preview_frames",
+        "preview_fps",
+        "tiny_vae",
+        "preview"
+      ],
+      "widget_defaults_sha256": "fcd00ec5dcd80f9f4cfed8bdcf733d6a237ebbb6fe67df305bc442a6c3d68ab3",
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 22124},
+        {"name": "vae", "type": "VAE", "shape": 7, "link": null},
+        {"name": "audio_vae", "type": "VAE", "shape": 7, "link": null}
+      ],
+      "outputs": [{"name": "MODEL", "type": "MODEL", "links": [46743]}]
+    },
+    "second_model_get": {
+      "graph": "f9092623-6d48-4b5a-b478-6b65bfaf31eb",
+      "node_id": 6170,
+      "expected_type": "GetNode",
+      "mode": 0,
+      "widget_names": ["Constant"],
+      "widget_defaults_sha256": "df1a10af20527716714520c8bacd20e7b9a058625c9a6b13d9318a306459a24b",
+      "inputs": [],
+      "outputs": [{"name": "MODEL", "type": "MODEL", "links": [45676]}]
+    },
+    "second_model_value": {
+      "graph": "f9092623-6d48-4b5a-b478-6b65bfaf31eb",
+      "node_id": 6179,
+      "expected_type": "easy PassOrNone",
+      "mode": 0,
+      "widget_names": null,
+      "widget_defaults_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "inputs": [
+        {"name": "anything", "type": "*", "shape": 7, "link": 45676},
+        {"name": "default", "type": "*", "shape": 7, "link": null}
+      ],
+      "outputs": [{"name": "output", "type": "*", "links": [45679, 45680]}, {"name": "is_none", "type": "BOOLEAN", "links": []}]
+    },
+    "attention_6069": {
+      "graph": "5abc5ffb-b441-44d8-893e-92ebd215b94c",
+      "node_id": 6069,
+      "expected_type": "ModelAttentionBackend",
+      "mode": 0,
+      "widget_names": ["attention"],
+      "widget_defaults_sha256": "0389b46971884d32bdf2e1542180446413f5fc3d405f67bc999a4ef472d04979",
+      "inputs": [{"name": "model", "type": "MODEL", "link": 45463}],
+      "outputs": [{"name": "model", "type": "MODEL", "links": [45464]}]
+    },
+    "attention_6070": {
+      "graph": "5abc5ffb-b441-44d8-893e-92ebd215b94c",
+      "node_id": 6070,
+      "expected_type": "ModelAttentionBackend",
+      "mode": 0,
+      "widget_names": ["attention"],
+      "widget_defaults_sha256": "39a8d90870c8d2cc565daf9181503900404e49924de3e9c0f53f97276764acf6",
+      "inputs": [{"name": "model", "type": "MODEL", "link": 45465}],
+      "outputs": [{"name": "model", "type": "MODEL", "links": [45466]}]
+    },
+    "attention_6078": {
+      "graph": "5abc5ffb-b441-44d8-893e-92ebd215b94c",
+      "node_id": 6078,
+      "expected_type": "PathchSageAttentionKJ",
+      "mode": 0,
+      "widget_names": ["sage_attention", "allow_compile"],
+      "widget_defaults_sha256": "135562ecb8c06fd9abcd0d1ab8515aee6617e3f55aa5fe5bebcdd5a2dfcb22c3",
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 45489},
+        {"name": "sage_attention", "type": "COMBO", "widget": {"name": "sage_attention"}, "link": 45472}
+      ],
+      "outputs": [{"name": "MODEL", "type": "MODEL", "links": [45467]}]
+    },
+    "attention_6079": {
+      "graph": "5abc5ffb-b441-44d8-893e-92ebd215b94c",
+      "node_id": 6079,
+      "expected_type": "easy anythingIndexSwitch",
+      "mode": 0,
+      "widget_names": ["index"],
+      "widget_defaults_sha256": "ffbf81d654b1b5c8d67a4459f25003c9434e10d05ffea0708e825ece8f9976c6",
+      "inputs": [
+        {"name": "value0", "type": "*", "shape": 7, "link": 45464},
+        {"name": "value1", "type": "*", "shape": 7, "link": 45466},
+        {"name": "index", "type": "INT", "widget": {"name": "index"}, "link": 45462},
+        {"name": "value2", "type": "*", "link": 45467},
+        {"name": "value3", "type": "*", "link": null}
+      ],
+      "outputs": [{"name": "value", "type": "*", "links": [45507]}]
+    },
+    "attention_6080": {
+      "graph": "5abc5ffb-b441-44d8-893e-92ebd215b94c",
+      "node_id": 6080,
+      "expected_type": "CustomCombo",
+      "mode": 0,
+      "widget_names": ["choice", "index", "option1", "option2", "option3", "option4"],
+      "widget_defaults_sha256": "ecd11a937e8be6056be42b8e88c3885e3e40a2cc62e747b0fcf69daf5cd37107",
+      "inputs": [{"name": "choice", "type": "COMBO", "widget": {"name": "choice"}, "link": 45471}],
+      "outputs": [{"name": "STRING", "type": "STRING", "links": null}, {"name": "INDEX", "type": "INT", "links": [45462]}]
+    },
+    "attention_6081": {
+      "graph": "5abc5ffb-b441-44d8-893e-92ebd215b94c",
+      "node_id": 6081,
+      "expected_type": "MiniMaxH3MemoryEfficientSageAttentionPatch",
+      "mode": 0,
+      "widget_names": null,
+      "widget_defaults_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "inputs": [{"name": "model", "type": "MODEL", "link": 45497}],
+      "outputs": [{"name": "model", "type": "MODEL", "links": [45489]}]
+    },
+    "attention_6085": {
+      "graph": "5abc5ffb-b441-44d8-893e-92ebd215b94c",
+      "node_id": 6085,
+      "expected_type": "PathchSageAttentionKJ",
+      "mode": 0,
+      "widget_names": ["sage_attention", "allow_compile"],
+      "widget_defaults_sha256": "3a747877d236bceab7491217e14bfdb5a11dd6ded9950bcca3c968a1020bd19b",
+      "inputs": [{"name": "model", "type": "MODEL", "link": 45496}],
+      "outputs": [{"name": "MODEL", "type": "MODEL", "links": [45463, 45465]}]
     }
   },
   "required_edges": [
@@ -1569,7 +1848,26 @@
     {"graph": "f9092623-6d48-4b5a-b478-6b65bfaf31eb", "edge": [45855, 6266, 0, 6268, 0, "*"]},
     {"graph": "f9092623-6d48-4b5a-b478-6b65bfaf31eb", "edge": [45648, 6173, 0, -20, 0, "LATENT"]},
     {"graph": "f9092623-6d48-4b5a-b478-6b65bfaf31eb", "edge": [45856, 6268, 0, 6173, 2, "BOOLEAN"]},
-    {"graph": "f9092623-6d48-4b5a-b478-6b65bfaf31eb", "edge": [46763, -10, 1, 6173, 0, "*"]}
+    {"graph": "f9092623-6d48-4b5a-b478-6b65bfaf31eb", "edge": [46763, -10, 1, 6173, 0, "*"]},
+    {"graph": "root", "edge": [22124, 4596, 0, 1977, 0, "MODEL"]},
+    {"graph": "root", "edge": [45635, 6091, 0, 6161, 6, "MODEL"]},
+    {"graph": "root", "edge": [45636, 6091, 0, 4537, 6, "MODEL"]},
+    {"graph": "root", "edge": [45637, 6161, 0, 6165, 0, "MODEL"]},
+    {"graph": "root", "edge": [45638, 6165, 0, 6166, 0, "MODEL"]},
+    {"graph": "root", "edge": [45658, 6177, 1, 6178, 1, "LATENT"]},
+    {"graph": "5abc5ffb-b441-44d8-893e-92ebd215b94c", "edge": [45462, 6080, 1, 6079, 2, "INT"]},
+    {"graph": "5abc5ffb-b441-44d8-893e-92ebd215b94c", "edge": [45463, 6085, 0, 6069, 0, "MODEL"]},
+    {"graph": "5abc5ffb-b441-44d8-893e-92ebd215b94c", "edge": [45464, 6069, 0, 6079, 0, "MODEL"]},
+    {"graph": "5abc5ffb-b441-44d8-893e-92ebd215b94c", "edge": [45465, 6085, 0, 6070, 0, "MODEL"]},
+    {"graph": "5abc5ffb-b441-44d8-893e-92ebd215b94c", "edge": [45466, 6070, 0, 6079, 1, "MODEL"]},
+    {"graph": "5abc5ffb-b441-44d8-893e-92ebd215b94c", "edge": [45467, 6078, 0, 6079, 3, "MODEL"]},
+    {"graph": "5abc5ffb-b441-44d8-893e-92ebd215b94c", "edge": [45471, -10, 0, 6080, 0, "COMBO"]},
+    {"graph": "5abc5ffb-b441-44d8-893e-92ebd215b94c", "edge": [45472, -10, 1, 6078, 1, "COMBO"]},
+    {"graph": "5abc5ffb-b441-44d8-893e-92ebd215b94c", "edge": [45489, 6081, 0, 6078, 0, "MODEL"]},
+    {"graph": "5abc5ffb-b441-44d8-893e-92ebd215b94c", "edge": [45507, 6079, 0, -20, 0, "*"]},
+    {"graph": "5abc5ffb-b441-44d8-893e-92ebd215b94c", "edge": [45496, -10, 2, 6085, 0, "MODEL"]},
+    {"graph": "5abc5ffb-b441-44d8-893e-92ebd215b94c", "edge": [45497, -10, 2, 6081, 0, "MODEL"]},
+    {"graph": "f9092623-6d48-4b5a-b478-6b65bfaf31eb", "edge": [45676, 6170, 0, 6179, 0, "MODEL"]}
   ],
   "subgraph_interfaces": {
     "a4078340-52f5-4ab4-a7db-04dea29501b2": {
@@ -1731,6 +2029,14 @@
         {"name": "denoise", "type": "FLOAT", "linkIds": [46091]}
       ],
       "outputs": [{"name": "output", "type": "LATENT", "linkIds": [45648]}]
+    },
+    "5abc5ffb-b441-44d8-893e-92ebd215b94c": {
+      "inputs": [
+        {"name": "choice", "type": "COMBO", "linkIds": [45471]},
+        {"name": "sage_attention", "type": "COMBO", "linkIds": [45472]},
+        {"name": "model", "type": "MODEL", "linkIds": [45496, 45497]}
+      ],
+      "outputs": [{"name": "model", "type": "MODEL", "linkIds": [45507]}]
     }
   },
   "render_controls": {
@@ -1756,7 +2062,7 @@
       "minimum": 1,
       "maximum": 100,
       "step": 1,
-      "group": "advanced",
+      "group": "quality",
       "anchor": "first_pass",
       "widget": "steps",
       "api_node": "7334:6771",
@@ -1764,8 +2070,47 @@
       "help": "First sampling schedule. More steps increase render time; GPU acceptance pending.",
       "api_type": "BasicScheduler"
     },
+    "latent_upscaler_enabled": {
+      "label": "Latent upscaler",
+      "type": "boolean",
+      "default": false,
+      "group": "advanced",
+      "mode_anchors": {
+        "latent_upscaler": {"on": 0, "off": 4},
+        "upscale_video_split": {"on": 0, "off": 4},
+        "upscale_audio_split": {"on": 0, "off": 4},
+        "upscale_av_join": {"on": 0, "off": 4}
+      },
+      "help": "Upscales video between passes while retaining first-pass audio. GPU/VRAM acceptance pending."
+    },
+    "latent_upscaler_mpx": {
+      "label": "Upscale target (MPx)",
+      "type": "number",
+      "default": 1.2,
+      "baseline_default": 0.8,
+      "minimum": 0.1,
+      "maximum": 2.0,
+      "step": 0.1,
+      "group": "advanced",
+      "enabled_when": "latent_upscaler_enabled",
+      "minimum_from": "target_mpx",
+      "anchor": "latent_upscaler",
+      "widget": "mode.megapixels",
+      "api_node": "6175",
+      "api_input": "mode.megapixels",
+      "api_type": "MinimaxH3LatentUpscaler3D",
+      "help": "Target video area (MPx × 1024²), aligned to 32 pixels. Must be at least render area while ON; GPU safety unverified."
+    },
+    "second_pass_enabled": {
+      "label": "Second pass",
+      "type": "boolean",
+      "default": false,
+      "group": "advanced",
+      "mode_anchors": {"second_pass_enable": {"on": 0, "off": 4}},
+      "help": "Runs the canonical second sampler on the incoming latent. Independent of the upscaler."
+    },
     "second_steps": {
-      "label": "Second-pass steps (conditional)",
+      "label": "Second-pass steps",
       "type": "integer",
       "default": 4,
       "minimum": 1,
@@ -1776,8 +2121,23 @@
       "widget": "steps",
       "api_node": "7335:360",
       "api_input": "steps",
-      "help": "Used only when the second pass is active. The canonical baseline leaves it disabled; this setting preserves that state.",
-      "api_type": "BasicScheduler"
+      "help": "Second sampling schedule; only executes when Second pass is ON. GPU acceptance pending.",
+      "api_type": "BasicScheduler",
+      "enabled_when": "second_pass_enabled"
+    },
+    "second_pass_loras": {
+      "label": "Second-pass LoRAs",
+      "type": "lora_stack",
+      "default": [],
+      "default_strength": 1.0,
+      "group": "advanced",
+      "enabled_when": "second_pass_enabled",
+      "anchor": "second_lora_stack",
+      "on_mode": 0,
+      "off_mode": 4,
+      "baseline_widgets": {"divider": {}, "PowerLoraLoaderHeaderWidget": {"type": "PowerLoraLoaderHeaderWidget"}, "➕ Add Lora": ""},
+      "baseline_values": [{}, {"type": "PowerLoraLoaderHeaderWidget"}, {}, ""],
+      "help": "Registered IDs only. Applied only to the second MODEL branch while Second pass is ON; GPU compatibility pending."
     }
   },
   "profile_widgets": {
@@ -1787,44 +2147,120 @@
     "audio_vae": ["renderer", "vae_name_1"]
   },
   "analysis_model_patches": [
-    {"anchor": "analysis_source_2640", "widget": "model", "value": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.f16.gguf"},
-    {"anchor": "writer_step2", "widget": "model", "value": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.f16.gguf"},
-    {"anchor": "writer_step1", "widget": "model", "value": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.f16.gguf"},
+    {
+      "anchor": "analysis_source_2640",
+      "widget": "model",
+      "value": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.f16.gguf"
+    },
+    {
+      "anchor": "writer_step2",
+      "widget": "model",
+      "value": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.f16.gguf"
+    },
+    {
+      "anchor": "writer_step1",
+      "widget": "model",
+      "value": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.f16.gguf"
+    },
     {"anchor": "analysis_source_7386", "widget": "model", "value": "Llama-Joycaption-Beta-One-Hf-Llava-F16.gguf"},
-    {"anchor": "analysis_source_7386", "widget": "mmproj", "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"},
+    {
+      "anchor": "analysis_source_7386",
+      "widget": "mmproj",
+      "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"
+    },
     {"anchor": "analysis_source_7402", "widget": "model", "value": "Llama-Joycaption-Beta-One-Hf-Llava-F16.gguf"},
-    {"anchor": "analysis_source_7402", "widget": "mmproj", "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"},
+    {
+      "anchor": "analysis_source_7402",
+      "widget": "mmproj",
+      "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"
+    },
     {"anchor": "analysis_source_7406", "widget": "model", "value": "Llama-Joycaption-Beta-One-Hf-Llava-F16.gguf"},
-    {"anchor": "analysis_source_7406", "widget": "mmproj", "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"},
+    {
+      "anchor": "analysis_source_7406",
+      "widget": "mmproj",
+      "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"
+    },
     {"anchor": "analysis_source_7410", "widget": "model", "value": "Llama-Joycaption-Beta-One-Hf-Llava-F16.gguf"},
-    {"anchor": "analysis_source_7410", "widget": "mmproj", "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"},
+    {
+      "anchor": "analysis_source_7410",
+      "widget": "mmproj",
+      "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"
+    },
     {"anchor": "analysis_source_7414", "widget": "model", "value": "Llama-Joycaption-Beta-One-Hf-Llava-F16.gguf"},
-    {"anchor": "analysis_source_7414", "widget": "mmproj", "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"},
+    {
+      "anchor": "analysis_source_7414",
+      "widget": "mmproj",
+      "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"
+    },
     {"anchor": "analysis_source_7418", "widget": "model", "value": "Llama-Joycaption-Beta-One-Hf-Llava-F16.gguf"},
-    {"anchor": "analysis_source_7418", "widget": "mmproj", "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"},
+    {
+      "anchor": "analysis_source_7418",
+      "widget": "mmproj",
+      "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"
+    },
     {"anchor": "analysis_source_7422", "widget": "model", "value": "Llama-Joycaption-Beta-One-Hf-Llava-F16.gguf"},
-    {"anchor": "analysis_source_7422", "widget": "mmproj", "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"},
+    {
+      "anchor": "analysis_source_7422",
+      "widget": "mmproj",
+      "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"
+    },
     {"anchor": "analysis_source_7426", "widget": "model", "value": "Llama-Joycaption-Beta-One-Hf-Llava-F16.gguf"},
-    {"anchor": "analysis_source_7426", "widget": "mmproj", "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"},
+    {
+      "anchor": "analysis_source_7426",
+      "widget": "mmproj",
+      "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"
+    },
     {"anchor": "analysis_source_7430", "widget": "model", "value": "Llama-Joycaption-Beta-One-Hf-Llava-F16.gguf"},
-    {"anchor": "analysis_source_7430", "widget": "mmproj", "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"},
+    {
+      "anchor": "analysis_source_7430",
+      "widget": "mmproj",
+      "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"
+    },
     {"anchor": "analysis_source_7434", "widget": "model", "value": "Llama-Joycaption-Beta-One-Hf-Llava-F16.gguf"},
-    {"anchor": "analysis_source_7434", "widget": "mmproj", "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"},
+    {
+      "anchor": "analysis_source_7434",
+      "widget": "mmproj",
+      "value": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf"
+    },
     {"anchor": "analysis_source_7446", "widget": "model", "value": "Qwen3-VL-8B-NSFW-Caption-V4.5.f16.gguf"},
     {"anchor": "analysis_source_7446", "widget": "mmproj", "value": "Qwen3-VL-8B-NSFW-Caption-V4.5.mmproj-f16.gguf"},
-    {"anchor": "analysis_source_7450", "widget": "model", "value": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.f16.gguf"}
+    {
+      "anchor": "analysis_source_7450",
+      "widget": "model",
+      "value": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.f16.gguf"
+    }
   ],
-  "writer_anchors": {"step3": "writer_step3", "step4": "writer_step4"},
+  "writer_anchors": {
+    "step3": "writer_step3",
+    "step4": "writer_step4"
+  },
   "writer_seed_bindings": [
     {"widget": "value_4", "seed": "analysis_seed", "offset": 0, "mirror": "writer_step1"},
     {"widget": "value_4_1", "seed": "analysis_seed", "offset": 1, "mirror": "writer_step2"},
     {"widget": "value_4_2", "seed": "prompt_seed", "offset": 0, "mirror": "writer_step3"},
     {"widget": "value_4_3", "seed": "prompt_seed", "offset": 1, "mirror": "writer_step4"}
   ],
-  "reference_anchors": ["picture_1", "picture_2", "picture_3", "picture_4", "picture_5", "picture_6"],
-  "audio_anchors": ["audio_1", "audio_2", "audio_3"],
+  "reference_anchors": [
+    "picture_1",
+    "picture_2",
+    "picture_3",
+    "picture_4",
+    "picture_5",
+    "picture_6"
+  ],
+  "audio_anchors": [
+    "audio_1",
+    "audio_2",
+    "audio_3"
+  ],
   "lora_slots": 16,
-  "duration_rewire": {"graph": "root", "link_id": 46933, "source": "duration", "old_slot": 2, "new_slot": 1},
+  "duration_rewire": {
+    "graph": "root",
+    "link_id": 46933,
+    "source": "duration",
+    "old_slot": 2,
+    "new_slot": 1
+  },
   "api": {
     "renderer": "4595:4529",
     "encoder": "4595:130",
@@ -1857,15 +2293,39 @@
       {"target": "7335:469", "input": "guider", "source": ["7335:29", 0]},
       {"target": "7334:6773", "input": "sampler", "source": ["7334:6782", 0]},
       {"target": "7335:469", "input": "sampler", "source": ["7335:30", 0]},
-      {"target": "7335:469", "input": "latent_image", "source": ["7334:6773", 0]},
+      {
+        "target": "7335:469",
+        "input": "latent_image",
+        "source": ["7334:6773", 0],
+        "enabled_when": "latent_upscaler_enabled",
+        "enabled_source": ["6178", 0]
+      },
       {"target": "6182", "input": "images", "source": ["7456", 0]},
       {"target": "6182", "input": "audio", "source": ["7457", 0]},
-      {"target": "7335:6173", "input": "on_false", "source": ["7334:6773", 0]},
+      {
+        "target": "7335:6173",
+        "input": "on_false",
+        "source": ["7334:6773", 0],
+        "enabled_when": "latent_upscaler_enabled",
+        "enabled_source": ["6178", 0]
+      },
       {"target": "7335:6173", "input": "on_true", "source": ["7335:469", 0]},
       {"target": "7335:6173", "input": "switch", "source": ["7335:6268", 0]},
       {"target": "7335:6268", "input": "switch", "source": ["7335:6266", 1]},
       {"target": "7335:6268", "input": "on_false", "source": ["7335:6266", 0]},
-      {"target": "7335:6268", "input": "on_true", "source": ["7335:6269", 0]}
+      {"target": "7335:6268", "input": "on_true", "source": ["7335:6269", 0]},
+      {
+        "target": "7335:6179",
+        "input": "anything",
+        "source": ["6091:6079", 0],
+        "lora_stack_when": "second_pass_loras",
+        "enabled_source": ["6165", 0]
+      },
+      {"target": "7335:29", "input": "model", "source": ["7335:6179", 0]},
+      {"target": "7335:360", "input": "model", "source": ["7335:6179", 0]},
+      {"target": "7334:6769", "input": "model", "source": ["6164", 0]},
+      {"target": "7334:6771", "input": "model", "source": ["6164", 0]},
+      {"target": "6960:6959", "input": "samples", "source": ["7335:6173", 0]}
     ],
     "fixed_inputs": [
       {"node": "7334:6771", "input": "scheduler", "value": "simple"},
@@ -1878,7 +2338,33 @@
       {"node": "1731:1735", "input": "multiple", "value": 32},
       {"node": "6182", "input": "fps", "value": 24},
       {"node": "7335:6269", "input": "value", "value": false}
-    ]
+    ],
+    "render_routes": {
+      "first_latent": ["7334:6773", 0],
+      "upscaler": "6175",
+      "video_split": "6176",
+      "audio_split": "6177",
+      "av_join": "6178",
+      "upscaler_fixed_inputs": {
+        "model_name": "minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors",
+        "mode": "megapixels",
+        "align": 32,
+        "enable_temporal_chunking": true,
+        "force_unload": false,
+        "device": "cuda",
+        "precision": "fp16"
+      },
+      "second_enable": "6263",
+      "second_enable_value": "7335:6266",
+      "second_logic": "7335:6268",
+      "second_output": "7335:6173",
+      "second_fallback": "7335:6269",
+      "second_model": "7335:6179",
+      "second_lora": "6165",
+      "second_lora_source": ["6091:6079", 0],
+      "lora_fixed_inputs": {"PowerLoraLoaderHeaderWidget": {"type": "PowerLoraLoaderHeaderWidget"}, "➕ Add Lora": ""},
+      "first_model_consumers": ["7334:6769", "7334:6771"]
+    }
   },
   "template_kind": "v20_render_template"
 }

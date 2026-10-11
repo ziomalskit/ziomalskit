@@ -28,7 +28,8 @@ class AdapterRecoveryTests(unittest.IsolatedAsyncioTestCase):
         for value in [*snapshot["queue"], *snapshot["batches"]]:
             for key, expected in identity.items():
                 self.assertEqual(value["context"][key], expected)
-            self.assertEqual(value["context"]["render_settings"], {"target_mpx": 0.8, "first_steps": 32, "second_steps": 8})
+            self.assertEqual(value["context"]["render_settings"], self.m.get_adapter("h3_v20", root=self.m.ROOT).resolve_render_settings(
+                {"target_mpx": 0.8, "first_steps": 32, "second_steps": 8}))
             self.assertEqual(value["context"]["workflow_render_identity"], job["context"]["workflow_render_identity"])
 
     async def test_render_settings_and_workflow_identity_survive_restart_exactly(self):
@@ -174,7 +175,7 @@ class AdapterRecoveryTests(unittest.IsolatedAsyncioTestCase):
             changed = await client.post("/api/batches", json={**body, "render_settings": {**body["render_settings"], "first_steps": 33}})
             self.assertEqual(changed.status_code, 409)
         self.assertEqual(len(self.m.queue), 10)
-        self.assertEqual(self.m.queue[0]["context"]["render_settings"], body["render_settings"])
+        self.assertEqual(self.m.queue[0]["context"]["render_settings"], self.m.get_adapter("h3_v20", root=self.m.ROOT).resolve_render_settings(body["render_settings"]))
 
     async def test_http_nonfinite_and_overflow_numbers_fail_closed(self):
         body = self.req.model_dump(mode="json")

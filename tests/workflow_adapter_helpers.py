@@ -45,7 +45,7 @@ def parity_graphs(module):
                 result[prefix + "/ui"] = ui
                 catalog = production_catalog()
                 graph = adapter.prepare_api_prompt(exact_convert(ui, catalog), catalog, phase=phase,
-                                                  approved_prompt=FINAL if phase == "render" else None)
+                                                  approved_prompt=FINAL if phase == "render" else None, context=context)
                 guarded, _ = adapter.install_runtime_guards(graph, catalog, context, phase=phase)
                 adapter.validate_final_graph(guarded, context, phase=phase)
                 result[prefix + "/api"] = guarded

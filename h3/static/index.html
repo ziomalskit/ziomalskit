@@ -22,6 +22,9 @@ button.reject{background:#3a2020;color:#fff}
 pre{white-space:pre-wrap;word-break:break-word;background:#0b0d10;padding:10px;border-radius:10px}
 .logtail{max-height:350px;overflow:auto;font-size:12px}
 summary{cursor:pointer;margin:8px 0}
+.render-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.render-field{min-width:0}.render-field.disabled{opacity:.5}
+.render-field.stack{grid-column:1/-1}
 a{color:#9ecbff}
 
 .vastgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}
@@ -77,8 +80,8 @@ a{color:#9ecbff}
 <option value="h3_full">H3 Full</option>
 <option value="10eros_full">10Eros Full</option>
 </select>
-<div id="qualityControls"></div>
-<details id="advancedRenderSettings" hidden><summary>Advanced render settings</summary><div id="advancedRenderControls"></div></details>
+<div id="qualityControls" class="render-grid"></div>
+<div id="advancedRenderSettings" hidden><div id="advancedRenderControls" class="render-grid"></div></div>
 <label>Clip duration (seconds)</label><input id="duration" type="number" value="20" min="1" max="120" step="1">
 <div class="row">
 <div><label>Batches</label><input id="batches" type="number" value="1" min="1" max="100"></div>
@@ -211,25 +214,66 @@ function profileChanged(){
 }
 function renderSettingsForm(){
   function markup(group){
-    return Object.entries(renderControls).filter(([key,c])=>c.group===group).map(([key,c])=>
-      `<label for="render_${esc(key)}">${esc(c.label)}</label>
-       <input id="render_${esc(key)}" type="number" min="${c.minimum}" max="${c.maximum}" step="${c.step}" value="${c.default}">
-       <div class="tiny">${esc(c.help||'')}</div>`).join('');
+    return Object.entries(renderControls).filter(([key,c])=>c.group===group).map(([key,c])=>{
+      let field;
+      if(c.type==='boolean')field=`<select id="render_${esc(key)}" onchange="updateRenderDependencies()">
+        <option value="false" ${c.default?'':'selected'}>OFF</option><option value="true" ${c.default?'selected':''}>ON</option></select>`;
+      else if(c.type==='lora_stack')field=`<details><summary>${esc(c.label)} — registered selection</summary>`+loras.map((l,i)=>{
+        const saved=c.default.find(row=>row.id===l.id),strength=saved?.strength??c.default_strength;
+        return `<label><input id="render_${esc(key)}_enable_${i}" style="width:auto" type="checkbox" ${saved?.enabled?'checked':''} onchange="updateRenderDependencies()"> ${esc(l.display_name)}</label>
+          <label class="tiny" for="render_${esc(key)}_strength_${i}">Strength</label>
+          <input id="render_${esc(key)}_strength_${i}" type="number" min="${l.strength_range[0]}" max="${l.strength_range[1]}" step="0.05" value="${strength}">`;
+      }).join('')+'</details>';
+      else field=`<input id="render_${esc(key)}" type="number" min="${c.minimum}" max="${c.maximum}" step="${c.step}" value="${c.default}">`;
+      return `<div id="render_field_${esc(key)}" class="render-field ${c.type==='lora_stack'?'stack':''}">
+        ${c.type==='lora_stack'?'':`<label for="render_${esc(key)}">${esc(c.label)}</label>`}${field}<div class="tiny">${esc(c.help||'')}</div></div>`;
+    }).join('');
   }
   const quality=document.getElementById('qualityControls'),advanced=document.getElementById('advancedRenderControls');
   if(quality)quality.innerHTML=markup('quality');
   if(advanced)advanced.innerHTML=markup('advanced');
   const section=document.getElementById('advancedRenderSettings');
   if(section)section.hidden=!Object.values(renderControls).some(c=>c.group==='advanced');
+  updateRenderDependencies();
+}
+function updateRenderDependencies(){
+  const profile=document.getElementById('model').value;
+  for(const [key,c] of Object.entries(renderControls)){
+    const enabled=!c.enabled_when||document.getElementById('render_'+c.enabled_when)?.value==='true';
+    document.getElementById('render_field_'+key)?.classList?.toggle('disabled',!enabled);
+    if(c.type==='lora_stack')loras.forEach((l,i)=>{
+      const compatible=l.compatibility?.[profile]!=='incompatible';
+      const select=document.getElementById(`render_${key}_enable_${i}`),strength=document.getElementById(`render_${key}_strength_${i}`);
+      if(select)select.disabled=!enabled||!compatible;
+      if(strength)strength.disabled=!enabled||!compatible||!select?.checked;
+    });
+    else{const field=document.getElementById('render_'+key);if(field)field.disabled=!enabled;}
+  }
 }
 function submittedRenderSettings(){
-  return Object.fromEntries(Object.entries(renderControls).map(([key,c])=>{
+  const values=Object.fromEntries(Object.entries(renderControls).map(([key,c])=>{
+    if(c.type==='boolean'){
+      const raw=document.getElementById('render_'+key)?.value;
+      if(raw!=='true'&&raw!=='false')throw new Error(`${c.label}: select ON or OFF.`);
+      return [key,raw==='true'];
+    }
+    if(c.type==='lora_stack'){
+      const rows=loras.map((l,i)=>{
+        const raw=document.getElementById(`render_${key}_strength_${i}`)?.value,strength=raw===''?NaN:Number(raw);
+        if(!Number.isFinite(strength)||strength<l.strength_range[0]||strength>l.strength_range[1])throw new Error(`${c.label}: invalid strength for ${l.display_name}.`);
+        return {id:l.id,enabled:document.getElementById(`render_${key}_enable_${i}`)?.checked===true,strength};
+      });
+      return [key,rows.filter(row=>row.enabled||row.strength!==c.default_strength)];
+    }
     const raw=document.getElementById('render_'+key)?.value;
     const value=raw===''||raw==null?NaN:Number(raw);
     if(!Number.isFinite(value)||value<c.minimum||value>c.maximum||(c.type==='integer'&&!Number.isInteger(value)))
       throw new Error(`${c.label}: enter a valid value from ${c.minimum} to ${c.maximum}.`);
     return [key,value];
   }));
+  for(const [key,c] of Object.entries(renderControls))if(c.minimum_from&&(!c.enabled_when||values[c.enabled_when])&&values[key]<values[c.minimum_from])
+    throw new Error(`${c.label} must be at least ${renderControls[c.minimum_from].label} while ON.`);
+  return values;
 }
 async function up(f){
   let fd=new FormData(); fd.append('file',f);

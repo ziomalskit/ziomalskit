@@ -67,7 +67,7 @@ class WorkflowAdapter:
     def validate_job(self, context: dict, profile: dict) -> None:
         if profile.get("workflow_id") != self.id or any(context.get(key) != value for key, value in self.identity().items()):
             self.fail("persisted workflow/adapter identity changed or missing; explicit reconciliation required")
-        settings = self.resolve_render_settings(context.get("render_settings"), frozen=True)
+        settings = self.resolve_render_settings(context.get("render_settings"), frozen=True, profile=context.get("profile"))
         if context.get("workflow_render_identity") != self.render_identity(context, settings):
             self.fail("persisted render settings identity differs; explicit reconciliation required")
 
@@ -109,7 +109,9 @@ class WorkflowAdapter:
                 self.fail(f"anchor {role}: expected widget layout missing or changed")
             if canonical_hash(named if named is not None else node.get("widgets_values")) != spec["widget_defaults_sha256"]:
                 self.fail(f"anchor {role}: canonical widget defaults changed")
-            if spec.get("lora_slots"):
+            if spec.get("positional_defaults_sha256") and canonical_hash(node.get("widgets_values")) != spec["positional_defaults_sha256"]:
+                self.fail(f"anchor {role}: canonical positional widgets changed")
+            if node["type"] == "Power Lora Loader (rgthree)":
                 actual_rows = [value for value in node.get("widgets_values", []) if isinstance(value, dict) and "lora" in value]
                 expected_rows = [value for key, value in named.items() if key.startswith("lora_")]
                 if actual_rows != expected_rows:
@@ -140,7 +142,7 @@ class WorkflowAdapter:
         except (KeyError, IndexError, ValueError) as error:
             self.fail(f"anchor {role}.{widget}: {error}")
 
-    def resolve_render_settings(self, values: dict | None = None, *, frozen=False) -> dict:
+    def resolve_render_settings(self, values: dict | None = None, *, frozen=False, profile=None) -> dict:
         controls = self.descriptor["render_controls"]
         if values is None:
             if frozen:
@@ -151,27 +153,91 @@ class WorkflowAdapter:
         result = {}
         for key, control in controls.items():
             value = values.get(key, control["default"])
+            if control["type"] == "boolean":
+                if type(value) is not bool:
+                    raise ValueError(f"invalid render setting {key}; expected JSON boolean")
+                result[key] = value
+                continue
+            if control["type"] == "lora_stack":
+                from .render_settings import SecondPassLora
+                from .production import read_loras, resolve_loras
+                if type(value) is not list or frozen and any(
+                        not isinstance(row, dict) or set(row) != {"id", "enabled", "strength"} for row in value):
+                    raise ValueError("invalid or incomplete second-pass LoRA settings")
+                rows = [SecondPassLora.model_validate(row).model_dump() for row in value]
+                result[key] = resolve_loras(read_loras(self.root / "config/lora_registry.json"), profile,
+                    rows, frozen=frozen, ids_only=True, supplied_only=True) if rows else []
+                if sum(row["enabled"] for row in result[key]) > self.descriptor["lora_slots"]:
+                    raise ValueError("LoRA slot capacity exceeded")
+                continue
             kinds = (int,) if control["type"] == "integer" else (int, float)
             if (type(value) not in kinds or not control["minimum"] <= value <= control["maximum"] or
                     type(value) is float and not math.isfinite(value)):
                 raise ValueError(f"invalid render setting {key}; expected {control['type']} in [{control['minimum']}, {control['maximum']}]")
             result[key] = value if control["type"] == "integer" else float(value)
+        for key, control in controls.items():
+            source = control.get("minimum_from")
+            if source and self.control_active(key, result) and result[key] < result[source]:
+                raise ValueError(f"{control['label']} must be at least {controls[source]['label']} while {controls[control['enabled_when']]['label']} is ON")
         return result
 
     def render_capabilities(self) -> dict:
         workflow = self.load_and_validate()
-        public = ("label", "type", "default", "minimum", "maximum", "step", "group", "help")
+        public = ("label", "type", "default", "minimum", "maximum", "step", "group", "help", "enabled_when", "default_strength", "minimum_from")
         for control in self.descriptor["render_controls"].values():
-            if self.node(workflow, control["anchor"])["widgets_values_named"][control["widget"]] != control["default"]:
+            if "widget" in control and self.node(workflow, control["anchor"])["widgets_values_named"][control["widget"]] != control.get("baseline_default", control["default"]):
                 self.fail("render control default differs from immutable baseline")
+            for role, modes in control.get("mode_anchors", {}).items():
+                if self.node(workflow, role).get("mode", 0) != modes["off"]:
+                    self.fail("render toggle baseline mode differs")
+            if control["type"] == "lora_stack" and self.node(workflow, control["anchor"])["widgets_values_named"] != control["baseline_widgets"]:
+                self.fail("render LoRA baseline differs")
+            if control["type"] == "lora_stack" and self.node(workflow, control["anchor"])["widgets_values"] != control["baseline_values"]:
+                self.fail("render LoRA positional baseline differs")
         return {"id": self.id, "label": self.descriptor["label"],
-                "render_controls": {key: {field: value[field] for field in public}
+                "render_controls": {key: {field: value[field] for field in public if field in value}
                                     for key, value in self.descriptor["render_controls"].items()}}
 
-    def apply_render_settings(self, workflow, values: dict):
-        values = self.resolve_render_settings(values, frozen=True)
+    def control_active(self, key, values):
+        control = self.descriptor["render_controls"][key]
+        return not control.get("enabled_when") or values[control["enabled_when"]]
+
+    def active_render_loras(self, context):
+        """Supply enabled adapter stacks to the existing provenance/file gate."""
+        values = self.resolve_render_settings(context["render_settings"], frozen=True, profile=context["profile"])
+        return [row for key, control in self.descriptor["render_controls"].items()
+                if control["type"] == "lora_stack" and self.control_active(key, values)
+                for row in values[key] if row["enabled"]]
+
+    def apply_render_settings(self, workflow, values: dict, *, profile=None):
+        values = self.resolve_render_settings(values, frozen=True, profile=profile)
         for key, control in self.descriptor["render_controls"].items():
-            self.set(workflow, control["anchor"], control["widget"], values[key])
+            for role, modes in control.get("mode_anchors", {}).items():
+                self.node(workflow, role)["mode"] = modes["on" if values[key] else "off"]
+            if "widget" in control:
+                value = values[key] if self.control_active(key, values) else control.get("baseline_default", values[key])
+                self.set(workflow, control["anchor"], control["widget"], value)
+            if control["type"] == "lora_stack":
+                from .production import read_loras, patch_lora_slots
+                node = self.node(workflow, control["anchor"])
+                active = self.control_active(key, values) and any(row["enabled"] for row in values[key])
+                node["mode"] = control["on_mode"] if active else control["off_mode"]
+                if active:
+                    patch_lora_slots(node, read_loras(self.root / "config/lora_registry.json"), values[key], slots=self.descriptor["lora_slots"])
+                else:
+                    node["widgets_values_named"] = copy.deepcopy(control["baseline_widgets"])
+                    node["widgets_values"] = copy.deepcopy(control["baseline_values"])
+
+    def api_edges(self, settings):
+        for edge in self.descriptor["api"]["edges"]:
+            source = edge["source"]
+            if "enabled_when" in edge and settings[edge["enabled_when"]]:
+                source = edge["enabled_source"]
+            if "lora_stack_when" in edge:
+                key = edge["lora_stack_when"]
+                if self.control_active(key, settings) and any(row["enabled"] for row in settings[key]):
+                    source = edge["enabled_source"]
+            yield {**edge, "source": source}
 
     def apply_profile(self, workflow, profile):
         for field, (role, widget) in self.descriptor["profile_widgets"].items():
@@ -256,7 +322,7 @@ class WorkflowAdapter:
         bridge = context["conditioning_bridge"]
         self.set(workflow, "bridge", "enabled", bridge["enabled"])
         self.set(workflow, "bridge", "alpha", bridge["strength"])
-        self.apply_render_settings(workflow, context["render_settings"])
+        self.apply_render_settings(workflow, context["render_settings"], profile=job["profile"])
         workflow["extra"]["aj_production"].update(job_id=job["id"], phase=phase)
         return workflow
 
@@ -270,13 +336,15 @@ class WorkflowAdapter:
                      (2, "reference_map", "reference_map"), (3, "creative_plan", "creative_plan"), (4, "final_prompt", "final_h3_prompt"))},
                 "fallback_top_level_final_node_id": api["final_preview"]}
 
-    def prepare_api_prompt(self, prompt, catalog, *, phase, approved_prompt=None):
+    def prepare_api_prompt(self, prompt, catalog, *, phase, approved_prompt=None, context=None):
         from .workflow_conversion import prepare_api_prompt
         result = prepare_api_prompt(prompt, catalog, phase=phase, approved_prompt=approved_prompt, contract=self.descriptor["api"])
         if phase == "render":
-            for edge in self.descriptor["api"]["edges"]:
+            settings = self.resolve_render_settings(context["render_settings"], frozen=True, profile=context.get("profile")) if context is not None else self.resolve_render_settings()
+            for edge in self.api_edges(settings):
                 if result.get(edge["target"], {}).get("inputs", {}).get(edge["input"]) != edge["source"]:
                     self.fail(f"converted graph edge {edge['target']}.{edge['input']} changed")
+            self.hook.validate_render_routes(result, settings, catalog)
         return result
 
     def install_runtime_guards(self, prompt, catalog, context, *, phase, analysis_texts=None):

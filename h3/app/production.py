@@ -139,10 +139,13 @@ def read_loras(path: Path) -> dict[str, dict]:
     return registry
 
 
-def resolve_loras(registry: dict, profile: str, settings: list[dict] | None, *, frozen=False) -> list[dict]:
+def resolve_loras(registry: dict, profile: str, settings: list[dict] | None, *, frozen=False,
+                  ids_only=False, supplied_only=False) -> list[dict]:
     if profile not in PROFILE_LABELS:
         raise ValueError("unknown production profile")
     result = {identifier: {"id": identifier, **entry["defaults"][profile]} for identifier, entry in registry.items()}
+    if supplied_only:
+        result = {}
     if frozen:
         # New registry entries/default changes cannot modify an already queued
         # job. Its explicit persisted IDs/strengths are the whole selection.
@@ -153,7 +156,7 @@ def resolve_loras(registry: dict, profile: str, settings: list[dict] | None, *, 
         # Only explicit registered identifiers/legacy canonical names are accepted.
         # No basename normalization can transform an untrusted path into an ID.
         value = setting.get("id", setting.get("name"))
-        identifier = value if value in registry else next((key for key, item in registry.items() if item["filename"] == value), None)
+        identifier = value if value in registry else None if ids_only else next((key for key, item in registry.items() if item["filename"] == value), None)
         if identifier is None:
             raise ValueError("unknown LoRA identifier")
         if identifier in seen:
@@ -161,7 +164,9 @@ def resolve_loras(registry: dict, profile: str, settings: list[dict] | None, *, 
         seen.add(identifier)
         entry = registry[identifier]
         strength = setting.get("strength")
-        if type(setting.get("enabled")) is not bool or type(strength) not in (int, float) or not math.isfinite(strength) or not entry["strength_range"][0] <= strength <= entry["strength_range"][1]:
+        if (type(setting.get("enabled")) is not bool or type(strength) not in (int, float) or
+                not entry["strength_range"][0] <= strength <= entry["strength_range"][1] or
+                type(strength) is float and not math.isfinite(strength)):
             raise ValueError("LoRA strength outside registry bounds")
         if setting["enabled"] and entry["compatibility"][profile] == "incompatible":
             raise ValueError("LoRA incompatible with this profile")

@@ -11,6 +11,76 @@ class V20Hooks:
     def __init__(self, adapter):
         self.adapter = adapter
 
+    def validate_render_routes(self, prompt, settings, catalog=None):
+        a = self.adapter
+        routes = a.descriptor["api"]["render_routes"]
+        def exact(key, kind, inputs):
+            node = prompt.get(key, {})
+            if node.get("class_type") != kind or node.get("inputs") != inputs:
+                a.fail(f"render topology {key} type/inputs changed")
+        def absent(keys):
+            if any(key in prompt for key in keys):
+                a.fail("disabled render branch unexpectedly active")
+
+        # Core's pinned If/Else Switch is lazy; eager evaluation would execute
+        # the unselected sampler. Refuse worker catalogs without that contract.
+        if catalog is not None:
+            schema = catalog.get("ComfySwitchNode", {}).get("input", {})
+            if not isinstance(schema, dict) or any(not isinstance(schema.get(group, {}), dict)
+                                                   for group in ("required", "optional")):
+                a.fail("second-pass switch must expose lazy branches")
+            fields = {**schema.get("required", {}), **schema.get("optional", {})}
+            if any(not isinstance(fields.get(name), list) or len(fields[name]) < 2 or
+                   not isinstance(fields[name][1], dict) or
+                   fields[name][1].get("lazy") is not True for name in ("on_false", "on_true")):
+                a.fail("second-pass switch must expose lazy branches")
+        enable = routes["second_enable"]
+        enabled_inputs = {"anything": [enable, 0]} if settings["second_pass_enabled"] else {}
+        exact(routes["second_enable_value"], "easy PassOrNone", enabled_inputs)
+        if settings["second_pass_enabled"]:
+            exact(enable, "Bool-🔬", {"value": True})
+            if prompt[enable]["inputs"]["value"] is not True:
+                a.fail("second-pass enable must be a true boolean")
+        else:
+            absent([enable])
+        exact(routes["second_fallback"], "PrimitiveBoolean", {"value": False})
+        if prompt[routes["second_fallback"]]["inputs"]["value"] is not False:
+            a.fail("second-pass fallback must be a false boolean")
+        edges = list(a.api_edges(settings))
+        for role, kind in (("second_logic", "ComfySwitchNode"), ("second_output", "ComfySwitchNode"),
+                           ("second_model", "easy PassOrNone")):
+            key = routes[role]
+            exact(key, kind, {edge["input"]: edge["source"] for edge in edges if edge["target"] == key})
+
+        upscale_nodes = [routes[key] for key in ("upscaler", "video_split", "audio_split", "av_join")]
+        if settings["latent_upscaler_enabled"]:
+            for key in ("video_split", "audio_split"):
+                exact(routes[key], "LTXVSeparateAVLatent", {"av_latent": routes["first_latent"]})
+            exact(routes["upscaler"], "MinimaxH3LatentUpscaler3D", {**routes["upscaler_fixed_inputs"],
+                "mode.megapixels": settings["latent_upscaler_mpx"], "latent": [routes["video_split"], 0]})
+            exact(routes["av_join"], "LTXVConcatAVLatent", {
+                "video_latent": [routes["upscaler"], 0], "audio_latent": [routes["audio_split"], 1]})
+        else:
+            absent(upscale_nodes)
+
+        lora = routes["second_lora"]
+        selected = [row for row in settings["second_pass_loras"] if row["enabled"]]
+        if settings["second_pass_enabled"] and selected:
+            from ..production import read_loras, patch_lora_slots
+            node = {}
+            patch_lora_slots(node, read_loras(a.root / "config/lora_registry.json"), settings["second_pass_loras"],
+                             slots=a.descriptor["lora_slots"])
+            rows = {name: {key: value for key, value in row.items() if key != "strengthTwo" or value is not None}
+                    for name, row in node["widgets_values_named"].items() if name.startswith("lora_")}
+            exact(lora, "Power Lora Loader (rgthree)", {"model": routes["second_lora_source"],
+                **routes["lora_fixed_inputs"], **rows})
+            # A cloned second MODEL must never be an ancestor of first pass.
+            for key in routes["first_model_consumers"]:
+                if lora in _ancestors(prompt, {key}):
+                    a.fail("second-pass LoRA leaked into first-pass MODEL")
+        else:
+            absent([lora])
+
     def normalize_baseline(self, workflow):
         a = self.adapter
         for role, expression in (("frame_expression", FRAME_EXPRESSION), ("length_expression", LENGTH_EXPRESSION)):
@@ -62,9 +132,12 @@ class V20Hooks:
         video = next(edge for edge in contract["edges"] if edge["target"] == sink)
         if prompt.get(v20_api.VIDEO_BOUNDARY, {}).get("inputs", {}).get("video") != video["source"]:
             a.fail("final video output path changed")
-        for edge in contract["edges"]:
-            if edge["target"] != sink and edge["target"] not in contract["guiders"] and prompt.get(edge["target"], {}).get("inputs", {}).get(edge["input"]) != edge["source"]:
+        settings = a.resolve_render_settings(context["render_settings"], frozen=True, profile=context.get("profile"))
+        for edge in a.api_edges(settings):
+            guarded = edge["target"] in contract["guiders"] and edge["input"] == "conditioning"
+            if edge["target"] != sink and not guarded and prompt.get(edge["target"], {}).get("inputs", {}).get(edge["input"]) != edge["source"]:
                 a.fail("sampling graph edge changed")
+        self.validate_render_routes(prompt, settings)
         for invariant in contract["fixed_inputs"]:
             if prompt.get(invariant["node"], {}).get("inputs", {}).get(invariant["input"]) != invariant["value"]:
                 a.fail(f"canonical render parameter {invariant['node']}.{invariant['input']} changed")
@@ -73,8 +146,9 @@ class V20Hooks:
             widget = "unet_name" if role == "renderer" else "clip_name" if role == "encoder" else "vae_name"
             if prompt.get(contract[role], {}).get("inputs", {}).get(widget) != policy[field]:
                 a.fail("converted render loader differs from persisted production profile")
-        settings = a.resolve_render_settings(context["render_settings"], frozen=True)
         for key, control in a.descriptor["render_controls"].items():
+            if "api_node" not in control or key == "latent_upscaler_mpx" and not settings["latent_upscaler_enabled"]:
+                continue
             if (prompt.get(control["api_node"], {}).get("class_type") != control["api_type"] or
                     prompt.get(control["api_node"], {}).get("inputs", {}).get(control["api_input"]) != settings[key]):
                 a.fail(f"converted render control {key} differs from frozen setting")

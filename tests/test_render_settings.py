@@ -23,7 +23,9 @@ class RenderSettingsTests(unittest.TestCase):
         workflow = self.composed()
         before = copy.deepcopy(workflow)
         defaults = self.adapter.resolve_render_settings()
-        self.assertEqual(defaults, {"target_mpx": 0.4, "first_steps": 24, "second_steps": 4})
+        self.assertEqual(defaults, {"target_mpx": 0.4, "first_steps": 24,
+            "latent_upscaler_enabled": False, "latent_upscaler_mpx": 1.2,
+            "second_pass_enabled": False, "second_steps": 4, "second_pass_loras": []})
         self.adapter.apply_render_settings(workflow, defaults)
         self.assertEqual(workflow, before)
 
@@ -76,6 +78,8 @@ class RenderSettingsTests(unittest.TestCase):
 
     def test_boundary_values_accepted(self):
         for key, control in self.adapter.descriptor["render_controls"].items():
+            if control["type"] not in {"number", "integer"}:
+                continue
             for boundary in (control["minimum"], control["maximum"]):
                 self.assertEqual(self.adapter.resolve_render_settings({key: boundary})[key], boundary)
 
@@ -118,6 +122,7 @@ class RenderSettingsTests(unittest.TestCase):
 
     def test_capabilities_contain_only_supported_controls_without_graph_paths(self):
         capabilities = self.adapter.render_capabilities()
-        self.assertEqual(set(capabilities["render_controls"]), {"target_mpx", "first_steps", "second_steps"})
+        self.assertEqual(set(capabilities["render_controls"]), {"target_mpx", "first_steps", "second_steps",
+            "latent_upscaler_enabled", "latent_upscaler_mpx", "second_pass_enabled", "second_pass_loras"})
         for control in capabilities["render_controls"].values():
             self.assertFalse(set(control) & {"anchor", "widget", "api_node", "api_input", "node_id"})

@@ -98,7 +98,7 @@ def job_workflow_adapter(job: dict):
 def workflow_context(profile: str, render_settings=None) -> dict:
     adapter = get_adapter(PRODUCTION["profiles"][profile]["workflow_id"], root=ROOT)
     adapter.render_capabilities()  # Verify anchors and canonical defaults before freezing.
-    context = {**adapter.identity(), "render_settings": adapter.resolve_render_settings(render_settings)}
+    context = {**adapter.identity(), "render_settings": adapter.resolve_render_settings(render_settings, profile=profile)}
     context["workflow_render_identity"] = adapter.render_identity(context, context["render_settings"])
     return context
 
@@ -1605,7 +1605,7 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
         else:
             from .legacy_workflow import approved_prompt as diagnostic_prompt
             approved = diagnostic_prompt(ui_workflow)
-    prepared = (adapter.prepare_api_prompt(data["prompt"], catalog, phase=service, approved_prompt=approved)
+    prepared = (adapter.prepare_api_prompt(data["prompt"], catalog, phase=service, approved_prompt=approved, context=job["context"])
                 if adapter else prepare_api_prompt(data["prompt"], catalog, phase=service, approved_prompt=approved))
     if adapter:
         analysis_texts = None
@@ -2293,8 +2293,9 @@ async def verify_production_files(job: dict, service: str) -> None:
         if service == "render":
             from .artifacts import verify_file
             settings = resolve_loras(LORA_REGISTRY, profile, job["context"].get("loras"), frozen=True)
-            expected = [(setting["id"], "loras/" + LORA_REGISTRY[setting["id"]]["filename"], LORA_REGISTRY[setting["id"]])
-                        for setting in settings if setting["enabled"]]
+            settings.extend(job_workflow_adapter(job).active_render_loras(job["context"]))
+            identifiers = dict.fromkeys(setting["id"] for setting in settings if setting["enabled"])
+            expected = [(key, "loras/" + LORA_REGISTRY[key]["filename"], LORA_REGISTRY[key]) for key in identifiers]
             bridge = CONDITIONING_BRIDGE
             if job["context"].get("conditioning_bridge", bridge["defaults"][profile])["enabled"]:
                 expected.append((bridge["id"], "semantic_bridge/" + bridge["filename"], bridge))
