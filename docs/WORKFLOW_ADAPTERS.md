@@ -231,3 +231,63 @@ CPU PASS does not establish actual model loading, pinned live `/object_info`,
 video quality/duration, render cost, VRAM coexistence or GPU safety at any setting.
 The DavidAU 9B provenance/BF16 build/load/generation blocker remains unchanged.
 No Vast/GPU operation or PR merge is part of this feature.
+
+## Adversarial review
+
+The review checked composition drift, identity/recovery fences, capability/request
+agreement and browser-controlled graph mutation. Concrete findings were fixed:
+
+- Converted conditioning edges are checked before release guards are installed;
+  swapped first/second conditioning cannot be hidden by the guard rewrite.
+- Recovered prompt graphs must retain the guarded Step 3 → Step 4 ancestry.
+- A production job's missing/changed adapter metadata cannot fall back to the
+  diagnostic conversion path, including when diagnostics are enabled.
+- Omitted typed render fields serialize as absent, never as invalid null values;
+  explicit browser nulls remain rejected. The first full run caught this
+  serialization issue in two existing HTTP tests; the fix preserves their
+  assertions and adds an omission round-trip regression test.
+- Numeric bounds reject huge integers before float operations; nonfinite values,
+  strings, booleans, fractional steps and unknown graph addresses fail closed.
+- The second-pass enable source, fallback false value and conditional output
+  routing are pinned. Changing its step count cannot activate the disabled pass.
+
+All findings have corruption/security or frontend regression coverage. No
+existing assertion, timeout, teardown check or production gate was weakened.
+
+## Recorded CPU acceptance (2026-10-11)
+
+The final implementation at `7876afeca1d3959d8477311b1663b25087d499db` passed:
+
+| Check | Result |
+| --- | --- |
+| `make setup` | PASS; pinned dependencies installed, `pip check` clean |
+| `make test` | PASS; **577 tests + 16 HTTP smoke checks** |
+| `make audit` | PASS; **577 tests**, all **7** historical defects reproduced |
+| Focused adapter/production/frontend/temporal/Ultra/HTTP suite | PASS; **184 tests** |
+| New tests | **70**: adapter/parity 26, render settings 14, recovery/security 24, frontend 6 |
+| Default composition comparisons | All **22** pre-refactor canonical-JSON digests match |
+| Final failures / errors / skips | **0 / 0 / 0** |
+| Local panel | `make panel`, authenticated HTML/config check and live capability checks PASS; owned panel stopped |
+| Canonical workflow | **3,084,071 bytes**; SHA256 **276621a1992a8b8da40d981a79417fd5eb3617b44166d890c8c82ffd8eb96222** |
+| Historical integrity | All **72** tracked `migration/` and `archive/` files byte-identical to the starting commit |
+| Production provenance | Model, custom-node and LoRA manifests unchanged; existing profile fields unchanged |
+
+The focused suite includes `test_workflow_adapters`, `test_render_settings`,
+`test_adapter_recovery`, `test_adapter_frontend`, `test_production_architecture`,
+`test_production_api`, `test_temporal_contract`, `test_production_controller`,
+`test_ultra_fixes` and `test_step3_api`. Frontend tests execute the actual
+JavaScript, including a lost-reply/reload/default-change retry.
+
+Full suites ran sequentially under the same isolated CPU test-parent approach
+used for PR #5: an ignored disposable subreaper collects only its own exited
+adopted descendants. It signals no process and leaves existing process teardown
+assertions and timeouts intact. No GPU worker, real ComfyUI submission or Vast
+action ran.
+
+Source comparison also confirmed all four native custom-node modules remain
+byte-identical and eleven protected controller functions retain identical ASTs:
+queue publication/load, prompt watching, lifecycle/recovery fencing, provider
+invocation/redaction boundary, public catalogue, phase admission, render model
+release and dispatch. The PR #5 Ultra fixes, frozen memory/overlap policy, writer
+budgets/EOS enforcement and **20 s → 481 frames → 20.040 s** contract are retained.
+GPU/live acceptance and the DavidAU 9B blocker remain pending. Neither PR is merged.
