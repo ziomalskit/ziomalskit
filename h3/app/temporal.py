@@ -18,3 +18,7 @@ canonical_plan = _contract.canonical_plan
 normalize_plan = _contract.normalize_plan
 final_answer = _contract.final_answer
 final_timeline = _contract.final_timeline
+TIMECODE = _contract.TIMECODE
+directive_text = _contract.directive_text
+structural_headers = _contract.structural_headers
+timecode_ms = _contract.timecode_ms

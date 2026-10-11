@@ -1,12 +1,158 @@
-# Trusted workflow adapters and render controls
+# Trusted workflow adapters, render controls and prompt modes
 
 PR #6 remains stacked on PR #5 commit
 `c6f033ab41a4456fd55558e652a563d8c31418d1`. This extension continues PR #6 head
-`a527817ce67cb93ee606243ff5fa7d05c26e7d53`, on the same branch. AJ production
+`fbbbde5a2c4335c9224fae6c006e1aa663915bf5`, on the same branch. The earlier
+render-control extension started at `a527817ce67cb93ee606243ff5fa7d05c26e7d53`.
+AJ production
 composition follows `job → frozen workflow_id → trusted adapter → verified
 immutable baseline → validated runtime graph`. The controller does not address
 production node IDs. H3 Full and 10Eros Full both select `h3_v20` in
 `h3/config/production_profiles.json`; no other production workflow is installed.
+
+## Prompt sources: Autoprompt and Own final H3 prompt
+
+The default remains **Autoprompt**:
+
+```text
+6 references + optional audio + scene prompt
+→ Prompt Worker (8189), Step 0–4 → 10 candidates per batch
+→ #1–5 automatic render / #6–10 review → Render Worker (8188) → MP4
+```
+
+**Own final H3 prompt** is a direct render source:
+
+```text
+6 references + optional audio + exact pasted final H3 prompt
+→ local read-only validation → durable render_queued_auto job
+→ the same frozen adapter/render settings → Render Worker (8188) → MP4
+```
+
+Manual jobs never enter Prompt Worker preparation, cold/warm analysis, the
+analysis cache, Step 0–4, writer generation or the review pool. No Prompt Worker
+POST occurs. No JoyCaption, verifier, Gemma, 4B Heretic or DavidAU writer is
+loaded for a manual job. The normal H3 conditioning encoder still runs as part
+of rendering; that is conditioning, not prompt generation. There is **one render
+job per requested manual batch**: `batches=1` creates one, `batches=3` creates
+three with the same frozen text and the usual render-seed policy.
+
+The request is explicit and closed to extra fields:
+
+```json
+{
+  "request_id": "a client-generated UUID",
+  "prompt_mode": "manual_final",
+  "manual_final_prompt": "<Picture 1> walks along a quiet shore.",
+  "profile": "h3_full",
+  "batches": 1,
+  "duration_seconds": 20,
+  "pictures": ["ref1.png", "ref2.png", "ref3.png", "ref4.png", "ref5.png", "ref6.png"],
+  "audio": [],
+  "render_settings": {}
+}
+```
+
+`prompt_mode` permits only `autoprompt` or `manual_final`; omission means
+`autoprompt`. Autoprompt uses `prompt` and rejects a non-null
+`manual_final_prompt`. Manual mode requires non-whitespace `manual_final_prompt`
+and rejects a non-null scene `prompt`, including an empty conflicting string.
+The normal frontend's Autoprompt body remains unchanged. Its existing request
+fingerprint format is retained, so adding default mode fields does not invalidate
+an earlier exact Autoprompt UUID retry. Manual fingerprints include mode and
+exact final text; changed text under the same UUID returns HTTP 409.
+
+### Actual renderer contract and manual temporal validation
+
+The prepared canonical route is **2632 `easy positive`.positive → 6546:6354
+`MiniMaxH3ReferenceToVideo`.prompt**. The workflow-pinned
+[positive node](https://github.com/altoiddealer/ComfyUI-Easy-Use-alt/blob/58e077a7435631301cf7443412515cf958e7f3d1/py/nodes/prompt.py)
+returns `io.NodeOutput(positive)` directly; it does not expand wildcards or
+template-like text. The existing approved-prompt adapter route
+replaces the final resolver edge and prunes all writer/analysis ancestors before
+render submission. No new workflow or manual-specific graph patch is introduced.
+The pinned [ReferenceToVideo implementation](https://github.com/Comfy-Org/ComfyUI/blob/6b747c0428c343e1417219641db93a4fb7cb69ae/comfy_extras/nodes_minimax_h3.py)
+calls `clip.tokenize(prompt, minimax_ref_items=ref_items)`. Its
+[H3 tokenizer](https://github.com/Comfy-Org/ComfyUI/blob/6b747c0428c343e1417219641db93a4fb7cb69ae/comfy/text_encoders/minimax.py)
+appends raw prompt text to reference conditioning. Neither parses or requires
+`subject_definitions`, `summary`, `retention_analysis`, `detailed_description`,
+`overall_soundscape` or `non_diegetic_music`.
+
+Those six sections are mandatory for **Autoprompt's Step 4 compiler output**,
+not manual renderer input. Existing `final_timeline(text, creative_plan, effective)`
+first validates all six sections, then requires a canonical Step 3 shot plan and
+matching final cuts. Its behavior, `AJCreativeTimelineGuard`,
+`AJFinalPromptTimeGuard`, reasoning policy and EOS enforcement remain unchanged.
+
+Manual mode has no creative plan. `h3/app/prompt_modes.py:validate_manual_final`
+therefore performs a separate, read-only check before publication and again at
+render preparation/dispatch and recovery:
+
+- Text must be non-empty UTF-8, without invalid control characters or standalone
+  native reasoning boundaries. Free-form and six-section final prompts are both
+  accepted; no headers, prose or alternatives are generated.
+- Optional unquoted structural `[Shot N]` headers must appear at line starts and
+  be sequential from 1. Shot 1 has no timestamp. Later shots use
+  `[Shot N] At MM:SS.mmm,`; cuts increase strictly above zero and below effective
+  duration. No extra/misplaced `At` clock-cut directives are accepted.
+- Unquoted clock timestamps use canonical `MM:SS.mmm` syntax and stay within
+  effective duration. Ordinary short aspect ratios (`16:9`, `2:3`) remain prose.
+  Explicit clock intervals must be positive and bounded;
+  optional `Timeline:` intervals must also be ordered without overlap. Quoted
+  reference text uses the existing temporal guard's masking rules. AJ does not
+  attempt to infer timing from arbitrary natural-language prose.
+- The validator returns the original string exactly, including leading/trailing
+  whitespace, Unicode and newlines. Conflicting timecodes fail locally; they are
+  never retimed or rewritten. No creative plan is fabricated.
+
+The unchanged duration identity and `AJFrozenDuration` still govern frames and
+the render graph: **20 s → 481 frames → 20.040 s**. Manual validation does not
+relax Autoprompt's generated-plan checks. Renderer tokenizer capacity, model
+quality and actual video timing remain live acceptance questions.
+
+### Persistence, scheduling, profiles and UI
+
+New jobs/batches persist `prompt_mode`. Manual job context freezes exact
+`manual_final_prompt`, its UTF-8 `manual_final_prompt_sha256`, and
+`workflow_prompt_identity`. `final_h3_prompt` mirrors the text only for compatible
+display; public job/prompt APIs expose its manual source explicitly. No generated
+Step 0–3 fields, analysis/prompt seeds or `approved_final_prompt` review marker
+are synthesized. Mode, mirror, source and hashes are checked together on recovery;
+drift requires reconciliation. Adapter identity includes `prompt_modes.py`, so
+changed validation code also triggers the existing adapter reconciliation fence.
+All existing workflow/profile/duration/render identities remain required.
+
+Manual jobs have normal automatic render priority, below approved review jobs.
+They count as future render work for drainage, but do not consume Prompt Worker
+prefetch slots. STOP AFTER CURRENT, queue draining, destroy-after-queue, durable
+publication, uncertain submission UUIDs and render watchers keep their existing
+semantics. The only prompt-selector change excludes manual sources; several
+entrypoints independently refuse prompt dispatch for those jobs.
+
+Both H3 Full and 10Eros Full manual jobs use the selected transformer, encoder,
+video/audio VAEs, frozen memory/overlap policy, six references, optional audio,
+all seven render controls and the existing registered main/second-pass LoRAs.
+The descriptor's `render_artifacts` binds frozen profile loader fields to trusted
+manifest destinations and includes the real upscaler file only when enabled.
+That filename is read from the checksum-validated upscaler anchor, avoiding a
+separate mutable filename default in the artifact scope.
+Manual dispatch verifies these artifacts with the existing immutable provenance
+validation and checksum/stat receipts, then uses the unchanged LoRA/bridge
+enrollment/integrity gate. Missing, pending, misowned or unverified **render**
+artifacts fail closed. Unused LLM files are not required for this mode.
+
+Autoprompt retains its complete manifest gate. The DavidAU 9B provenance/BF16
+build/load blocker, manifest, provisioning and preflight remain unchanged and
+blocked; manual rendering bypasses that writer, **it does not resolve the
+Autoprompt provenance blocker or establish GPU readiness**. Worker node packages
+and the real `/object_info` schema are still required for trusted conversion.
+
+`/api/config` supplies mode labels/help and render capabilities. The frontend
+shows a separate Final H3 prompt textarea, one-render-per-batch help and a manual
+source label. Step 0–3 previews say skipped; no review controls appear. The exact
+request UUID/body is retained in localStorage across retries and mode changes.
+Text/settings are captured before asynchronous uploads, so later edits cannot
+change the pending operation. Preview text uses `textContent`; queue/review text
+uses existing escaping. Prompt text is never code, shell input or graph content.
 
 ## Immutable baseline and product defaults
 
@@ -426,7 +572,7 @@ cache and all enabled combinations remain GPU acceptance gates. The DavidAU 9B
 provenance/BF16 build/load/generation blocker remains unchanged. No Vast/GPU
 operation or merge belongs to this change.
 
-## Recorded CPU acceptance for this extension (2026-10-11)
+## Earlier render-control CPU acceptance (2026-10-11)
 
 | Check | Final result |
 | --- | --- |
@@ -460,3 +606,65 @@ signals no process, and leaves process teardown assertions/timeouts unchanged.
 No model weights were downloaded, no real ComfyUI submission or Vast/GPU action
 ran, and no PR was merged. GitHub Actions on the final pushed head is verified
 separately in PR #6's validation report.
+
+## Manual-final CPU coverage and adversarial review
+
+The manual-final extension adds **82 tests**, without changing the existing
+22 parity fixtures or weakening earlier assertions:
+
+- `test_manual_prompt`: **20** read-only text, shot/cut/timecode, duration,
+  immutable source and separate Autoprompt-contract checks.
+- `test_manual_prompt_controller`: **32** request/HTTP security, batch counts,
+  zero-generation/analysis dispatch, source/hash/idempotency, recovery, queue
+  priority, STOP/drain, durable publication and uncertain-render checks.
+- `test_manual_render_adapter`: **19** actual pinned-converter/prepared-API and
+  real-file provenance checks. Both profiles have the same active API graph as
+  Autoprompt rendering the same text and seed. All four upscaler/second-pass
+  routes and main/second-pass LoRAs use the existing adapter paths. Render-only
+  files are checked using tiny synthetic bytes; the Autoprompt DavidAU manifest
+  blocker remains mandatory.
+- `test_manual_prompt_frontend`: **11** scenarios executing actual frontend
+  JavaScript with backend capabilities: selector, both request bodies, exact
+  retries across reload/mode changes, edits during uploads, preview, review
+  exclusion and escaping. Assigning preview text through `innerHTML` fails the
+  fixture; exact user text must use `textContent`.
+
+Targeted self-review checked accidental Prompt Worker/cache invocation,
+ten-candidate expansion, manual text changes, temporal bypass, writer file
+loading, adapter/render/source identity drift, review leakage, duplicate
+submission, plain-text rendering and lifecycle interactions. It found and fixed
+two concrete issues before acceptance: form values now freeze before uploads
+yield, and clock validation distinguishes ordinary short aspect ratios from
+timestamps while rejecting malformed clocks followed by sentence punctuation.
+The optional upscaler artifact filename is derived from its validated baseline
+anchor rather than a separate default. All are covered by regression tests or
+the existing adapter anchor/identity checks.
+
+Full CPU suites remain sequential under the existing disposable subreaper.
+No process assertions, teardown checks or timeouts are relaxed. Local HTTP and
+ComfyUI tests use fixtures; no real render, Prompt Worker POST, model-weight
+download, GPU inference or Vast operation occurs. CPU acceptance still does not
+prove live node availability, encoder capacity/model loading, video quality,
+timing, VRAM or overlap behavior. Manual 10Eros rendering bypasses the writer;
+it does not resolve the DavidAU 9B Autoprompt provenance blocker.
+
+### Final manual-extension CPU acceptance (2026-10-11)
+
+| Check | Result |
+| --- | --- |
+| `make setup` | PASS; pinned dependencies, clean `pip check` |
+| `make test` | PASS; **726 tests + 16 HTTP smoke checks** |
+| `make audit` | PASS; **726 tests**, all **7** historical defects reproduced |
+| Focused manual-final suite | PASS; **82 tests** |
+| Final failures / errors / skips | **0 / 0 / 0** |
+| Default Autoprompt parity | All **22** original canonical-JSON digests match |
+| Manual render parity | Prepared active API graph equals Autoprompt render for identical text/seed, both profiles |
+| Adapter validation | All **88 scoped anchors / 239 required edges** retained |
+| Local panel | `make panel` and `scripts/dev_panel.py check` PASS; authenticated read-only HTML/config verifies both modes and all seven render controls; owned panel stopped |
+| Canonical v20 | **3,084,071 bytes**, SHA256 **276621a1992a8b8da40d981a79417fd5eb3617b44166d890c8c82ffd8eb96222** |
+| Historical integrity | All **72** migration/archive files byte-identical to starting head and PR #5 |
+| Protected source | Four native modules and six config files unchanged; eleven persistence/watch/submission/lifecycle/priority function ASTs identical to starting head and PR #5 |
+| Model provenance | Production manifests, registry and writer provenance unchanged |
+
+GitHub Actions on the pushed final head is verified separately in PR #6's
+validation report. No Vast/GPU action or merge is part of this acceptance.

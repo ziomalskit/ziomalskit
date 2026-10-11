@@ -71,6 +71,39 @@ acceptance session. Keep inference/lifecycle controls disabled during setup.
 
 ## Profiles, prompts and LoRAs
 
+Prompt mode defaults to **Autoprompt**: six references, optional audio and a scene
+prompt go through Prompt Worker Step 0–4, yielding ten candidates per batch
+(five automatic renders, five for review). This behavior, seeds, analysis cache,
+prefetch and the writer/temporal contract remain unchanged.
+
+**Own final H3 prompt** accepts your exact final text and goes directly through
+local validation to the same Render Worker/adapter. Prompt Worker and every LLM
+generation step are bypassed; no 4B or DavidAU writer is loaded for that job.
+One manual batch creates **one render**, so three batches create three renders
+using the same frozen prompt and the normal render-seed policy. No second approval
+or review candidate is created. Both production profiles support this path;
+the selected render model, conditioning encoder and VAEs still apply.
+
+Six-section formatting is the Step 4 compiler convention, not a renderer
+requirement: valid free-form manual text is accepted. Explicit shot/cut clocks
+are checked locally against effective duration and rejected when malformed or
+incompatible. Manual text is never rewritten, enhanced, retimed or sent to an
+LLM. The duration contract still gives **20 s → 481 frames → 20.040 s**.
+
+Exactly six images, optional max one audio, registered LoRAs and all render
+controls remain available. Mode, exact prompt, its SHA256, workflow identity and
+resolved render settings are frozen per job/retry; later form/default changes
+cannot modify queued work. Manual renders keep normal auto priority and the
+existing STOP/drain/recovery/uncertain-submission fences. They do not use prompt
+prefetch. Prompt preview identifies manual sources and marks Step 0–3 skipped.
+
+Manual artifact checks require verified render files and active LoRA/bridge
+integrity, without requiring unused writer files. **This does not resolve the
+DavidAU 9B Autoprompt provenance blocker**: the complete Autoprompt manifest,
+provisioning/preflight and GPU/live acceptance remain blocked/pending. No model
+provenance changes are made. See [workflow/prompt contracts](../docs/WORKFLOW_ADAPTERS.md)
+for the explicit API schema, validation rules and CPU evidence.
+
 Choose H3 Full or 10Eros Full and optional registered LoRAs. The UI loads display
 names, ranges and defaults from `/api/config`; it submits canonical IDs only.
 H3 defaults retain HM Breasts 1.0, MysticXXX 0.6 and Movement 0.5. 10Eros starts

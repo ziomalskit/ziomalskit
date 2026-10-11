@@ -58,13 +58,15 @@ class WorkflowAdapter:
         # Hash the descriptor AND the implementation closure. A hook/engine/
         # converter change cannot masquerade as the same persisted adapter.
         sources = ("workflow_adapters.py", "workflow_graph.py", "adapters/v20.py", "adapters/v20_api.py",
-                   "production.py", "analysis_cache.py", "render_settings.py", "writer_policy.py", "temporal.py", "workflow_conversion.py", "workflow_validation.py")
+                   "production.py", "analysis_cache.py", "render_settings.py", "prompt_modes.py", "writer_policy.py", "temporal.py", "workflow_conversion.py", "workflow_validation.py")
         implementation = {name: hashlib.sha256((self.root / "app" / name).read_bytes()).hexdigest() for name in sources}
         return {"workflow_id": self.id, "workflow_baseline_sha256": self.descriptor["baseline_sha256"],
                 "workflow_adapter_id": self.id, "workflow_adapter_schema_version": self.descriptor["schema_version"],
                 "workflow_adapter_identity": canonical_hash({"descriptor": self.descriptor, "implementation": implementation})}
 
     def validate_job(self, context: dict, profile: dict) -> None:
+        from .prompt_modes import validate_prompt_source
+        validate_prompt_source(context)
         if profile.get("workflow_id") != self.id or any(context.get(key) != value for key, value in self.identity().items()):
             self.fail("persisted workflow/adapter identity changed or missing; explicit reconciliation required")
         settings = self.resolve_render_settings(context.get("render_settings"), frozen=True, profile=context.get("profile"))
@@ -73,6 +75,31 @@ class WorkflowAdapter:
 
     def render_identity(self, identity: dict, settings: dict) -> str:
         return canonical_hash({**{key: identity.get(key) for key in IDENTITY_FIELDS}, "render_settings": settings})
+
+    def required_render_artifacts(self, context: dict, manifest: dict) -> list[dict]:
+        """Verify trusted render dependencies without requiring unused LLM files.
+
+        Only direct manual rendering uses this scope. Autoprompt retains the
+        complete production-manifest gate. Missing/pending render dependencies
+        never inherit a writer exception or a mutable filename default.
+        """
+        from .artifacts import validate_manifest
+        entries = validate_manifest(manifest, allow_pending=True)
+        bindings = self.descriptor["render_artifacts"]
+        destinations = {directory + "/" + context["profile_identity"][field]
+                        for field, directory in bindings["profile_fields"].items()}
+        settings = self.resolve_render_settings(context["render_settings"], frozen=True, profile=context["profile"])
+        for item in bindings["optional_controls"]:
+            if settings[item["enabled_when"]]:
+                node = self.node(self.load_and_validate(), item["anchor"])
+                destinations.add(item["directory"] + "/" + node["widgets_values_named"][item["widget"]])
+        if any(item.get("destination") in destinations for item in manifest.get("pending_artifacts", [])):
+            self.fail("required render artifact still has pending provenance")
+        selected = {item["destination"]: item for item in entries.values() if item["destination"] in destinations}
+        if set(selected) != destinations or any(item["required"] is not True or not
+                ({"shared", context["profile"]} & set(item["profiles"])) for item in selected.values()):
+            self.fail("required render artifact identity/ownership is missing or changed")
+        return list(selected.values())
 
     def verify_baseline(self, path: Path | None = None) -> dict:
         path = path or self.root / "workflows" / self.descriptor["baseline"]
@@ -299,9 +326,15 @@ class WorkflowAdapter:
         return workflow
 
     def compose_job(self, template, profiles, registry, job, audio_slots, approved_prompt, phase):
+        from .prompt_modes import is_manual_final, validate_render_prompt
         context = job["context"]
         profile = profiles["profiles"][job["profile"]]
         self.validate_job(context, profile)
+        manual = is_manual_final(job)
+        if manual:
+            if phase != "render":
+                self.fail("manual final jobs cannot use Prompt Worker")
+            validate_render_prompt(job, approved_prompt)
         workflow = self.compose(template, profiles, registry, writer_stages=context["profile_identity"]["writer_stages"])
         self.set(workflow, "user_prompt", "positive", context["prompt"])
         self.set(workflow, "prompt_override", "positive", approved_prompt or "")
@@ -311,11 +344,12 @@ class WorkflowAdapter:
             seed = int(job["render_seed"]) + offset
             self.set(workflow, source, "seed", seed)
             self.set(workflow, mirror, "noise_seed", seed)
-        self.set(workflow, "analysis_seed", "seed", int(job["analysis_seed"]))
-        for binding in self.descriptor["writer_seed_bindings"]:
-            seed = int(job[binding["seed"]]) + binding["offset"]
-            self.set(workflow, "writer_seed_controller", binding["widget"], seed)
-            self.set(workflow, binding["mirror"], "seed", seed)
+        if not manual:
+            self.set(workflow, "analysis_seed", "seed", int(job["analysis_seed"]))
+            for binding in self.descriptor["writer_seed_bindings"]:
+                seed = int(job[binding["seed"]]) + binding["offset"]
+                self.set(workflow, "writer_seed_controller", binding["widget"], seed)
+                self.set(workflow, binding["mirror"], "seed", seed)
         from .production import resolve_loras
         self.apply_loras(workflow, registry, resolve_loras(registry, job["profile"], context.get("loras"), frozen=True))
         self.apply_duration(workflow, context["duration_seconds"])
@@ -337,6 +371,11 @@ class WorkflowAdapter:
                 "fallback_top_level_final_node_id": api["final_preview"]}
 
     def prepare_api_prompt(self, prompt, catalog, *, phase, approved_prompt=None, context=None):
+        from .prompt_modes import validate_prompt_source
+        if context is not None and context.get("prompt_mode") == "manual_final":
+            validate_prompt_source(context)
+            if phase != "render" or approved_prompt != context["manual_final_prompt"]:
+                self.fail("manual final graph phase/text differs from frozen source")
         from .workflow_conversion import prepare_api_prompt
         result = prepare_api_prompt(prompt, catalog, phase=phase, approved_prompt=approved_prompt, contract=self.descriptor["api"])
         if phase == "render":

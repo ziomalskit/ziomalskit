@@ -2,6 +2,15 @@
 
 Projekt przyjmuje **6 obrazów i opcjonalnie 1 plik audio**, analizuje referencje, przygotowuje 10 wariantów promptu i generuje wideo przez ComfyUI na GPU Vast.ai. Produkcyjne profile to wyłącznie **H3 Full** i **10Eros Full**, ze wspólną, dokładnie zachowaną logiką promptów **v20 Heretic**. Legacy INT8 pozostaje tylko jawną ścieżką diagnostyczną.
 
+Draft PR #6 dodaje wybór **Autoprompt / Own final H3 prompt**. Autoprompt zachowuje
+10 kandydatów (5 auto + 5 review). Własny finalny prompt przechodzi lokalną
+walidację i trafia bez zmian do renderu: bez Prompt Workera, Step 0–4 i generowania
+LLM, po jednym renderze na batch. Referencje, audio, oba profile, LoRA, wszystkie
+render controls oraz duration/recovery pozostają aktywne. Ten tryb omija writer,
+ale **nie rozwiązuje provenance DavidAU 9B dla Autoprompt**. Szczegóły:
+[H3 prompt modes](h3/README.md#profiles-prompts-and-loras) i
+[workflow adapters](docs/WORKFLOW_ADAPTERS.md#prompt-sources-autoprompt-and-own-final-h3-prompt).
+
 **Poprawki Ultra w Draft PR #5:** [raport i dowody testowe](docs/PR5_ULTRA_FIXES_2026-10-09.md).
 Terminal pozostaje niedostępny w produkcji, również przy `H3_ENABLE_TERMINAL=1`.
 Rzeczywista walidacja pochodzenia/build/load modelu DavidAU 9B nadal blokuje produkcję; GPU/live acceptance pozostaje pending.

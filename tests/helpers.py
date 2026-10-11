@@ -24,6 +24,8 @@ def production_fixture_context(module, request):
     context.update(profile=profile,model=profile,profile_identity=module.profile_identity(profile),
                    **module.workflow_context(profile),
                    **module.duration_identity(request.duration_seconds))
+    context.update(module.freeze_prompt_source(request.prompt_mode, request.prompt, request.manual_final_prompt,
+                                               context["effective_duration_seconds"]))
     context["conditioning_bridge"] = {"id": module.CONDITIONING_BRIDGE["id"],
         "filename": module.CONDITIONING_BRIDGE["filename"], **module.CONDITIONING_BRIDGE["defaults"][profile]}
     return context

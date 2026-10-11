@@ -35,7 +35,7 @@ a{color:#9ecbff}
 .vastactions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 @media(max-width:520px){.vastgrid,.vastactions{grid-template-columns:1fr}}
 </style></head><body>
-<h1>H3 Mobile</h1><div class="tiny">Stage 5 • H3 + Vast Control • 10 prompts/batch • 5 auto + 5 review</div>
+<h1>H3 Mobile</h1><div class="tiny">References + prompt + settings → MP4</div>
 
 <div class="card">
   <b>Vast Control</b> <span id="vastState" class="pill">loading…</span>
@@ -75,7 +75,14 @@ a{color:#9ecbff}
 </div>
 
 <div class="card">
-<label>Scene / user prompt</label><textarea id="prompt"></textarea>
+<label for="promptMode">Prompt mode</label>
+<select id="promptMode" onchange="promptModeChanged()">
+  <option value="autoprompt" selected>Autoprompt</option>
+  <option value="manual_final">Own final H3 prompt</option>
+</select>
+<div id="scenePromptField"><label for="prompt">Scene / user prompt</label><textarea id="prompt"></textarea></div>
+<div id="manualPromptField" hidden><label for="manualFinalPrompt">Final H3 prompt</label><textarea id="manualFinalPrompt"></textarea></div>
+<div id="promptModeHelp" class="tiny">Scene prompt + references → Step 0–4 → 10 candidates.</div>
 <label>Render model</label><select id="model" onchange="profileChanged()">
 <option value="h3_full">H3 Full</option>
 <option value="10eros_full">10Eros Full</option>
@@ -87,7 +94,7 @@ a{color:#9ecbff}
 <div><label>Batches</label><input id="batches" type="number" value="1" min="1" max="100"></div>
 <div><label>Stuck timeout (min)</label><input id="timeout" type="number" value="8" min="1"></div>
 </div>
-<div class="tiny" style="margin-top:10px">Każdy batch: 10 promptów. #1–5 lecą automatycznie. #6–10 trafiają do Review.</div>
+<div id="batchHelp" class="tiny" style="margin-top:10px">Each batch generates 10 prompt candidates: 5 auto + 5 review.</div>
 <details><summary>LoRAs</summary><div id="loras"></div></details>
 <button id="generateBatch" onclick="generate()">GENERATE BATCH</button>
 <button id="newBatch" onclick="newBatch()" hidden>NOWE OSOBNE ZLECENIE</button>
@@ -101,11 +108,12 @@ a{color:#9ecbff}
 
 <div class="card">
 <b>Prompt preview</b> <span id="selectedStatus" class="pill">no job selected</span>
-<details><summary>Step 0 — Visual facts</summary><pre id="p0">—</pre></details>
-<details><summary>Step 1 — Expanded intent</summary><pre id="p1">—</pre></details>
-<details><summary>Step 2 — Reference map</summary><pre id="p2">—</pre></details>
-<details><summary>Step 3 — Creative plan</summary><pre id="p3">—</pre></details>
-<details open><summary>Step 4 — Final H3 prompt</summary><pre id="p4">—</pre></details>
+<div id="promptSource" class="tiny">Prompt source: —</div>
+<details><summary id="p0Label">Step 0 — Visual facts</summary><pre id="p0">—</pre></details>
+<details><summary id="p1Label">Step 1 — Expanded intent</summary><pre id="p1">—</pre></details>
+<details><summary id="p2Label">Step 2 — Reference map</summary><pre id="p2">—</pre></details>
+<details><summary id="p3Label">Step 3 — Creative plan</summary><pre id="p3">—</pre></details>
+<details open><summary id="p4Label">Step 4 — Final H3 prompt</summary><pre id="p4">—</pre></details>
 </div>
 
 <div class="card"><b>Queue / Results</b><div id="jobs">—</div></div>
@@ -155,6 +163,7 @@ a{color:#9ecbff}
 <script>
 let loras=[], productionProfiles=[], selected=null, lastJobs=[];
 let renderControls={};
+let promptModes=[];
 let batchInFlight=false, approvalInFlight=new Set();
 let jobsGeneration=0, promptsGeneration=0, vastGeneration=0;
 let lifecycleInFlight=false, lifecycleToken=null, backendVast=null;
@@ -165,7 +174,8 @@ let terminalEnabled=false, terminalBusy=false, terminalSocket=null, terminalGene
 const pendingBatchKey='h3.pendingBatch';
 function batchButtonState(){
   const pending=!!localStorage.getItem(pendingBatchKey);
-  document.getElementById('generateBatch').textContent=pending?'PONÓW NIEPOTWIERDZONE ZLECENIE':'GENERATE BATCH';
+  document.getElementById('generateBatch').textContent=pending?'PONÓW NIEPOTWIERDZONE ZLECENIE':
+    currentPromptMode()==='manual_final'?'GENERATE RENDERS':'GENERATE BATCH';
   document.getElementById('generateBatch').disabled=batchInFlight;
   document.getElementById('newBatch').hidden=!pending;
   document.getElementById('newBatch').disabled=batchInFlight;
@@ -186,6 +196,13 @@ function newBatch(){
 async function init(){
   batchButtonState();
   const c=await fetch('/api/config').then(r=>r.json());
+  promptModes=c.prompt_modes||[];
+  const modes=document.getElementById('promptMode');
+  if(modes&&promptModes.length){
+    modes.innerHTML=promptModes.map(x=>`<option value="${esc(x.id)}">${esc(x.label)}</option>`).join('');
+    modes.value=c.default_prompt_mode||'autoprompt';
+  }
+  promptModeChanged();
   document.getElementById('prefetchTarget').textContent=c.prompt_prefetch??'—';
   terminalEnabled=c.terminal_enabled===true;
   document.getElementById('terminalSection').hidden=!terminalEnabled;
@@ -199,6 +216,29 @@ async function init(){
   }
   profileChanged();
   await refresh(); setInterval(refresh,2500);
+}
+function currentPromptMode(){return document.getElementById('promptMode')?.value||'autoprompt';}
+function promptModeChanged(){
+  const manual=currentPromptMode()==='manual_final',mode=promptModes.find(x=>x.id===currentPromptMode());
+  const scene=document.getElementById('scenePromptField'),final=document.getElementById('manualPromptField');
+  if(scene)scene.hidden=manual;if(final)final.hidden=!manual;
+  const help=document.getElementById('promptModeHelp'),batch=document.getElementById('batchHelp');
+  if(help)help.textContent=mode?.help||(manual?'Exact final text → validation → render. No prompt generation or rewriting.':
+    'Scene prompt + references → Step 0–4 → 10 candidates.');
+  if(batch)batch.textContent=mode?.batches_help||(manual?'Each batch creates one render using your final prompt.':
+    'Each batch generates 10 prompt candidates: 5 auto + 5 review.');
+  batchButtonState();
+}
+function submittedPromptSource(){
+  const mode=currentPromptMode();
+  if(mode==='manual_final'){
+    const text=document.getElementById('manualFinalPrompt').value;
+    if(!text.trim())throw new Error('Paste a non-empty Final H3 prompt.');
+    return {prompt_mode:mode,manual_final_prompt:text};
+  }
+  if(mode!=='autoprompt')throw new Error('Unknown prompt mode.');
+  // Preserve the existing Autoprompt request body; the server defaults the mode.
+  return {prompt:document.getElementById('prompt').value};
 }
 function profileChanged(){
   const profile=document.getElementById('model').value;
@@ -288,26 +328,28 @@ async function generate(){
     let body=JSON.parse(localStorage.getItem(pendingBatchKey)||'null');
     if(!body){
     const renderSettings=submittedRenderSettings();
+    const source=submittedPromptSource();
     let pics=[];
     let p=document.getElementById('pic').files[0];
     let refs=[...document.getElementById('refs').files];
     if(!p) throw new Error('Picture 1 is required.');
     if(refs.length!==5) throw new Error('This audited release requires exactly 5 supporting references.');
-    pics.push(await up(p));
-    for(let f of refs) pics.push(await up(f));
-    let aud=[];
-    for(let f of document.getElementById('audio').files) aud.push(await up(f));
+    const audioFiles=[...document.getElementById('audio').files];
     let ls=loras.map((x,i)=>({id:x.id,enabled:document.getElementById('le'+i).checked,strength:+document.getElementById('ls'+i).value}));
     body={
       request_id:requestUUID(),
-      prompt:document.getElementById('prompt').value,
+      ...source,
       profile:document.getElementById('model').value,
       duration_seconds:+(document.getElementById('duration')?.value||20),
       render_settings:renderSettings,
       batches:+document.getElementById('batches').value,
       soft_timeout_minutes:+document.getElementById('timeout').value,
-      pictures:pics,audio:aud,loras:ls
+      pictures:pics,audio:[],loras:ls
     };
+    // Freeze text/settings before uploads yield; form edits cannot change this operation.
+    pics.push(await up(p));
+    for(let f of refs) pics.push(await up(f));
+    for(let f of audioFiles) body.audio.push(await up(f));
     // Persist the UUID AND exact uploaded filenames/body before any submit.
     // Reloads and retries reuse this operation, even if the form has changed.
     localStorage.setItem(pendingBatchKey,JSON.stringify(body));
@@ -338,11 +380,18 @@ async function refreshPrompts(){
   let p=await r.json();
   if(generation!==promptsGeneration || selected!==id)return;
   document.getElementById('selectedStatus').textContent=`B${p.batch_seq} #${p.candidate_index} • ${p.status}`;
-  document.getElementById('p0').textContent=p.visual_facts||'—';
-  document.getElementById('p1').textContent=p.expanded_intent||'—';
-  document.getElementById('p2').textContent=p.reference_map||'—';
-  document.getElementById('p3').textContent=p.creative_plan||'—';
-  document.getElementById('p4').textContent=p.approved_final_prompt||p.final_h3_prompt||'—';
+  const manual=p.prompt_mode==='manual_final',source=document.getElementById('promptSource');
+  if(source)source.textContent='Prompt source: '+(manual?'Own final H3 prompt':'Autoprompt');
+  ['Visual facts','Expanded intent','Reference map','Creative plan'].forEach((label,i)=>{
+    const heading=document.getElementById('p'+i+'Label');
+    if(heading)heading.textContent=manual?`Step ${i} — skipped (manual final prompt)`:`Step ${i} — ${label}`;
+    document.getElementById('p'+i).textContent=manual?'Skipped (manual final prompt)':
+      p[['visual_facts','expanded_intent','reference_map','creative_plan'][i]]||'—';
+  });
+  const finalLabel=document.getElementById('p4Label');
+  if(finalLabel)finalLabel.textContent=manual?'Final H3 prompt':'Step 4 — Final H3 prompt';
+  document.getElementById('p4').textContent=manual?p.manual_final_prompt:
+    p.approved_final_prompt||p.final_h3_prompt||'—';
 }
 async function approve(id){
   if(approvalInFlight.has(id))return;
@@ -379,7 +428,7 @@ async function reject(id){
   if(!r.ok) alert(await r.text()); await refresh();
 }
 function renderReview(){
-  const p=lastJobs.filter(j=>j.status==='pending_review');
+  const p=lastJobs.filter(j=>j.status==='pending_review'&&j.prompt_mode!=='manual_final');
   document.getElementById('reviewPool').innerHTML=p.length?p.map(j=>`
     <div class="reviewcard">
       <b>Batch ${j.batch_seq} • Prompt ${j.candidate_index}</b>
@@ -402,7 +451,7 @@ function renderJobs(){
     return `<div class="job${active}" onclick="selectJob('${j.id}')">
       <b class="${cls}">${esc(j.status)}</b>${duration}
       ${videos.map(u=>` · <a href="${esc(u)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${/[?&]filename=[^&]*\.mp4(?:&|$)/i.test(u)?'OPEN MP4':'OPEN VIDEO'}</a>`).join('')}<br>
-      <span class="tiny">Batch ${esc(j.batch_seq)} · candidate #${esc(j.candidate_index)} · job ${esc(j.id)} · seed ${esc(j.render_seed ?? j.seed)} · ${j.review_required?'review':'auto'} ${esc(j.current_node||'')}</span>
+      <span class="tiny">Batch ${esc(j.batch_seq)} · ${j.prompt_mode==='manual_final'?'Own final H3 prompt':`candidate #${esc(j.candidate_index)}`} · job ${esc(j.id)} · seed ${esc(j.render_seed ?? j.seed)} · ${j.prompt_mode==='manual_final'?'manual':j.review_required?'review':'auto'} ${esc(j.current_node||'')}</span>
     </div>`}).join(''):'—';
 }
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 import asyncio, base64, copy, errno, hashlib, hmac, json, math, os, shutil, signal, subprocess, sys, time, uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit, urlencode, parse_qs
 
 if sys.version_info < (3, 11):
@@ -13,7 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, Response, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "static"
@@ -31,6 +31,8 @@ from .workflow_adapters import get_adapter, IDENTITY_FIELDS
 from .render_settings import RenderSettings
 from .writer_policy import MODEL_FIELDS, validate_stages, final_answer
 from .temporal import duration_identity, validate_duration, final_timeline
+from .prompt_modes import (PROMPT_MODES, freeze_prompt_source, validate_prompt_fields, is_manual_final,
+                           validate_job_prompt_source, final_prompt_for_render, validate_render_prompt)
 from .redaction import redact
 
 PRODUCTION = read_profiles(CONFIG / "production_profiles.json")
@@ -65,6 +67,7 @@ def job_profile(job: dict) -> str:
     if bridge is not None and (bridge.get("id") != CONDITIONING_BRIDGE["id"] or bridge.get("filename") != CONDITIONING_BRIDGE["filename"]):
         raise ValueError("persisted conditioning bridge routing changed")
     get_adapter(job["context"].get("workflow_id"), root=ROOT).validate_job(job["context"], PRODUCTION["profiles"][profile])
+    validate_job_prompt_source(job)
     return profile
 
 
@@ -234,7 +237,9 @@ class LoraSetting(BaseModel):
 class BatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_id: uuid.UUID | None = None
-    prompt: str
+    prompt_mode: Literal["autoprompt", "manual_final"] = "autoprompt"
+    prompt: str | None = None
+    manual_final_prompt: str | None = None
     profile: str | None = None
     model: str | None = None
     duration_seconds: float = Field(20, ge=1, le=120, allow_inf_nan=False)
@@ -247,6 +252,11 @@ class BatchRequest(BaseModel):
     audio: list[str] = []
     loras: list[LoraSetting] = []
     render_settings: RenderSettings = Field(default_factory=RenderSettings)
+
+    @model_validator(mode="after")
+    def validate_prompt_mode(self):
+        validate_prompt_fields(self.prompt_mode, self.prompt, self.manual_final_prompt)
+        return self
 
 
 class ApprovalRequest(BaseModel):
@@ -1195,6 +1205,9 @@ def _record_render_finish(job: dict, entry: dict) -> None:
 def public_job(job: dict) -> dict:
     """Read-only result normalization, including pre-contract queue snapshots."""
     result = dict(job)
+    result["prompt_mode"] = job.get("context", {}).get("prompt_mode", "autoprompt")
+    if is_manual_final(job):
+        result["manual_final_prompt"] = job["context"]["manual_final_prompt"]
     if job.get("status") == "completed":
         videos = []
         for url in job.get("video_outputs", job.get("outputs", [])) or []:
@@ -1572,6 +1585,8 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
     from .workflow_validation import validate_ui_workflow, validate_converted_widgets
     ui_workflow = json.loads(workflow.read_text(encoding="utf-8"))
     owner = next((job for job in queue if workflow == STATE / f"job_{job['id']}_{service}.json"), None)
+    if owner and is_manual_final(owner):
+        assert_manual_render_phase(owner, service)
     metadata = ui_workflow.get("extra", {}).get("aj_production")
     if owner and owner.get("profile") in PROFILE_LABELS and (not metadata or metadata.get("job_id") != owner["id"]):
         raise ValueError("production workflow adapter metadata missing or owner changed")
@@ -1610,7 +1625,7 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
     if adapter:
         analysis_texts = None
         if service == "render":
-            final_timeline(approved, job.get("creative_plan"), job["context"]["effective_duration_seconds"])
+            validate_render_prompt(job, approved)
         else:
             batch = batch_for_job(job)
             job["prompt_kind"] = analysis_cache.classify(job, batch)
@@ -1649,7 +1664,15 @@ async def _dispatch_prepared_workflow(prepared: Any, workflow: Path, service: st
     return data["prompt_id"]
 
 
+def assert_manual_render_phase(job: dict, service: str) -> None:
+    if is_manual_final(job):
+        if service != "render":
+            raise SubmissionRejected("manual final jobs never use Prompt Worker")
+        validate_job_prompt_source(job)
+
+
 async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
+    assert_manual_render_phase(job, service)
     if state_load_error or queue_persistence_error or vast_control_load_error or (controller_started and _worker_health()[1]):
         raise RuntimeError("Stored controller state is unavailable; submission is blocked")
     if not submissions_allowed():
@@ -1751,6 +1774,7 @@ async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
 
 
 async def submit_and_watch(job: dict, workflow: Path, service: str, approved_prompt: str | None = None) -> dict:
+    assert_manual_render_phase(job, service)
     job["active_service"] = service
     job["status"] = f"{service}_preparing"
     job[f"{service}_submission_state"] = "preparing"
@@ -1819,6 +1843,8 @@ async def _finish_watched_job(job: dict, service: str, result: dict) -> None:
 
 
 async def generate_prompt_candidate(job: dict) -> None:
+    if is_manual_final(job):
+        raise SubmissionRejected("manual final jobs never use Prompt Worker")
     if job.get("cancel_requested"):
         job["status"] = "cancelled"
         save_state()
@@ -2253,7 +2279,7 @@ def service_work_active(service: str) -> bool:
 
 
 def prompt_prefetch_status() -> dict:
-    ready = sum(j.get("status") in {"render_queued_auto", "render_queued_review"} for j in queue)
+    ready = sum(j.get("status") in {"render_queued_auto", "render_queued_review"} and not is_manual_final(j) for j in queue)
     # The one Prompt Worker reserves one slot before its first await. Review
     # Pool entries are decisions, not future render work; counting them would
     # deadlock automatic batches and prevent all five reviews being prepared.
@@ -2285,8 +2311,9 @@ async def verify_production_files(job: dict, service: str) -> None:
     profile = job_profile(job)
     def verify():
         manifest = json.loads((CONFIG / "models_manifest.json").read_text())
-        entries = validate_manifest(manifest)
-        for item in entries.values():
+        entries = (job_workflow_adapter(job).required_render_artifacts(job["context"], manifest)
+                   if is_manual_final(job) and service == "render" else list(validate_manifest(manifest).values()))
+        for item in entries:
             if item["required"] and ("shared" in item["profiles"] or profile in item["profiles"]):
                 if artifact_health(COMFY_MODELS_DIR, item)["status"] != "verified_file":
                     raise ValueError("required production artifact is not integrity-verified")
@@ -2339,6 +2366,8 @@ def active_render_policy() -> dict | None:
 
 
 def phase_admission(job: dict, service: str) -> tuple[bool, str]:
+    if service == "prompt" and is_manual_final(job):
+        return False, "manual final jobs bypass Prompt Worker"
     if job.get("profile") not in PROFILE_LABELS:
         return True, "explicit diagnostic fixture; normal workers require persisted profiles"
     if service == "render":
@@ -2370,14 +2399,14 @@ def pick_next_prompt_job() -> dict | None:
         return None
     if vast_control.get("plan") in {"stop_after_current", "stop_after_queue", "destroy_after_queue_keep_data"}:
         # auto prompts may already be queued for stop-after-queue, but review generation is intentionally skipped when armed.
-        pending_auto = [j for j in queue if j.get("status") == "prompt_queued" and not j.get("review_required")]
+        pending_auto = [j for j in queue if j.get("status") == "prompt_queued" and not j.get("review_required") and not is_manual_final(j)]
         if vast_control.get("plan") == "stop_after_current":
             return None
         if pending_auto:
             pending_auto.sort(key=lambda j: (j["batch_seq"], j["candidate_index"]))
             return next((job for job in pending_auto if phase_admission(job, "prompt")[0]), None)
         return None
-    pending = [j for j in queue if j.get("status") == "prompt_queued"]
+    pending = [j for j in queue if j.get("status") == "prompt_queued" and not is_manual_final(j)]
     # A phase-deferred automatic candidate retains its accepted priority over
     # all unstarted reviews. Admission cannot turn a warm review into a bypass
     # of cold automatic work in another batch.
@@ -2418,7 +2447,7 @@ async def render_job(job: dict) -> None:
         job["status"] = "cancelled"
         save_state()
         return
-    approved = job.get("approved_final_prompt") or job.get("final_h3_prompt")
+    approved = final_prompt_for_render(job)
     if not approved:
         job["status"] = "render_failed"
         job["error"] = "missing final prompt"
@@ -2701,6 +2730,8 @@ async def config():
                       "workflow": get_adapter(value["workflow_id"], root=ROOT).render_capabilities()}
                      for key, value in PRODUCTION["profiles"].items()],
         "default_profile": PRODUCTION["default_profile"],
+        "default_prompt_mode": "autoprompt",
+        "prompt_modes": list(PROMPT_MODES),
         "render_comfy_url": RENDER_COMFY_URL,
         "prompt_comfy_url": PROMPT_COMFY_URL,
         "loras": [{"id": key, "display_name": value["display_name"], "defaults": value["defaults"],
@@ -2965,7 +2996,8 @@ async def create_batches(req: BatchRequest):
         if state_load_error:
             raise HTTPException(503, state_load_error)
         request_key = str(req.request_id) if req.request_id is not None else None
-        request_hash = hashlib.sha256(json.dumps(req.model_dump(mode="json", exclude={"request_id"}),
+        excluded = {"request_id"} | ({"prompt_mode", "manual_final_prompt"} if req.prompt_mode == "autoprompt" else set())
+        request_hash = hashlib.sha256(json.dumps(req.model_dump(mode="json", exclude=excluded),
                                                 sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         previous = request_results.get(request_key)
         if previous:
@@ -2976,7 +3008,15 @@ async def create_batches(req: BatchRequest):
             raise HTTPException(409, "shutdown plan is armed; cancel it before creating a new batch")
         if request_key is None:
             raise HTTPException(400, "A client-generated UUID request_id is required; reuse it when retrying")
-        if not req.prompt.strip():
+        try:
+            validate_prompt_fields(req.prompt_mode, req.prompt, req.manual_final_prompt)
+            frozen_duration = duration_identity(req.duration_seconds)
+            frozen_prompt = freeze_prompt_source(req.prompt_mode, req.prompt, req.manual_final_prompt,
+                                                frozen_duration["effective_duration_seconds"])
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+        manual = req.prompt_mode == "manual_final"
+        if not manual and not req.prompt.strip():
             raise HTTPException(400, "scene prompt is empty")
         selected_profile = req.profile or req.model or PRODUCTION["default_profile"]
         if selected_profile not in PROFILE_LABELS:
@@ -2990,8 +3030,10 @@ async def create_batches(req: BatchRequest):
         pictures, audio = validate_requested_assets(req)
         created_batches = []
         base_render_seed = req.seed if req.seed is not None else int(time.time_ns() & 0x7FFFFFFF)
-        base_prompt_seed = int((time.time_ns() >> 8) & 0x7FFFFFFF)
-        base_analysis_seed = int((time.time_ns() >> 16) & 0x7FFFFFFF)
+        if not manual:
+            base_prompt_seed = int((time.time_ns() >> 8) & 0x7FFFFFFF)
+            base_analysis_seed = int((time.time_ns() >> 16) & 0x7FFFFFFF)
+        jobs_per_batch = 1 if manual else PROMPTS_PER_BATCH
         next_queue, next_batches = list(queue), list(batches)
         batch_seq_start = max([b.get("seq", 0) for b in batches] or [0]) + 1
 
@@ -2999,7 +3041,7 @@ async def create_batches(req: BatchRequest):
             batch_id = uuid.uuid4().hex
             batch_seq = batch_seq_start + batch_offset
             context = {
-                "prompt": req.prompt,
+                **copy.deepcopy(frozen_prompt),
                 "model": selected_profile,
                 "profile": selected_profile,
                 "profile_identity": profile_identity(selected_profile),
@@ -3008,7 +3050,7 @@ async def create_batches(req: BatchRequest):
                 "conditioning_bridge": {"id": CONDITIONING_BRIDGE["id"], "filename": CONDITIONING_BRIDGE["filename"],
                                         **CONDITIONING_BRIDGE["defaults"][selected_profile]},
                 "duration_seconds": req.duration_seconds,
-                **duration_identity(req.duration_seconds),
+                **frozen_duration,
                 "soft_timeout_minutes": req.soft_timeout_minutes,
                 "hard_restart_after_seconds": req.hard_restart_after_seconds,
                 "pictures": pictures,
@@ -3016,27 +3058,30 @@ async def create_batches(req: BatchRequest):
                 "loras": resolve_loras(LORA_REGISTRY, selected_profile, [x.model_dump() for x in req.loras]),
             }
 
-            analysis_seed = base_analysis_seed + batch_offset
+            if not manual:
+                analysis_seed = base_analysis_seed + batch_offset
             batch = {
                 "id": batch_id,
                 "profile": selected_profile,
                 "seq": batch_seq,
                 "created_at": time.time(),
                 "context": context,
-                "prompts_per_batch": PROMPTS_PER_BATCH,
-                "auto_approved": AUTO_APPROVED_PER_BATCH,
-                "review_required": REVIEW_PER_BATCH,
-                "analysis_seed": analysis_seed,
+                "prompt_mode": req.prompt_mode,
+                "prompts_per_batch": jobs_per_batch,
+                "auto_approved": 1 if manual else AUTO_APPROVED_PER_BATCH,
+                "review_required": 0 if manual else REVIEW_PER_BATCH,
+                **({} if manual else {"analysis_seed": analysis_seed}),
             }
             next_batches.append(batch)
             created_batches.append(batch_id)
 
-            for i in range(PROMPTS_PER_BATCH):
+            for i in range(jobs_per_batch):
                 render_seed = (
-                    base_render_seed + (batch_offset * PROMPTS_PER_BATCH) + i
+                    base_render_seed + (batch_offset * jobs_per_batch) + i
                     if req.random_each else base_render_seed
                 )
-                prompt_seed = base_prompt_seed + (batch_offset * PROMPTS_PER_BATCH * 2) + i * 2
+                if not manual:
+                    prompt_seed = base_prompt_seed + (batch_offset * PROMPTS_PER_BATCH * 2) + i * 2
                 next_queue.append({
                     "id": uuid.uuid4().hex,
                     "batch_id": batch_id,
@@ -3044,12 +3089,13 @@ async def create_batches(req: BatchRequest):
                     "batch_seq": batch_seq,
                     "candidate_index": i + 1,
                     "render_seed": render_seed,
-                    "prompt_seed": prompt_seed,
-                    "analysis_seed": analysis_seed,
+                    "prompt_mode": req.prompt_mode,
+                    **({"final_h3_prompt": req.manual_final_prompt, "prompt_ready_at": time.time()} if manual else
+                       {"prompt_seed": prompt_seed, "analysis_seed": analysis_seed}),
                     "seed": render_seed,  # backwards-compatible UI field
                     "created_at": time.time(),
-                    "status": "prompt_queued",
-                    "review_required": i >= AUTO_APPROVED_PER_BATCH,
+                    "status": "render_queued_auto" if manual else "prompt_queued",
+                    "review_required": False if manual else i >= AUTO_APPROVED_PER_BATCH,
                     "render_priority": None,
                     "context": context,
                 })
@@ -3079,12 +3125,15 @@ async def get_job(controller_job_id: str):
 @app.get("/api/jobs/{controller_job_id}/prompts")
 async def prompts(controller_job_id: str):
     job = find_job(controller_job_id)
+    manual = is_manual_final(job)
     return {
+        "prompt_mode": job.get("context", {}).get("prompt_mode", "autoprompt"),
+        "manual_final_prompt": job["context"].get("manual_final_prompt") if manual else None,
         "user_prompt": job["context"]["prompt"],
-        "visual_facts": job.get("visual_facts"),
-        "expanded_intent": job.get("expanded_intent"),
-        "reference_map": job.get("reference_map"),
-        "creative_plan": job.get("creative_plan"),
+        "visual_facts": None if manual else job.get("visual_facts"),
+        "expanded_intent": None if manual else job.get("expanded_intent"),
+        "reference_map": None if manual else job.get("reference_map"),
+        "creative_plan": None if manual else job.get("creative_plan"),
         "final_h3_prompt": job.get("final_h3_prompt"),
         "approved_final_prompt": job.get("approved_final_prompt"),
         "status": job.get("status"),

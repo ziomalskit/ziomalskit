@@ -105,6 +105,8 @@ class V20Hooks:
                     node["widgets_values_named"] = {"expression": node["widgets_values"][0]}
 
     def install_runtime_guards(self, prompt, catalog, context, *, phase, analysis_texts=None):
+        if context.get("prompt_mode") == "manual_final" and (phase != "render" or analysis_texts is not None):
+            self.adapter.fail("manual final jobs cannot install prompt-generation guards or analysis")
         contract = self.adapter.descriptor["api"]
         prepared = v20_api.frozen_duration(prompt, context, catalog, contract=contract)
         if phase == "render":
@@ -117,6 +119,12 @@ class V20Hooks:
     def validate_final_graph(self, prompt, context, *, phase):
         a = self.adapter
         contract = a.descriptor["api"]
+        if context.get("prompt_mode") == "manual_final":
+            if phase != "render" or prompt.get(contract["prompt_override"], {}).get("inputs", {}).get("positive") != context["manual_final_prompt"]:
+                a.fail("manual final graph phase/text differs from frozen source")
+            if any(node.get("class_type") in {"LLMTextProcessor", "AJCompilerTextProcessor", "AJAnalysisText",
+                    "AJCreativeTimelineGuard", "AJFinalPromptTimeGuard"} for node in prompt.values()):
+                a.fail("manual final graph contains prompt generation or generated-plan guards")
         from ..writer_policy import stage_routes
         expected_duration = {"class_type": "AJFrozenDuration", "inputs": {
             "legal_frame_count": context["legal_frame_count"], "effective_duration_seconds": context["effective_duration_seconds"]}}

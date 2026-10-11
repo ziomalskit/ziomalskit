@@ -5,6 +5,17 @@
   "baseline": "H3_v20_heretic_MASTER_DURATION_EXACT.json",
   "baseline_size_bytes": 3084071,
   "baseline_sha256": "276621a1992a8b8da40d981a79417fd5eb3617b44166d890c8c82ffd8eb96222",
+  "render_artifacts": {
+    "profile_fields": {
+      "checkpoint": "diffusion_models",
+      "encoder": "text_encoders",
+      "video_vae": "vae",
+      "audio_vae": "vae"
+    },
+    "optional_controls": [
+      {"enabled_when": "latent_upscaler_enabled", "anchor": "latent_upscaler", "widget": "model_name", "directory": "latent_upscale_models"}
+    ]
+  },
   "anchors": {
     "renderer": {
       "graph": "root",
