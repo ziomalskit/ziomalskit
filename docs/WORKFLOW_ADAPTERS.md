@@ -44,7 +44,7 @@ that output. The bypassed latent upscaler is absent from the prepared API graph.
 | --- | --- | --- | --- | --- |
 | Quality / MPx | `1731`, subgraph type `a4078340-52f5-4ab4-a7db-04dea29501b2`, widget/input `value_1` (FLOAT) | Graph input slot 3 → edge `22101` → `1735.megapixels`, class `ResolutionSelector`. API `1731:1735`. Width/height feed output-size selection and render latent preparation. | `0.4`, float | **Render area (MPx)**; request `target_mpx` |
 | 1st steps | `7334`, subgraph type `62fc1cf4-4ac3-413d-bafc-12558c24914e`, widget `steps` (INT) | Graph input slot 6 → edge `46047` → `6771.steps`, class `BasicScheduler`; its SIGMAS output → edge `45242` → `6773.sigmas`, class `SamplerCustomAdvanced`. API `7334:6771` → `7334:6773`. | `24`, integer | **First-pass steps**; request `first_steps` |
-| 2nd steps | `7335`, subgraph type `f9092623-6d48-4b5a-b478-6b65bfaf31eb`, widget `steps` (INT) | Graph input slot 5 → edge `46090` → `360.steps`, class `BasicScheduler`; SIGMAS → edge `45242` → `469.sigmas`, class `SamplerCustomAdvanced`. API `7335:360` → `7335:469`. | `4`, integer | **Second-pass steps**; request `second_steps` |
+| 2nd steps | `7335`, subgraph type `f9092623-6d48-4b5a-b478-6b65bfaf31eb`, widget `steps` (INT) | Graph input slot 5 → edge `46090` → `360.steps`, class `BasicScheduler`; SIGMAS → edge `45242` → `469.sigmas`, class `SamplerCustomAdvanced`. API `7335:360` → `7335:469`; output is conditional, as explained below. | `4`, integer | **Second-pass steps (conditional)**; request `second_steps` |
 | on steps | No authoritative parameter with this name or established equivalent. | See Spectrum findings below. | No identified default/type/range for the requested concept. | **Not exposed** |
 | off steps | No authoritative parameter with this name or established equivalent. | See Spectrum findings below. | No identified default/type/range for the requested concept. | **Not exposed** |
 
@@ -69,8 +69,22 @@ provides no required ordering constraint between first and second counts;
 AJ does not invent one. All three controls are profile-independent graph
 parameters. Visual results and suitable choices remain model-dependent.
 
+**The second pass is conditional and disabled in the canonical baseline.** Its
+enable source is top-level `6263`, class `Bool-🔬`, saved `value=True` but **mode 4
+(bypass)**. Edge `45851` feeds the `second_pass_apply` SetNode `6264`. In the
+prepared API graph, the matching GetNode `7335:6267` resolves without a source,
+leaving `7335:6266` (`easy PassOrNone`) without `anything`. The fallback boolean
+`7335:6269.value=False` and switch `7335:6268` feed output switch `7335:6173`, whose
+`on_false` is the first-pass latent and `on_true` is the second sampler's latent.
+Thus the real second-step schedule parameter exists, but changing it alone does
+not activate that pass. Its conditional label/help disclose this limitation.
+AJ exposes no new enable switch, activates no bypassed branch, and preserves
+all these widgets/edges. Merely appearing in structural output ancestry does
+not prove a lazy conditional branch executes. Live execution remains unverified.
+
 Higher area materially increases latent dimensions, work and potential VRAM.
-More steps increase sampling work/time and may affect Spectrum behavior; CPU
+More first-pass steps increase sampling work/time and may affect Spectrum behavior;
+second-pass step cost applies only when that conditional branch is active. CPU
 inspection cannot quantify peak VRAM or quality. No control changes frozen
 memory/overlap policy or opens admission based on an assumed GPU capacity.
 **All nondefault settings require GPU acceptance, which remains pending.**

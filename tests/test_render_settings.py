@@ -27,6 +27,11 @@ class RenderSettingsTests(unittest.TestCase):
         self.adapter.apply_render_settings(workflow, defaults)
         self.assertEqual(workflow, before)
 
+    def test_unset_typed_fields_serialize_as_absent_without_null_defaults(self):
+        self.assertEqual(RenderSettings().model_dump(), {})
+        self.assertEqual(RenderSettings(target_mpx=0.8).model_dump(), {"target_mpx": 0.8})
+        self.assertEqual(RenderSettings().model_dump_json(), "{}")
+
     def changes_only_target(self, key, value):
         workflow = self.composed()
         before = copy.deepcopy(workflow)
@@ -50,6 +55,16 @@ class RenderSettingsTests(unittest.TestCase):
 
     def test_second_steps_changes_only_authoritative_widget(self):
         self.changes_only_target("second_steps", 8)
+
+    def test_second_steps_preserve_disabled_conditional_switch(self):
+        workflow = self.composed()
+        self.adapter.apply_render_settings(workflow, self.adapter.resolve_render_settings({"second_steps": 8}))
+        self.assertEqual(self.adapter.node(workflow, "second_pass_enable")["mode"], 4)
+        self.assertEqual(self.adapter.node(workflow, "second_pass_output_switch")["widgets_values_named"]["switch"], False)
+        converted = exact_convert(workflow, production_catalog())
+        self.assertEqual(converted["7335:6266"]["inputs"], {})
+        self.assertEqual(converted["7335:6269"]["inputs"]["value"], False)
+        self.assertEqual(converted["7335:6173"]["inputs"]["on_false"], ["7334:6773", 0])
 
     def test_pinned_converter_consumes_each_control_at_its_actual_destination(self):
         for key, value in (("target_mpx", 0.8), ("first_steps", 32), ("second_steps", 8)):

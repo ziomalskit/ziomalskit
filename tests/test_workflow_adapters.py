@@ -80,6 +80,9 @@ class AdapterValidationTests(unittest.TestCase):
     def test_duration_step_alias_rewire_drift_fails_closed(self):
         self.bad(lambda w: self.adapter.node(w, "duration_step3")["widgets_values_named"].update(Constant="other_duration"), "defaults.*changed")
 
+    def test_second_pass_enable_source_cannot_be_activated(self):
+        self.bad(lambda w: self.adapter.node(w, "second_pass_enable").update(mode=0), "type/mode.*changed")
+
     def test_proxy_subgraph_interface_drift_fails_closed(self):
         def mutate(w):
             kind = self.adapter.node(w, "first_pass")["type"]
