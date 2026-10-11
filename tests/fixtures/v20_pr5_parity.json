@@ -1,0 +1,28 @@
+{
+  "source_commit": "c6f033ab41a4456fd55558e652a563d8c31418d1",
+  "algorithm": "SHA256 sorted UTF-8 canonical JSON, only added aj_production identity metadata excluded",
+  "digests": {
+    "h3_full/composition": "2179b4cc63ce957d128e385ef2d793cb931117cab5687ae02abe663b25b20ceb",
+    "10eros_full/composition": "d5a4f5382e866c8be90cbf4377c79f30296b785ae3167d38a918e042c33597f2",
+    "h3_full/silent/prompt/ui": "3717983adeba82a50aeaea125704da8f9a5a1b2f1657294a5f9a1e82479abc9f",
+    "h3_full/silent/prompt/api": "dbabb09b31cb6a3513241ae33f9c5e2321b18efb4c763dde1ef5dfdf24f8fc75",
+    "h3_full/silent/prompt/cached-api": "46e5cccc1c8edfdec0c0a01e44bc1ec43c0da8ac0107514e8af87ab7b62c8fc4",
+    "h3_full/silent/render/ui": "4aee2807bd033ca26832ecb9b0e61f80c6a26a08de1c8f5b300fb3551c945cb9",
+    "h3_full/silent/render/api": "55bdc086d07fbcea9fabe7a26e87225624e5671b474ae817d683cd357b904baf",
+    "h3_full/audio/prompt/ui": "638c14c7e601dd9142d9fbb05b4f0998189da2da1ee0e875dc3c682db6a1a985",
+    "h3_full/audio/prompt/api": "f8cc41bc15cf0355ec07d57f3d93daafc01d9687669a2a59e26c03f66068f789",
+    "h3_full/audio/prompt/cached-api": "46e5cccc1c8edfdec0c0a01e44bc1ec43c0da8ac0107514e8af87ab7b62c8fc4",
+    "h3_full/audio/render/ui": "8db05f20b1ff8d7c7d740fe24ad4a4df8f7ff7183c9998e7f9dcaf284aa37360",
+    "h3_full/audio/render/api": "353c64e19497d7258887155e4f254038a407166dfd62a3066225e7f1574f879c",
+    "10eros_full/silent/prompt/ui": "2cd7e3583ba64e7dfcacb6e484d9684211e84de4c0545d8366228d9f2a26c880",
+    "10eros_full/silent/prompt/api": "77bc1dcb7350cb04b721354687a7cdb6ab4fb6e79d3bdb4eef096e0605d71b11",
+    "10eros_full/silent/prompt/cached-api": "c42a23919cb54e93f5c7d450e47f9437b799361073942ccb9a09cf9a8663eca6",
+    "10eros_full/silent/render/ui": "30512bd5142ed9a1dba7007cdc0d0cae2bd182b37f8c4b22a8df800089f9db30",
+    "10eros_full/silent/render/api": "75bb93825be3008ccd5701484c638ea5c5580a936395251aae18940caccc3294",
+    "10eros_full/audio/prompt/ui": "a563b8b71d662ee10c96f2a4d576471bc11fa01f0b2def2b03b678cd6f11a92c",
+    "10eros_full/audio/prompt/api": "39c80979668aacea46efc7a4968dc43fe42d746e724920a6c71ef75bb3b864fa",
+    "10eros_full/audio/prompt/cached-api": "c42a23919cb54e93f5c7d450e47f9437b799361073942ccb9a09cf9a8663eca6",
+    "10eros_full/audio/render/ui": "268e3debc8e0c63d7032d5749dcfe3eb3ef964563fbd2c2b1bcf982d5aad790f",
+    "10eros_full/audio/render/api": "75a1028d87923208666aed1e691d21d866f33fae35d0cad556ee0c66b1cc80d5"
+  }
+}

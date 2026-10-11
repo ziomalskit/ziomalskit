@@ -25,10 +25,11 @@ STATE.mkdir(exist_ok=True)
 MASTER = WORKFLOWS / "VAST_H3_MASTER_NATIVE_INT8_96GB.json"
 PROMPT_ONLY = WORKFLOWS / "VAST_H3_PROMPT_ONLY_STAGE2.json"
 MAP = json.loads((CONFIG / "VAST_H3_API_MAP.json").read_text(encoding="utf-8"))
-from .production import read_profiles, read_loras, read_bridge, resolve_loras, patch_lora_slots, PROFILE_LABELS, functional_policy
+from .production import read_profiles, read_loras, read_bridge, resolve_loras, PROFILE_LABELS, functional_policy
 from .analysis_cache import AnalysisCache, prompt_admission
-from .v20 import compose as compose_v20, set_widget as set_v20_widget
-from .writer_policy import MODEL_FIELDS, validate_stages, stage_routes, validate_writer_graph, final_answer
+from .workflow_adapters import get_adapter, IDENTITY_FIELDS
+from .render_settings import RenderSettings
+from .writer_policy import MODEL_FIELDS, validate_stages, final_answer
 from .temporal import duration_identity, validate_duration, final_timeline
 from .redaction import redact
 
@@ -63,6 +64,7 @@ def job_profile(job: dict) -> str:
     bridge = job["context"].get("conditioning_bridge")
     if bridge is not None and (bridge.get("id") != CONDITIONING_BRIDGE["id"] or bridge.get("filename") != CONDITIONING_BRIDGE["filename"]):
         raise ValueError("persisted conditioning bridge routing changed")
+    get_adapter(job["context"].get("workflow_id"), root=ROOT).validate_job(job["context"], PRODUCTION["profiles"][profile])
     return profile
 
 
@@ -86,6 +88,19 @@ def manifest_identity(profile: str) -> str:
 
 def production_workflow(job: dict) -> Path:
     return WORKFLOWS / PRODUCTION["profiles"][job_profile(job)]["render_template"]
+
+
+def job_workflow_adapter(job: dict):
+    job_profile(job)
+    return get_adapter(job["context"]["workflow_id"], root=ROOT)
+
+
+def workflow_context(profile: str, render_settings=None) -> dict:
+    adapter = get_adapter(PRODUCTION["profiles"][profile]["workflow_id"], root=ROOT)
+    adapter.render_capabilities()  # Verify anchors and canonical defaults before freezing.
+    context = {**adapter.identity(), "render_settings": adapter.resolve_render_settings(render_settings)}
+    context["workflow_render_identity"] = adapter.render_identity(context, context["render_settings"])
+    return context
 
 
 def execution_workflow(job: dict, service: str) -> Path:
@@ -231,6 +246,7 @@ class BatchRequest(BaseModel):
     pictures: list[str] = []
     audio: list[str] = []
     loras: list[LoraSetting] = []
+    render_settings: RenderSettings = Field(default_factory=RenderSettings)
 
 
 class ApprovalRequest(BaseModel):
@@ -611,42 +627,6 @@ def find_job(job_id: str) -> dict:
     return job
 
 
-def node_by_id(wf: dict, node_id: int) -> dict:
-    matches = [node for node in wf["nodes"] if node.get("id") == node_id]
-    if len(matches) != 1:
-        raise ValueError(f"Expected exactly one UI node at {node_id}, found {len(matches)}")
-    return matches[0]
-
-
-def iter_all_nodes(doc: dict):
-    for n in doc.get("nodes", []):
-        yield n
-    for sg in doc.get("definitions", {}).get("subgraphs", []):
-        yield from iter_all_nodes(sg)
-
-
-def set_named_and_positional(node: dict, field: str, value: Any) -> None:
-    node.setdefault("widgets_values_named", {})[field] = value
-    if node.get("id") == 4595 and field == "unet_name":
-        node["widgets_values"][0] = value
-    elif node.get("id") in (2624, 2632) and field == "positive":
-        node["widgets_values"][0] = value
-    elif node.get("type") == "LoadImage" and field == "image":
-        node["widgets_values"][0] = value
-    elif node.get("type") == "LoadAudio" and field == "audio":
-        node["widgets_values"][0] = value
-
-
-def patch_rgthree_seed(wf: dict, node_id: int, seed: int) -> None:
-    n = node_by_id(wf, node_id)
-    if n.get("type") != "Seed (rgthree)":
-        raise RuntimeError(f"Expected Seed (rgthree) at node {node_id}, got {n.get('type')}")
-    n.setdefault("widgets_values_named", {})["seed"] = int(seed)
-    if not n.get("widgets_values"):
-        raise RuntimeError(f"Seed node {node_id} has no positional widgets")
-    n["widgets_values"][0] = int(seed)
-
-
 def validate_input_filename(name: str) -> str:
     clean = Path(name).name
     if not clean or clean != name:
@@ -705,84 +685,6 @@ def normalized_audio_slots(audio: list[str]) -> tuple[list[str], str]:
     return slots, "LLM sees Audio 0"
 
 
-def set_collect_refs_audio_mode(wf: dict, choice: str) -> None:
-    n = node_by_id(wf, 2249)
-    n.setdefault("widgets_values_named", {})["choice_1"] = choice
-    vals = n.get("widgets_values") or []
-    if len(vals) < 3:
-        raise RuntimeError("Collect Refs node 2249 has unexpected widget layout")
-    vals[2] = choice
-
-
-def set_primary_audio_reference_enabled(wf: dict, enabled: bool) -> None:
-    # Node 3423 exposes Audio 0 `is_reference`; its BOOLEAN output feeds
-    # Set_ref_audio_0_apply. This makes "no audio" truly mean no H3 audio ref.
-    n = node_by_id(wf, 3423)
-    vals = n.get("widgets_values") or []
-    if not vals:
-        raise RuntimeError("Audio 0 controller 3423 has unexpected widget layout")
-    n.setdefault("widgets_values_named", {})["value_3"] = bool(enabled)
-    vals[0] = bool(enabled)
-
-
-def patch_llm_pipeline_seeds(wf: dict, analysis_seed: int, prompt_seed: int) -> None:
-    """
-    Patch the REAL seed sources used by the LLM dashboard.
-
-    The four LLMTextProcessor nodes have their `seed` sockets connected, so their
-    local widget values are only mirrors. Node 4022 is the upstream controller
-    that actually feeds Step 1/2/3/4 seeds into the nested dashboard.
-
-    Step 1–2: fixed per batch -> cacheable across 10 candidates.
-    Step 3–4: unique per candidate -> actual prompt diversity.
-    """
-    controller = None
-    downstream = {}
-    for n in iter_all_nodes(wf):
-        if n.get("id") == 4022:
-            controller = n
-        if n.get("id") in (2441, 2447, 2445, 4275):
-            downstream[n["id"]] = n
-
-    if controller is None:
-        raise RuntimeError("Could not find LLM dashboard seed controller node 4022")
-
-    vals = controller.get("widgets_values") or []
-    if len(vals) <= 17:
-        raise RuntimeError("LLM dashboard seed controller 4022 has unexpected widget layout")
-
-    seeds = {
-        "value_4": int(analysis_seed),       # Step 1
-        "value_4_1": int(analysis_seed) + 1, # Step 2
-        "value_4_2": int(prompt_seed),       # Step 3
-        "value_4_3": int(prompt_seed) + 1,   # Step 4
-    }
-    controller.setdefault("widgets_values_named", {}).update(seeds)
-    for idx, value in ((5, seeds["value_4"]), (9, seeds["value_4_1"]),
-                       (13, seeds["value_4_2"]), (17, seeds["value_4_3"])):
-        vals[idx] = value
-
-    # Keep local widgets synchronized too; connected sockets remain authoritative.
-    mirrors = {
-        2441: seeds["value_4"],
-        2447: seeds["value_4_1"],
-        2445: seeds["value_4_2"],
-        4275: seeds["value_4_3"],
-    }
-    missing = set(mirrors) - set(downstream)
-    if missing:
-        raise RuntimeError(f"Missing LLM processor nodes: {sorted(missing)}")
-    for nid, seed in mirrors.items():
-        n = downstream[nid]
-        expected_type = "AJCompilerTextProcessor" if nid == 4275 and wf.get("extra", {}).get("aj_production") else "LLMTextProcessor"
-        if n.get("type") != expected_type:
-            raise RuntimeError(f"Expected LLMTextProcessor at {nid}, got {n.get('type')}")
-        n.setdefault("widgets_values_named", {})["seed"] = int(seed)
-        if len(n.get("widgets_values", [])) <= 13:
-            raise RuntimeError(f"LLMTextProcessor {nid} has unexpected widget layout")
-        n["widgets_values"][13] = int(seed)
-
-
 def patch_workflow(job: dict, workflow_template: Path, *, approved_prompt: str | None = None) -> Path:
     requested_phase = "prompt" if workflow_template == PROMPT_ONLY else "render"
     if job.get("profile") in PROFILE_LABELS and workflow_template in (MASTER, PROMPT_ONLY):
@@ -791,88 +693,23 @@ def patch_workflow(job: dict, workflow_template: Path, *, approved_prompt: str |
     if is_production:
         if workflow_template != production_workflow(job):
             raise ValueError("workflow does not match job's persisted profile")
-        wf = compose_v20(workflow_template, PRODUCTION, LORA_REGISTRY,
-                         writer_stages=job["context"]["profile_identity"]["writer_stages"])
-    else:
-        # These explicitly addressed legacy templates are diagnostic artifacts.
-        # Normal workers always select production_workflow(job).
-        wf = json.loads(workflow_template.read_text(encoding="utf-8"))
-    from .workflow_validation import validate_ui_workflow, lora_slots
-    validate_ui_workflow(wf, patch_contract=True)
-    ctx = job["context"]
+        adapter = job_workflow_adapter(job)
+        phase = job.get("active_service", requested_phase)
+        audio_slots, _ = normalized_audio_slots(job["context"].get("audio", []))
+        wf = adapter.compose_job(workflow_template, PRODUCTION, LORA_REGISTRY, job,
+                                 audio_slots, approved_prompt, phase)
+        from .workflow_validation import validate_ui_workflow
+        validate_ui_workflow(wf)
+        out = STATE / f"job_{job['id']}_{phase}.json"
+        out.write_text(json.dumps(wf, ensure_ascii=False, indent=2), encoding="utf-8")
+        return out
+    # Explicit legacy diagnostics retain their isolated historical contract.
+    from .legacy_workflow import patch_diagnostic_workflow
+    audio_slots, audio_choice = normalized_audio_slots(job["context"].get("audio", []))
+    wf = patch_diagnostic_workflow(job, workflow_template, MAP, audio_slots, audio_choice,
+        approved_prompt=approved_prompt, prompt_only=workflow_template == PROMPT_ONLY, setting_model=LoraSetting)
 
-    checkpoint = (PRODUCTION["profiles"][job_profile(job)]["checkpoint"] if is_production else
-                  MAP["nodes"]["model_loader"]["alternatives"].get(ctx["model"]))
-    if not checkpoint:
-        raise ValueError(f"Unknown model preset: {ctx['model']}")
-    set_named_and_positional(node_by_id(wf, 4595), "unet_name", checkpoint)
-    set_named_and_positional(node_by_id(wf, 2624), "positive", ctx["prompt"])
-    set_named_and_positional(node_by_id(wf, 2632), "positive", approved_prompt or "")
-
-    # Exact fixed-width reference context is bound to the batch and copied into every candidate.
-    pictures = list(ctx.get("pictures", []))
-    if len(pictures) != 6:
-        raise RuntimeError("job context does not contain exactly 6 picture slots")
-    for slot, filename in enumerate(pictures, start=1):
-        nid = MAP["nodes"]["pictures"][slot - 1]["id"]
-        set_named_and_positional(node_by_id(wf, nid), "image", filename)
-
-    requested_audio = list(ctx.get("audio", []))
-    audio_slots, audio_choice = normalized_audio_slots(requested_audio)
-    for slot, filename in enumerate(audio_slots, start=1):
-        nid = MAP["nodes"]["audio"][slot - 1]["id"]
-        set_named_and_positional(node_by_id(wf, nid), "audio", filename)
-    set_collect_refs_audio_mode(wf, audio_choice)
-    set_primary_audio_reference_enabled(wf, bool(requested_audio))
-
-    # Connected Seed (rgthree) nodes are authoritative; sampler widget values are only UI mirrors.
-    render_seed = int(job["render_seed"])
-    patch_rgthree_seed(wf, 1854, render_seed)
-    patch_rgthree_seed(wf, 6067, render_seed + 1)
-    for nid, seed in ((7334, render_seed), (7335, render_seed + 1)):
-        n = node_by_id(wf, nid)
-        n.setdefault("widgets_values_named", {})["noise_seed"] = seed
-        if n.get("widgets_values"):
-            n["widgets_values"][0] = seed
-
-    # One analysis token per batch stabilizes Step 0-2 input text.
-    patch_rgthree_seed(wf, 7360, int(job["analysis_seed"]))
-    if workflow_template == PROMPT_ONLY or is_production:
-        patch_llm_pipeline_seeds(
-            wf,
-            int(job["analysis_seed"]),
-            int(job["prompt_seed"]),
-        )
-
-    if is_production:
-        patch_lora_slots(node_by_id(wf, 6164), LORA_REGISTRY,
-                         resolve_loras(LORA_REGISTRY, job_profile(job), ctx.get("loras"), frozen=True))
-        set_v20_widget(node_by_id(wf, 1731), "value", ctx["duration_seconds"])
-        defaults = ctx.get("conditioning_bridge", CONDITIONING_BRIDGE["defaults"][job_profile(job)])
-        set_v20_widget(node_by_id(wf, 7362), "enabled", defaults["enabled"])
-        set_v20_widget(node_by_id(wf, 7362), "alpha", defaults["strength"])
-        wf["extra"]["aj_production"].update(job_id=job["id"], phase=job.get("active_service", requested_phase))
-    elif ctx.get("loras"):
-        n = node_by_id(wf, 6164)
-        settings = [LoraSetting.model_validate(value) for value in ctx["loras"]]
-        if len({setting.name for setting in settings}) != len(settings):
-            raise ValueError("Duplicate LoRA settings")
-        supported = [item["lora"] for item in MAP["nodes"]["first_pass_loras"]["entries"]]
-        slots = lora_slots(wf, supported)
-        for setting in settings:
-            if setting.name not in slots:
-                raise ValueError(f"Unsupported LoRA: {setting.name}")
-            _, named = slots[setting.name]
-            rows = [item for item in n["widgets_values"] if isinstance(item, dict) and item.get("lora") == setting.name]
-            if len(rows) != 1:
-                raise ValueError(f"Ambiguous positional LoRA slot: {setting.name}")
-            for item in (named, rows[0]):
-                item.update(on=setting.enabled, strength=setting.strength)
-        lora_slots(wf, supported)
-
-    validate_ui_workflow(wf, patch_contract=True)
-
-    phase = job.get("active_service", requested_phase) if is_production else requested_phase
+    phase = requested_phase
     out = STATE / f"job_{job['id']}_{phase}.json"
     out.write_text(json.dumps(wf, ensure_ascii=False, indent=2), encoding="utf-8")
     return out
@@ -1399,12 +1236,10 @@ def _apply_history_outcome(job: dict, service: str, entry: dict) -> bool:
     elif service == "prompt":
         capture_error = None
         try:
-            captured = extract_prompt_texts(entry)
-            if job.get("profile") in PROFILE_LABELS:
-                job_profile(job)
-                validate_writer_graph(_prompt_graph_from_history(entry), stage_routes(job["context"]["profile_identity"]))
-                from .production_api import validate_temporal_graph
-                validate_temporal_graph(_prompt_graph_from_history(entry), job["context"])
+            adapter = job_workflow_adapter(job) if job.get("profile") in PROFILE_LABELS else None
+            captured = extract_prompt_texts(entry, capture=adapter.capture_contract() if adapter else None)
+            if adapter:
+                adapter.validate_final_graph(_prompt_graph_from_history(entry), job["context"], phase="prompt")
                 final_timeline(captured.get("final_h3_prompt"), captured.get("creative_plan"), job["context"]["effective_duration_seconds"])
                 job["temporal_guard_status"] = "verified"
         except ValueError as error:
@@ -1471,10 +1306,10 @@ def _title_for_api_node(node: dict) -> str:
     return str(node.get("class_type", ""))
 
 
-def extract_prompt_texts(entry: dict) -> dict[str, str | None]:
+def extract_prompt_texts(entry: dict, *, capture=None) -> dict[str, str | None]:
     outputs = entry.get("outputs") or {}
     graph = _prompt_graph_from_history(entry)
-    capture = MAP["prompt_capture"]
+    capture = MAP["prompt_capture"] if capture is None else capture
     wanted = {
         capture["step0_visual_facts_title"]: "visual_facts",
         capture["step1_expanded_intent_title"]: "expanded_intent",
@@ -1736,7 +1571,11 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
     from .workflow_conversion import prepare_api_prompt
     from .workflow_validation import validate_ui_workflow, validate_converted_widgets
     ui_workflow = json.loads(workflow.read_text(encoding="utf-8"))
-    validate_ui_workflow(ui_workflow, patch_contract=True)
+    owner = next((job for job in queue if workflow == STATE / f"job_{job['id']}_{service}.json"), None)
+    metadata = ui_workflow.get("extra", {}).get("aj_production")
+    if owner and owner.get("profile") in PROFILE_LABELS and (not metadata or metadata.get("job_id") != owner["id"]):
+        raise ValueError("production workflow adapter metadata missing or owner changed")
+    validate_ui_workflow(ui_workflow, patch_contract=not bool(ui_workflow.get("extra", {}).get("aj_production")))
 
     envelope = preview_envelope if preview_envelope is not None else await run_cli_envelope(
         service, "run", "--workflow", str(workflow), "--print-prompt"
@@ -1748,41 +1587,40 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
         response = await client.get(f"{service_url(service)}/object_info")
         response.raise_for_status()
         catalog = response.json()
-    validate_ui_workflow(ui_workflow, catalog, patch_contract=True)
+    validate_ui_workflow(ui_workflow, catalog, patch_contract=not bool(ui_workflow.get("extra", {}).get("aj_production")))
     validate_converted_widgets(ui_workflow, data["prompt"], catalog)
-    approved = None
-    if service == "render":
-        override = node_by_id(ui_workflow, 2632)
-        approved = override.get("widgets_values_named", {}).get("positive")
-        if approved is None:
-            approved = override["widgets_values"][0]
-    prepared = prepare_api_prompt(data["prompt"], catalog, phase=service, approved_prompt=approved)
     production = ui_workflow.get("extra", {}).get("aj_production")
+    adapter = None
     if production:
         job = find_job(production["job_id"])
         profile = job_profile(job)
-        if production.get("profile") != profile or production.get("phase") != service:
-            raise ValueError("prepared workflow/profile identity mismatch")
-        from .production_api import phase_boundaries, reuse_analysis, frozen_duration, temporal_guards, validate_temporal_graph
-        prepared = frozen_duration(prepared, job["context"], catalog)
+        adapter = job_workflow_adapter(job)
+        if (production.get("profile") != profile or production.get("phase") != service or
+                any(production.get(key) != job["context"].get(key) for key in IDENTITY_FIELDS)):
+            raise ValueError("prepared workflow/profile/adapter identity mismatch")
+    approved = None
+    if service == "render":
+        if adapter:
+            approved = adapter.approved_prompt(ui_workflow)
+        else:
+            from .legacy_workflow import approved_prompt as diagnostic_prompt
+            approved = diagnostic_prompt(ui_workflow)
+    prepared = (adapter.prepare_api_prompt(data["prompt"], catalog, phase=service, approved_prompt=approved)
+                if adapter else prepare_api_prompt(data["prompt"], catalog, phase=service, approved_prompt=approved))
+    if adapter:
+        analysis_texts = None
         if service == "render":
             final_timeline(approved, job.get("creative_plan"), job["context"]["effective_duration_seconds"])
-            values = PRODUCTION["profiles"][profile]
-            for node, field, expected in (("4595:4529", "unet_name", values["checkpoint"]),
-                ("4595:130", "clip_name", values["encoder"]), ("4595:121", "vae_name", values["video_vae"]),
-                ("4595:122", "vae_name", values["audio_vae"])):
-                if prepared.get(node, {}).get("inputs", {}).get(field) != expected:
-                    raise ValueError("converted render loader differs from persisted production profile")
-            prepared, mapping = phase_boundaries(prepared, catalog, job["context"]["profile_identity"]["memory_policy"])
-            job["render_phase_nodes"] = mapping
         else:
             batch = batch_for_job(job)
             job["prompt_kind"] = analysis_cache.classify(job, batch)
             if job["prompt_kind"] != "cold_analysis":
-                prepared = reuse_analysis(prepared, batch["analysis"]["texts"], catalog)
-            prepared = temporal_guards(prepared, catalog)
-            validate_writer_graph(prepared, stage_routes(job["context"]["profile_identity"]))
-            validate_temporal_graph(prepared, job["context"])
+                analysis_texts = batch["analysis"]["texts"]
+        prepared, mapping = adapter.install_runtime_guards(prepared, catalog, job["context"],
+                                                         phase=service, analysis_texts=analysis_texts)
+        adapter.validate_final_graph(prepared, job["context"], phase=service)
+        if mapping is not None:
+            job["render_phase_nodes"] = mapping
     api_path = workflow.with_suffix(".api.json")
     catalog_path = workflow.with_suffix(".catalog.json")
     _atomic_json_write(api_path, prepared)
@@ -2858,7 +2696,9 @@ async def index():
 async def config():
     from .model_health import manifest_health, lora_health
     return {
-        "profiles": [{"id": key, **value} for key, value in PRODUCTION["profiles"].items()],
+        "profiles": [{"id": key, **value,
+                      "workflow": get_adapter(value["workflow_id"], root=ROOT).render_capabilities()}
+                     for key, value in PRODUCTION["profiles"].items()],
         "default_profile": PRODUCTION["default_profile"],
         "render_comfy_url": RENDER_COMFY_URL,
         "prompt_comfy_url": PROMPT_COMFY_URL,
@@ -3142,6 +2982,10 @@ async def create_batches(req: BatchRequest):
             raise HTTPException(400, "unknown production profile")
         if req.profile and req.model is not None and req.model != req.profile:
             raise HTTPException(400, "conflicting profile identifiers")
+        try:
+            frozen_workflow = workflow_context(selected_profile, req.render_settings.model_dump(exclude_unset=True))
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
         pictures, audio = validate_requested_assets(req)
         created_batches = []
         base_render_seed = req.seed if req.seed is not None else int(time.time_ns() & 0x7FFFFFFF)
@@ -3158,6 +3002,7 @@ async def create_batches(req: BatchRequest):
                 "model": selected_profile,
                 "profile": selected_profile,
                 "profile_identity": profile_identity(selected_profile),
+                **copy.deepcopy(frozen_workflow),
                 "lora_identity": {key: entry["filename"] for key, entry in LORA_REGISTRY.items()},
                 "conditioning_bridge": {"id": CONDITIONING_BRIDGE["id"], "filename": CONDITIONING_BRIDGE["filename"],
                                         **CONDITIONING_BRIDGE["defaults"][selected_profile]},

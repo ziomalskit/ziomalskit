@@ -46,9 +46,12 @@ def native_extra_args(policy: dict) -> str:
     return f"--reasoning-format deepseek --reasoning-budget {policy['reasoning_budget']}"
 
 
-def validate_writer_graph(prompt: dict, routes: dict) -> None:
+def validate_writer_graph(prompt: dict, routes: dict, *, contract=None) -> None:
     from .workflow_conversion import _ancestors
-    for stage, identifier in STAGE_NODES.items():
+    stages = STAGE_NODES if contract is None else contract["writer_stages"]
+    final_preview = "5732" if contract is None else contract["final_preview"]
+    final_title = "STEP 4 — Final H3 Prompt / Output" if contract is None else contract["captures"]["final_h3_prompt"]
+    for stage, identifier in stages.items():
         node = prompt.get(identifier, {})
         policy = routes[stage]
         inputs = node.get("inputs", {})
@@ -62,6 +65,6 @@ def validate_writer_graph(prompt: dict, routes: dict) -> None:
                 if isinstance(link, list) and len(link) == 2 and link[0] == identifier and link[1] != 0:
                     raise ValueError("reasoning/performance output cannot feed the v20 pipeline")
     captures = {key for key, node in prompt.items() if node.get("class_type") == "PreviewAny" and
-                (key == "5732" or node.get("_meta", {}).get("title") == "STEP 4 — Final H3 Prompt / Output")}
-    if not captures or any(STAGE_NODES["step4"] not in _ancestors(prompt, {key}) for key in captures):
+                (key == final_preview or node.get("_meta", {}).get("title") == final_title)}
+    if not captures or any(stages["step4"] not in _ancestors(prompt, {key}) for key in captures):
         raise ValueError("final capture does not depend on the native compiler answer")

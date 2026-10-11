@@ -22,7 +22,10 @@ def production_fixture_context(module, request):
     context=request.model_dump(mode="json")
     profile=request.profile or module.PRODUCTION["default_profile"]
     context.update(profile=profile,model=profile,profile_identity=module.profile_identity(profile),
+                   **module.workflow_context(profile),
                    **module.duration_identity(request.duration_seconds))
+    context["conditioning_bridge"] = {"id": module.CONDITIONING_BRIDGE["id"],
+        "filename": module.CONDITIONING_BRIDGE["filename"], **module.CONDITIONING_BRIDGE["defaults"][profile]}
     return context
 
 

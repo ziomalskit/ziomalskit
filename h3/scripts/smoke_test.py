@@ -39,10 +39,21 @@ def patched_workflows(module):
                     "pictures": images, "audio": [], "loras": [],
                 },
             }
+            job["context"].update(module.workflow_context(profile), **module.duration_identity(20),
+                                  profile_identity=module.profile_identity(profile),
+                                  conditioning_bridge={"id": module.CONDITIONING_BRIDGE["id"],
+                                      "filename": module.CONDITIONING_BRIDGE["filename"],
+                                      **module.CONDITIONING_BRIDGE["defaults"][profile]})
+            timecode = importlib.import_module(module.__package__ + ".temporal").timecode
+            finish = timecode(job["context"]["effective_duration_ms"])
+            job["creative_plan"] = f"[Shot 1]\nTimeline: 00:00.000-{finish}\nAction: smoke test."
+            final = ("subject_definitions: Reference person.\n\nsummary: Smoke test.\n\n"
+                     "retention_analysis: Keep all references.\n\ndetailed_description:\n"
+                     "[Shot 1] Continuous movement.\n\noverall_soundscape: Quiet.\n\nnon_diegetic_music: None.")
             # Local lookup only; never publish a batch or write queue state.
             module.queue.append(job)
             path = module.patch_workflow(job, module.production_workflow(job),
-                                         approved_prompt="smoke final prompt" if phase == "render" else None)
+                                         approved_prompt=final if phase == "render" else None)
             nodes = {node["id"]: node for node in all_nodes(json.loads(path.read_text()))}
             assert nodes[1854]["widgets_values"][0] == 12345
             assert nodes[6067]["widgets_values"][0] == 12346

@@ -80,6 +80,9 @@ def read_profiles(path: Path) -> dict:
     for identifier, profile in profiles.items():
         if profile.get("label") != PROFILE_LABELS[identifier] or profile.get("user_facing") is not True:
             raise ValueError("invalid production profile identity")
+        from .workflow_adapters import REGISTRY
+        if profile.get("workflow_id") not in REGISTRY:
+            raise ValueError("production profile requires a trusted workflow adapter")
         for field in ("render_template", "checkpoint", "writer", "encoder", "video_vae", "audio_vae"):
             relative_path(profile[field])
         if any(word in profile["checkpoint"].lower() for word in ("int8", "w4a8", "turbo", "quant")):
