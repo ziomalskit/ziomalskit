@@ -162,7 +162,7 @@ a{color:#9ecbff}
 
 <script>
 let loras=[], productionProfiles=[], selected=null, lastJobs=[];
-let renderControls={};
+let renderControls={}, renderLoraInitial={};
 let promptModes=[];
 let batchInFlight=false, approvalInFlight=new Set();
 let jobsGeneration=0, promptsGeneration=0, vastGeneration=0;
@@ -253,13 +253,23 @@ function profileChanged(){
   }).join('');
 }
 function renderSettingsForm(){
+  renderLoraInitial={};
+  const profile=document.getElementById('model').value;
+  function initialStrength(l,c,saved){
+    const valid=value=>typeof value==='number'&&Number.isFinite(value)&&value>=l.strength_range[0]&&value<=l.strength_range[1];
+    if(valid(saved?.strength))return saved.strength;
+    const trusted=l.defaults?.[profile]?.strength;
+    if(valid(trusted))return trusted;
+    return Math.max(l.strength_range[0],Math.min(l.strength_range[1],c.default_strength));
+  }
   function markup(group){
     return Object.entries(renderControls).filter(([key,c])=>c.group===group).map(([key,c])=>{
       let field;
       if(c.type==='boolean')field=`<select id="render_${esc(key)}" onchange="updateRenderDependencies()">
         <option value="false" ${c.default?'':'selected'}>OFF</option><option value="true" ${c.default?'selected':''}>ON</option></select>`;
       else if(c.type==='lora_stack')field=`<details><summary>${esc(c.label)} — registered selection</summary>`+loras.map((l,i)=>{
-        const saved=c.default.find(row=>row.id===l.id),strength=saved?.strength??c.default_strength;
+        const saved=c.default.find(row=>row.id===l.id),strength=initialStrength(l,c,saved);
+        renderLoraInitial[key+'/'+l.id]={strength,explicit:!!saved};
         return `<label><input id="render_${esc(key)}_enable_${i}" style="width:auto" type="checkbox" ${saved?.enabled?'checked':''} onchange="updateRenderDependencies()"> ${esc(l.display_name)}</label>
           <label class="tiny" for="render_${esc(key)}_strength_${i}">Strength</label>
           <input id="render_${esc(key)}_strength_${i}" type="number" min="${l.strength_range[0]}" max="${l.strength_range[1]}" step="0.05" value="${strength}">`;
@@ -298,12 +308,15 @@ function submittedRenderSettings(){
       return [key,raw==='true'];
     }
     if(c.type==='lora_stack'){
-      const rows=loras.map((l,i)=>{
+      const rows=loras.flatMap((l,i)=>{
         const raw=document.getElementById(`render_${key}_strength_${i}`)?.value,strength=raw===''?NaN:Number(raw);
+        const enabled=document.getElementById(`render_${key}_enable_${i}`)?.checked===true;
+        const initial=renderLoraInitial[key+'/'+l.id];
+        if(!enabled&&!initial?.explicit&&strength===initial?.strength)return [];
         if(!Number.isFinite(strength)||strength<l.strength_range[0]||strength>l.strength_range[1])throw new Error(`${c.label}: invalid strength for ${l.display_name}.`);
-        return {id:l.id,enabled:document.getElementById(`render_${key}_enable_${i}`)?.checked===true,strength};
+        return [{id:l.id,enabled,strength}];
       });
-      return [key,rows.filter(row=>row.enabled||row.strength!==c.default_strength)];
+      return [key,rows];
     }
     const raw=document.getElementById('render_'+key)?.value;
     const value=raw===''||raw==null?NaN:Number(raw);
@@ -380,8 +393,8 @@ async function refreshPrompts(){
   let p=await r.json();
   if(generation!==promptsGeneration || selected!==id)return;
   document.getElementById('selectedStatus').textContent=`B${p.batch_seq} #${p.candidate_index} • ${p.status}`;
-  const manual=p.prompt_mode==='manual_final',source=document.getElementById('promptSource');
-  if(source)source.textContent='Prompt source: '+(manual?'Own final H3 prompt':'Autoprompt');
+  const manual=p.prompt_mode==='manual_final',unknown=p.prompt_mode===null,source=document.getElementById('promptSource');
+  if(source)source.textContent='Prompt source: '+(manual?'Own final H3 prompt':unknown?'Unavailable':'Autoprompt');
   ['Visual facts','Expanded intent','Reference map','Creative plan'].forEach((label,i)=>{
     const heading=document.getElementById('p'+i+'Label');
     if(heading)heading.textContent=manual?`Step ${i} — skipped (manual final prompt)`:`Step ${i} — ${label}`;
@@ -451,7 +464,7 @@ function renderJobs(){
     return `<div class="job${active}" onclick="selectJob('${j.id}')">
       <b class="${cls}">${esc(j.status)}</b>${duration}
       ${videos.map(u=>` · <a href="${esc(u)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${/[?&]filename=[^&]*\.mp4(?:&|$)/i.test(u)?'OPEN MP4':'OPEN VIDEO'}</a>`).join('')}<br>
-      <span class="tiny">Batch ${esc(j.batch_seq)} · ${j.prompt_mode==='manual_final'?'Own final H3 prompt':`candidate #${esc(j.candidate_index)}`} · job ${esc(j.id)} · seed ${esc(j.render_seed ?? j.seed)} · ${j.prompt_mode==='manual_final'?'manual':j.review_required?'review':'auto'} ${esc(j.current_node||'')}</span>
+      <span class="tiny">Batch ${esc(j.batch_seq)} · ${j.prompt_mode==='manual_final'?'Own final H3 prompt':j.prompt_mode===null?'Prompt source unavailable':`candidate #${esc(j.candidate_index)}`} · job ${esc(j.id)} · seed ${esc(j.render_seed ?? j.seed)} · ${j.prompt_mode==='manual_final'?'manual':j.prompt_mode===null?'source unavailable':j.review_required?'review':'auto'} ${esc(j.current_node||'')}</span>
     </div>`}).join(''):'—';
 }
 

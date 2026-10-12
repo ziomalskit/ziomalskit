@@ -83,8 +83,12 @@ class SecondPassLoraProvenanceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_known_source_second_lora_uses_trusted_size_hash_without_external_override(self):
         path = self.lora_file('hm-breasts-v2')
-        metadata = self.m.LORA_REGISTRY['hm-breasts-v2']
+        # Establish synthetic trusted metadata as a new fixture generation
+        # before creating any jobs; runtime snapshots are deeply immutable.
+        registry = self.m.registry_json(self.m.LORA_REGISTRY)
+        metadata = registry['hm-breasts-v2']
         metadata.update(size_bytes=path.stat().st_size, sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+        self.m.LORA_REGISTRY = self.m.immutable_registry(registry)
         job = await self.selected('hm-breasts-v2')
         with self.model_health():
             await self.m.verify_production_files(job, 'render')

@@ -66,9 +66,9 @@ class V20Hooks:
         lora = routes["second_lora"]
         selected = [row for row in settings["second_pass_loras"] if row["enabled"]]
         if settings["second_pass_enabled"] and selected:
-            from ..production import read_loras, patch_lora_slots
+            from ..production import patch_lora_slots
             node = {}
-            patch_lora_slots(node, read_loras(a.root / "config/lora_registry.json"), settings["second_pass_loras"],
+            patch_lora_slots(node, a.trusted_registry(), settings["second_pass_loras"],
                              slots=a.descriptor["lora_slots"])
             rows = {name: {key: value for key, value in row.items() if key != "strengthTwo" or value is not None}
                     for name, row in node["widgets_values_named"].items() if name.startswith("lora_")}
@@ -149,6 +149,7 @@ class V20Hooks:
         for invariant in contract["fixed_inputs"]:
             if prompt.get(invariant["node"], {}).get("inputs", {}).get(invariant["input"]) != invariant["value"]:
                 a.fail(f"canonical render parameter {invariant['node']}.{invariant['input']} changed")
+        self.validate_output_chains(prompt)
         policy = context["profile_identity"]
         for role, field in (("renderer", "checkpoint"), ("encoder", "encoder"), ("video_vae", "video_vae"), ("audio_vae", "audio_vae")):
             widget = "unet_name" if role == "renderer" else "clip_name" if role == "encoder" else "vae_name"
@@ -176,3 +177,19 @@ class V20Hooks:
             original = next(edge for edge in contract["edges"] if edge["target"] == guider and edge["input"] == "conditioning")
             if boundary["inputs"].get("first" if index == 0 else "second") != original["source"]:
                 a.fail("conditioning release source changed or stages swapped")
+
+    def validate_output_chains(self, prompt):
+        """Data edges and selector inputs prove visuals independently of audio."""
+        a = self.adapter
+        chain = a.descriptor["api"]["output_chains"]
+        for key, expected in chain["nodes"].items():
+            actual = prompt.get(key)
+            if (not isinstance(actual, dict) or actual.get("class_type") != expected["class_type"] or
+                    actual.get("inputs") != expected["inputs"]):
+                a.fail(f"visual/audio output chain {key} changed")
+        create = prompt[chain["create_video"]]["inputs"]
+        for field, decoder in ((chain["visual_input"], chain["visual_decoder"]),
+                               (chain["audio_input"], chain["audio_decoder"])):
+            dependencies = _ancestors(prompt, {create[field][0]})
+            if decoder not in dependencies or chain["selected_latent"] not in dependencies:
+                a.fail(f"generated {field} does not consume the selected final latent through its own decoder")

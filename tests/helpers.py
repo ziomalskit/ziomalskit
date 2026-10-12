@@ -69,6 +69,12 @@ def load_controller(source: Path = ACTIVE, *, production_probes: bool = False, t
     with tempfile.TemporaryDirectory(prefix="aj-test-") as temporary:
         target = Path(temporary) / "h3"
         shutil.copytree(source, target, ignore=shutil.ignore_patterns("__pycache__", "runtime.env"))
+        if source == ACTIVE:
+            # Production verification checks the actual installed filesystem;
+            # every disposable current-controller fixture receives its own
+            # authentic owned package, never a mocked verification exemption.
+            from h3.scripts.install_owned_nodes import install
+            install(target / "custom_nodes/aj_production", target / "comfy/custom_nodes")
         package_name = "_aj_fixture_" + uuid.uuid4().hex
         package = types.ModuleType(package_name)
         package.__path__ = [str(target / "app")]

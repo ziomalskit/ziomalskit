@@ -91,12 +91,13 @@ class RenderFeatureRecoveryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_lora_registry_defaults_and_added_ids_do_not_refill_frozen_selection(self):
         job = await self.job(); settings = copy.deepcopy(job['context']['render_settings'])
-        self.m.LORA_REGISTRY['hm-breasts-v2']['defaults']['h3_full'] = {'enabled': False, 'strength': -1.5}
         path = self.m.ROOT / 'config/lora_registry.json'; data = json.loads(path.read_text())
+        next(entry for entry in data['loras'] if entry['id']=='hm-breasts-v2')['defaults']['h3_full'] = {'enabled': False, 'strength': -1.5}
         added = copy.deepcopy(data['loras'][0]); added.update(id='extra-registered', filename='extra_registered.safetensors')
         data['loras'].append(added); path.write_text(json.dumps(data))
         self.m.load_state(); recovered = self.m.find_job(job['id'])
         self.assertEqual(recovered['context']['render_settings'], settings)
+        self.assertNotIn('extra-registered', self.m.LORA_REGISTRY)
         self.m.patch_workflow(recovered, self.m.production_workflow(recovered))
 
     async def test_functional_identity_changes_for_each_toggle_target_and_lora_strength(self):

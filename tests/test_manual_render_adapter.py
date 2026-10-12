@@ -201,7 +201,9 @@ class ManualRenderProvenanceTests(unittest.IsolatedAsyncioTestCase):
                 dest.write_bytes(body)
                 item.update(size_bytes=len(body), sha256=hashlib.sha256(body).hexdigest())
                 if item["id"] == self.m.CONDITIONING_BRIDGE["id"]:
-                    self.m.CONDITIONING_BRIDGE.update(size_bytes=item["size_bytes"], sha256=item["sha256"])
+                    bridge = self.m.registry_json(self.m.CONDITIONING_BRIDGE)
+                    bridge.update(size_bytes=item["size_bytes"], sha256=item["sha256"])
+                    self.m.CONDITIONING_BRIDGE = self.m.immutable_registry(bridge)
                 receipt = {**{key: item[key] for key in ("repository", "revision", "repository_path", "destination")},
                            **verify_file(self.m.COMFY_MODELS_DIR, item["destination"], item)}
                 record = self.m.COMFY_MODELS_DIR / ".verification" / (item["id"] + ".json")

@@ -15,6 +15,7 @@ class RenderSettingsTests(unittest.TestCase):
         cls.adapter = get_adapter("h3_v20")
         cls.profiles = read_profiles(cls.adapter.root / "config/production_profiles.json")
         cls.registry = read_loras(cls.adapter.root / "config/lora_registry.json")
+        cls.adapter = get_adapter("h3_v20", registry=cls.registry)
 
     def composed(self):
         return self.adapter.compose(self.adapter.root / "workflows/H3_FULL_RENDER.json", self.profiles, self.registry)

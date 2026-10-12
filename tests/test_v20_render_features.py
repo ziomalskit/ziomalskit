@@ -63,9 +63,9 @@ def selected_latent_route(graph):
 class V20RenderFeatureTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.a = get_adapter('h3_v20')
         cls.profiles = read_profiles(ROOT / 'config/production_profiles.json')
         cls.registry = read_loras(ROOT / 'config/lora_registry.json')
+        cls.a = get_adapter('h3_v20', registry=cls.registry)
 
     def workflow(self, values=None, profile='h3_full'):
         a = self.a
@@ -356,12 +356,12 @@ class V20RenderFeatureTests(unittest.TestCase):
     def test_registry_strength_bounds_and_profile_incompatibility_are_authoritative(self):
         registry = copy.deepcopy(self.registry)
         registry['hm-breasts-v2']['strength_range'] = [-.5, .5]
-        with patch('h3.app.production.read_loras', return_value=registry), self.assertRaisesRegex(ValueError, 'registry bounds'):
-            self.a.resolve_render_settings({'second_pass_loras': SELECTION}, profile='h3_full')
+        with self.assertRaisesRegex(ValueError, 'registry bounds'):
+            get_adapter('h3_v20', registry=registry).resolve_render_settings({'second_pass_loras': SELECTION}, profile='h3_full')
         registry = copy.deepcopy(self.registry)
         registry['hm-breasts-v2']['compatibility']['h3_full'] = 'incompatible'
-        with patch('h3.app.production.read_loras', return_value=registry), self.assertRaisesRegex(ValueError, 'incompatible'):
-            self.a.resolve_render_settings({'second_pass_loras': SELECTION}, profile='h3_full')
+        with self.assertRaisesRegex(ValueError, 'incompatible'):
+            get_adapter('h3_v20', registry=registry).resolve_render_settings({'second_pass_loras': SELECTION}, profile='h3_full')
 
     def test_frozen_extended_settings_never_refill_missing_fields_or_lora_defaults(self):
         defaults = self.a.resolve_render_settings()

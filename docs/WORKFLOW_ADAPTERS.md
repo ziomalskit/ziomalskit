@@ -1,9 +1,10 @@
 # Trusted workflow adapters, render controls and prompt modes
 
 PR #6 remains stacked on PR #5 commit
-`c6f033ab41a4456fd55558e652a563d8c31418d1`. This extension continues PR #6 head
-`fbbbde5a2c4335c9224fae6c006e1aa663915bf5`, on the same branch. The earlier
-render-control extension started at `a527817ce67cb93ee606243ff5fa7d05c26e7d53`.
+`c6f033ab41a4456fd55558e652a563d8c31418d1`. The adversarial remediation starts
+exactly at reviewed head `44e47699cd2bb00898055a3c9011a43cecd1d019` and continues
+the same draft branch. Earlier render-control and manual-final acceptance records
+below describe their historical commits, before the independent F1–F8 review.
 AJ production
 composition follows `job → frozen workflow_id → trusted adapter → verified
 immutable baseline → validated runtime graph`. The controller does not address
@@ -56,10 +57,12 @@ The request is explicit and closed to extra fields:
 `autoprompt`. Autoprompt uses `prompt` and rejects a non-null
 `manual_final_prompt`. Manual mode requires non-whitespace `manual_final_prompt`
 and rejects a non-null scene `prompt`, including an empty conflicting string.
-The normal frontend's Autoprompt body remains unchanged. Its existing request
-fingerprint format is retained, so adding default mode fields does not invalidate
-an earlier exact Autoprompt UUID retry. Manual fingerprints include mode and
-exact final text; changed text under the same UUID returns HTTP 409.
+Current PR #6 request fingerprints retain their format. BASE retries additionally
+use the exact historical schema only when the request omitted every post-BASE
+field, including `prompt_mode`, `manual_final_prompt` and `render_settings`.
+Explicit new controls cannot match a historical receipt. Manual fingerprints
+include mode and exact final text; changed text under the same UUID returns
+HTTP 409. See the remediation contract below for the actual BASE snapshot test.
 
 ### Actual renderer contract and manual temporal validation
 
@@ -94,9 +97,14 @@ render preparation/dispatch and recovery:
   be sequential from 1. Shot 1 has no timestamp. Later shots use
   `[Shot N] At MM:SS.mmm,`; cuts increase strictly above zero and below effective
   duration. No extra/misplaced `At` clock-cut directives are accepted.
-- Unquoted clock timestamps use canonical `MM:SS.mmm` syntax and stay within
-  effective duration. Ordinary short aspect ratios (`16:9`, `2:3`) remain prose.
-  Explicit clock intervals must be positive and bounded;
+- A temporal lexer consumes whole unquoted clock candidates, using detection-only
+  Unicode folding to reject noncanonical timing. Accepted timestamps use ASCII
+  `MM:SS.mmm` and stay within effective duration. Integer aspect ratios including
+  `16:10`, `9:16`, `4:3`, `3:2` and `21:9` remain prose, independently of digit
+  width. Numbered reference labels also remain prose. Explicit temporal context
+  takes precedence over bare proportions. Extra decimal groups, signed clocks,
+  Unicode clock punctuation, reversed intervals and chained boundaries fail.
+  Explicit clock intervals must use an ASCII hyphen and be positive and bounded;
   optional `Timeline:` intervals must also be ordered without overlap. Quoted
   reference text uses the existing temporal guard's masking rules. AJ does not
   attempt to infer timing from arbitrary natural-language prose.
@@ -491,7 +499,11 @@ Each production job and durable batch context freezes:
 - `workflow_render_identity`, hashing workflow identity plus resolved settings.
 
 Adapter identity hashes the descriptor and trusted implementation closure,
-including hooks, converter/validation, writer/temporal and typed render code.
+including hooks, converter/validation, writer/temporal and typed render code,
+and a sorted path/SHA256 manifest of every Python file in the bundled native
+`h3/custom_nodes/aj_production` package. Before production dispatch the installed
+package is independently compared against that manifest, bound to the frozen job
+identity. Missing, changed, extra or symlinked implementation files block dispatch.
 These identities integrate with existing profile/model/provenance, writer,
 duration, first-pass LoRA and functional memory/overlap identities. Recovery
 uses the complete frozen values, never new defaults or newly registered LoRAs.
@@ -505,9 +517,11 @@ remote submission IDs and existing lifecycle/service fencing remain intact.
 help, `enabled_when`, `minimum_from` and LoRA `default_strength`; graph addresses
 are omitted. Registry capabilities supply canonical IDs, labels, compatibility
 and strength bounds. All controls appear in the compact main form. Dependent
-numeric/LoRA fields remain visible, grey and disabled while their toggle is OFF,
-but submission still collects their unchanged values. The dynamic registered
-LoRA stack starts with none selected and supports multiple entries.
+numeric/LoRA fields remain visible, grey and disabled while their toggle is OFF.
+Inactive numeric settings and explicit LoRA selections/edits remain in the frozen
+payload. Untouched, unselected LoRA rows add no payload or validation requirement.
+Every row starts within its own strength range. The dynamic registered LoRA stack
+starts with none selected and supports multiple entries.
 
 The server's typed vocabulary rejects unknown fields, node IDs, graph paths,
 widgets, LoRA filenames/paths, nonfinite values, disguised booleans, fractional
@@ -629,13 +643,14 @@ The manual-final extension adds **82 tests**, without changing the existing
   exclusion and escaping. Assigning preview text through `innerHTML` fails the
   fixture; exact user text must use `textContent`.
 
-Targeted self-review checked accidental Prompt Worker/cache invocation,
+The earlier targeted self-review checked accidental Prompt Worker/cache invocation,
 ten-candidate expansion, manual text changes, temporal bypass, writer file
 loading, adapter/render/source identity drift, review leakage, duplicate
 submission, plain-text rendering and lifecycle interactions. It found and fixed
-two concrete issues before acceptance: form values now freeze before uploads
-yield, and clock validation distinguishes ordinary short aspect ratios from
-timestamps while rejecting malformed clocks followed by sentence punctuation.
+two issues before that acceptance: form values freeze before uploads yield, and
+the earlier parser handled short aspect ratios and sentence punctuation. The
+independent review subsequently demonstrated Unicode, suffix, interval and
+two-digit-ratio gaps; the remediation replaces that parser with a temporal lexer.
 The optional upscaler artifact filename is derived from its validated baseline
 anchor rather than a separate default. All are covered by regression tests or
 the existing adapter anchor/identity checks.
@@ -668,3 +683,207 @@ it does not resolve the DavidAU 9B Autoprompt provenance blocker.
 
 GitHub Actions on the pushed final head is verified separately in PR #6's
 validation report. No Vast/GPU action or merge is part of this acceptance.
+
+## Independent adversarial remediation (2026-10-12)
+
+The F1–F8 regressions were added and executed before production fixes. Against
+reviewed `44e47699`, all eight findings reproduced: the 20-test initial suite had
+39 failed assertions/subtests and five errors. The dedicated 32-test remediation suite
+also covers nearby attacks and the additional issues found while reviewing the
+delta. These are CPU tests with synthetic files, the real pinned converter,
+the real adapter validator, HTTP mock transports and actual frontend JavaScript.
+They do not contact a real worker or certify GPU behavior.
+
+### One LoRA authority and configuration boundaries
+
+Controller startup reads `lora_registry.json` once, validates the entire document,
+and freezes both the registered LoRAs and conditioning bridge deeply in memory.
+The controller explicitly passes this same snapshot to adapters. First/second
+settings resolution, both stack patchers, final route validation and checksum or
+enrollment verification cannot reread that file. A live edit to an existing ID's
+filename therefore cannot change the graph while the original file is verified.
+
+Every new production context freezes `lora_registry_identity`, a canonical SHA256
+of functional registry fields and bridge metadata: filenames, source/provenance
+identity, compatibility, ranges and other registered functional metadata. Labels,
+help/notes, installation/GPU display annotations and creation defaults are
+excluded. Resolved values and their ordered LoRA rows are already persisted;
+default or registry-order changes cannot reinterpret them. Restart under changed
+functional metadata requires reconciliation. A missing registry identity is
+never manufactured for an old queued job.
+
+The configuration audit distinguishes these uses:
+
+| Configuration/evidence | Lifetime and execution treatment |
+| --- | --- |
+| LoRA registry and bridge | Validated immutable controller snapshot; functional hash frozen per job |
+| Production profiles/writer policy | Read at startup; resolved model, writer, memory and overlap policies frozen per job |
+| Adapter descriptor, app code, canonical workflow and native source | Trusted functional identity; filesystem rereads verify the frozen identity or reject drift, rather than resolving new defaults |
+| Model manifest | Intentionally reread as integrity evidence; the exact captured document used for file verification must match the frozen profile manifest identity |
+| Local enrollment receipts/model stat receipts | Live integrity evidence for the same frozen destination and trusted provenance; cannot override verified-source hashes |
+| Installed AJ native files and worker catalog | Live deployment/capability verification; mismatch blocks dispatch |
+| Queue, cancellation, lifecycle plan, worker epoch, cache residency and VRAM telemetry | Intentionally live operational state; existing scheduling, maintenance and safety fences remain |
+| Labels/help/GPU acceptance annotations | Presentation metadata; not execution fencing |
+
+Stage budgets, duration, render settings and prompt source remain frozen.
+Diagnostic legacy workflows remain explicitly gated outside production adapters.
+No new disk read of the LoRA registry is hidden in an adapter.
+
+The delta review also reproduced a model-manifest split by presenting registry
+generation B only at the file verifier's read, while separate job checks saw A.
+Verification now compares the identity of that exact captured document with the
+frozen profile identity. It cannot verify B's files for a job frozen under A,
+even if B has valid local stat/hash receipts. The production manifest and DavidAU
+provenance themselves remain unchanged.
+
+### Complete native identity and deployed verification
+
+The native manifest recursively includes every `.py` file beneath
+`h3/custom_nodes/aj_production`, sorted by package-relative POSIX path, with
+SHA256 of exact bytes. The current complete package contains:
+
+- `__init__.py`
+- `temporal.py`
+- `compiler.py`
+- `execution_journal.py`
+
+Future modules and subpackages enter the manifest automatically. Python caches,
+docs and unrelated assets do not enter identity. App identity retains its previous
+implementation list and adds the remediation helpers, controller, artifact and
+model-health code. Removing the managed-model release from
+`AJConditioningBoundary.release()` changes identity and fences an old job;
+changes to the other bundled modules do as well.
+
+The owned installer now installs the entire Python package and records all source
+hashes, including nested modules. Using shared filesystem access, production
+verification opens `COMFY_ROOT/custom_nodes/aj_production` without following
+symlink components and compares its complete source manifest to the exact manifest
+whose combined adapter identity matches the frozen job. It rejects missing,
+changed or extra Python files, symlinks/special source files and ambiguous extra
+implementation files. An owner receipt is not the expected implementation's
+authority. A final synchronous check after asynchronous preparation precedes
+the durable submission arm; drift at that point prevents any render POST.
+
+No remote attestation API exists or is added. Filesystem verification does not
+prove which Python objects an already running worker has cached: after changing
+native code, reinstall and restart both workers. Live acceptance is still required.
+The four bundled native source files themselves are unchanged by this remediation.
+
+### BASE retries and per-job quarantine visibility
+
+`request_identity.py` contains the exact BASE `BatchRequest`/`LoraSetting` schema
+and JSON/SHA256 behavior from `c6f033ab`. A legacy candidate is computed only when
+`model_fields_set` contains solely BASE fields. Supplying even empty
+`render_settings`, explicit `autoprompt`, or `manual_final_prompt=null` disqualifies
+legacy matching. A matching historical UUID/body returns its existing
+`created_batches` receipt without changing the queue or receipt. Changes to text,
+assets, profile, LoRAs, seeds, duration, timeouts, batch count or new render controls
+remain HTTP 409. `tests/fixtures/pr5_batch_retry.json` was captured by running the
+actual BASE controller; its expected hash is not computed by remediation code.
+A second actual reviewed-PR6 snapshot preserves exact retry receipts while its
+incompatible queued render is quarantined. Neither path silently migrates a job.
+
+Public serialization does not require a quarantined context to be valid. Null,
+array and incomplete manual contexts produce safe scalar metadata and the
+reconciliation reason, while healthy jobs and completed MP4 links remain visible.
+Unknown prompt sources are reported as unavailable, including in the UI. These
+reads do not repair the malformed context, fill frozen fields or rewrite disk
+state. Prompt previews and duration diagnostics use the same defensive boundary.
+Malformed nested memory/overlap policy and filename-identity records are also
+quarantined per job. Erased mode/text fields in a newer source record cannot be
+relabeled as legacy Autoprompt merely because an empty scene field remains.
+
+### Manual timing and recovery ownership
+
+The manual temporal lexer scans one complete numeric/colon candidate at a time,
+including all decimal groups or malformed numeric suffixes, then handles interval
+operators separately. Unicode minus/dashes, full-width digits/colon/dot and other
+lookalikes are folded only for detection; clock directives must still be canonical
+ASCII in the original string. Standalone clocks are bounded inclusively by
+effective duration; shot cuts remain strictly increasing inside that duration.
+Intervals have two increasing bounds with an ASCII hyphen. Chained intervals,
+signed clocks (including spaced signs), malformed suffixes and noncanonical clock
+punctuation fail before publication or any POST. Integer ratios in ordinary prose
+have no one-digit-denominator heuristic. Numbered reference prose remains valid.
+The original text and SHA256 are preserved; Autoprompt's temporal contract is
+unchanged.
+
+All five supplied adversarial strings are rejected:
+
+```text
+At −00:10.000, change the camera angle.
+Range 00:20.000–00:01.000.
+Range 00:00.000-00:10.000-00:05.000.
+The clock reads 00:06.680.123.
+At ００:９０.０００, change the camera angle.
+```
+
+`Use an aspect ratio of 16:10.` and the other ordinary ratio cases are accepted
+unchanged. Quoted references retain the existing temporal masking rules.
+
+Manual cancellation ownership is checked before generic recovery status mapping.
+A canonical persisted render UUID with `armed`, `attempting`, `accepted` or
+`uncertain` render submission state, matching generic UUID and no contradictory
+prompt evidence establishes render ownership even if `active_service` is missing
+or invalid. The job enters `recovery_render`. Missing or contradictory evidence
+requires reconciliation, never a guessed Prompt Worker owner. Both the recovery
+wrapper and its inner implementation
+also reject `manual_final + service=prompt` before any network request. Explicit
+contradictory remote UUID evidence retains PR #5's quarantine service barrier.
+
+### Separate visual and audio contracts
+
+The descriptor now binds 71 exact downstream nodes, their class types and complete
+input edges/selector values, discovered from the actual converted v20 graph. The
+selected latent and the upstream conditional routes retain their existing checks.
+Visual ancestry is rooted at `CreateVideo.images`, audio ancestry at
+`CreateVideo.audio`; one cannot satisfy the other's decoder proof.
+
+The selected visual path, with switches taking their pinned `on_true` branch, is:
+
+```text
+7335:6173 selected final latent
+→ 6960:6959 VAEDecode
+→ 6036:6962:6954 → 6036:7225:7214 (visual switches)
+→ 7463 GetImageSizeAndCount
+→ 7467 ImageBatch → 7456 final frame trim
+→ 6182 CreateVideo.images → aj_video_complete → 7331 SaveVideo
+```
+
+The bound last-frame padding branch is
+`7463 → 7464 ImageFromBatch → 7466 RepeatImageBatch → 7467.image2`, with
+`7465` computing the required padding. The full contract also binds alternative
+merge branches and their selectors, rather than merely checking node types.
+The separate audio path is:
+
+```text
+7335:6173 → 6960:6958 VAEDecodeAudio
+→ 6036:6962:6955 → 6036:7225:7210 (audio switches)
+→ 7457 TrimAudioDuration → 6182 CreateVideo.audio
+```
+
+An independent CPU lazy-route evaluator proves selected latent
+`7334:6773` (both OFF), `6178` (upscaler ON/second OFF), or `7335:469`
+(second ON, with either upscaler state). All four prepared graphs pass the real
+final validator. The exact attack `7456.image=["4646",0]` is rejected, as are
+intermediate IMAGE substitutions, wrong decoder samples and independent audio
+substitutions even with the other branch intact. Whole SaveVideo ancestry is
+retained for release ordering but is not visual output proof.
+
+### Narrow ranges and submission fencing
+
+LoRA row strengths prefer a valid saved value, then a valid trusted profile value,
+then the control default clamped to that row's allowed range. An untouched unused
+`[-0.5,0.5]` row adds no payload and cannot block submission with second pass OFF.
+Enabled strengths are validated. Explicit inactive edits and saved rows are
+retained and validated, so toggling OFF does not discard their values. Profile
+switches reconstruct valid trusted state. Tests execute the actual JavaScript,
+including valid/invalid saved values and fallback clamping.
+
+The durable UUID/POST boundary is unchanged: timeout after acceptance, mismatched
+UUID acknowledgement, HTTP 503, invalid acknowledgement JSON, restart after arm,
+arm-storage failure and recovery retries remain conservatively fenced. Request
+retry compatibility does not authorize a second submission. Lifecycle and queue
+scheduling policies remain unchanged. DavidAU provenance and all live
+model-loading, catalog, VRAM, video-quality/duration, overlap and STOP/DESTROY
+acceptance gates remain unresolved or pending.

@@ -25,21 +25,30 @@ STATE.mkdir(exist_ok=True)
 MASTER = WORKFLOWS / "VAST_H3_MASTER_NATIVE_INT8_96GB.json"
 PROMPT_ONLY = WORKFLOWS / "VAST_H3_PROMPT_ONLY_STAGE2.json"
 MAP = json.loads((CONFIG / "VAST_H3_API_MAP.json").read_text(encoding="utf-8"))
-from .production import read_profiles, read_loras, read_bridge, resolve_loras, PROFILE_LABELS, functional_policy
+from .production import (read_profiles, read_loras, read_bridge, resolve_loras, PROFILE_LABELS, functional_policy,
+                         immutable_registry, registry_json, registry_identity)
 from .analysis_cache import AnalysisCache, prompt_admission
-from .workflow_adapters import get_adapter, IDENTITY_FIELDS
+from .workflow_adapters import get_adapter as _get_adapter, IDENTITY_FIELDS
+from .request_identity import request_fingerprints
 from .render_settings import RenderSettings
 from .writer_policy import MODEL_FIELDS, validate_stages, final_answer
 from .temporal import duration_identity, validate_duration, final_timeline
 from .prompt_modes import (PROMPT_MODES, freeze_prompt_source, validate_prompt_fields, is_manual_final,
-                           validate_job_prompt_source, final_prompt_for_render, validate_render_prompt)
+                           validate_job_prompt_source, final_prompt_for_render, validate_render_prompt,
+                           manual_recovery_service)
 from .redaction import redact
 
 PRODUCTION = read_profiles(CONFIG / "production_profiles.json")
-LORA_REGISTRY = read_loras(CONFIG / "lora_registry.json")
-CONDITIONING_BRIDGE = read_bridge(CONFIG / "lora_registry.json")
+_registry_document = json.loads((CONFIG / "lora_registry.json").read_text())
+LORA_REGISTRY = immutable_registry(read_loras(CONFIG / "lora_registry.json", document=_registry_document))
+CONDITIONING_BRIDGE = immutable_registry(read_bridge(CONFIG / "lora_registry.json", document=_registry_document))
+del _registry_document
 analysis_cache = AnalysisCache()
 overlap_telemetry = {"free_vram_mb": None, "sampled_at": 0.0}
+
+
+def get_adapter(workflow_id, *, root=ROOT):
+    return _get_adapter(workflow_id, root=root, registry=LORA_REGISTRY, bridge=CONDITIONING_BRIDGE)
 
 
 def job_profile(job: dict) -> str:
@@ -60,11 +69,15 @@ def job_profile(job: dict) -> str:
     validate_duration(job["context"])
     if job["context"]["duration_seconds"] != job["context"]["requested_duration_seconds"]:
         raise ValueError("persisted requested duration differs from job context")
+    if job["context"].get("lora_registry_identity") != registry_identity(LORA_REGISTRY, CONDITIONING_BRIDGE):
+        raise ValueError("persisted functional LoRA registry identity changed or missing; explicit reconciliation is required")
     lora_identity = job["context"].get("lora_identity")
+    if lora_identity is not None and not isinstance(lora_identity, dict):
+        raise ValueError("persisted LoRA filename identity is malformed; reconciliation required")
     if lora_identity is not None and any(key not in LORA_REGISTRY or LORA_REGISTRY[key]["filename"] != value for key, value in lora_identity.items()):
         raise ValueError("persisted LoRA routing changed; explicit reconciliation is required")
     bridge = job["context"].get("conditioning_bridge")
-    if bridge is not None and (bridge.get("id") != CONDITIONING_BRIDGE["id"] or bridge.get("filename") != CONDITIONING_BRIDGE["filename"]):
+    if bridge is not None and (not isinstance(bridge, dict) or bridge.get("id") != CONDITIONING_BRIDGE["id"] or bridge.get("filename") != CONDITIONING_BRIDGE["filename"]):
         raise ValueError("persisted conditioning bridge routing changed")
     get_adapter(job["context"].get("workflow_id"), root=ROOT).validate_job(job["context"], PRODUCTION["profiles"][profile])
     validate_job_prompt_source(job)
@@ -78,8 +91,8 @@ def profile_identity(profile: str) -> dict:
                           "writer_runtime": PRODUCTION["writer_runtime"], "manifest_identity": manifest_identity(profile)})
 
 
-def manifest_identity(profile: str) -> str:
-    manifest = json.loads((CONFIG / "models_manifest.json").read_text())
+def manifest_identity(profile: str, *, document=None) -> str:
+    manifest = json.loads((CONFIG / "models_manifest.json").read_text()) if document is None else document
     facts = ("provider", "repository", "revision", "repository_path", "destination", "size_bytes", "sha256", "generation",
              "source_repository", "source_revision", "observed_source_revision", "llama_cpp_revision", "converter_revision", "converter_sha256")
     entries = [item for item in [*manifest["artifacts"], *manifest.get("pending_artifacts", [])]
@@ -101,7 +114,8 @@ def job_workflow_adapter(job: dict):
 def workflow_context(profile: str, render_settings=None) -> dict:
     adapter = get_adapter(PRODUCTION["profiles"][profile]["workflow_id"], root=ROOT)
     adapter.render_capabilities()  # Verify anchors and canonical defaults before freezing.
-    context = {**adapter.identity(), "render_settings": adapter.resolve_render_settings(render_settings, profile=profile)}
+    context = {**adapter.identity(), "render_settings": adapter.resolve_render_settings(render_settings, profile=profile),
+               "lora_registry_identity": registry_identity(LORA_REGISTRY, CONDITIONING_BRIDGE)}
     context["workflow_render_identity"] = adapter.render_identity(context, context["render_settings"])
     return context
 
@@ -602,6 +616,9 @@ def load_state() -> None:
                 try:
                     if j.get("batch_id") in incompatible_batches:
                         raise ValueError(incompatible_batches[j["batch_id"]])
+                    owner = manual_recovery_service(j)
+                    if owner is not None:
+                        j["active_service"] = owner
                     job_profile(j)
                     if j.get("batch_id") in profiles_by_batch and profiles_by_batch[j["batch_id"]] != j["profile"]:
                         raise ValueError("job persisted profile differs from batch")
@@ -1204,13 +1221,30 @@ def _record_render_finish(job: dict, entry: dict) -> None:
 
 def public_job(job: dict) -> dict:
     """Read-only result normalization, including pre-contract queue snapshots."""
-    result = dict(job)
-    result["prompt_mode"] = job.get("context", {}).get("prompt_mode", "autoprompt")
-    if is_manual_final(job):
-        result["manual_final_prompt"] = job["context"]["manual_final_prompt"]
+    context = job.get("context")
+    valid_context = isinstance(context, dict)
+    context = context if valid_context else {}
+    modes = {value for value in (job.get("prompt_mode"), context.get("prompt_mode")) if isinstance(value, str)}
+    mode = next(iter(modes)) if len(modes) == 1 and modes <= {"autoprompt", "manual_final"} else None
+    invalid_mode = any("prompt_mode" in source and (not isinstance(source["prompt_mode"], str) or
+                       source["prompt_mode"] not in {"autoprompt", "manual_final"}) for source in (job, context))
+    if invalid_mode:
+        mode = None
+    if (not modes and not invalid_mode and valid_context and isinstance(context.get("prompt"), str)
+            and context.get("manual_final_prompt") is None and "workflow_prompt_identity" not in context
+            and "manual_final_prompt_sha256" not in context):
+        mode = "autoprompt"  # Knowable legacy scene source; never execution migration.
+    quarantined = bool(job.get("reconciliation_required")) or not valid_context or (
+        is_manual_final(job) and not isinstance(context.get("manual_final_prompt"), str))
+    result = ({key: value for key, value in job.items() if key != "context" and
+               (value is None or type(value) in (str, int, float, bool))} if quarantined else dict(job))
+    result["prompt_mode"] = mode
+    if mode == "manual_final" and isinstance(context.get("manual_final_prompt"), str):
+        result["manual_final_prompt"] = context["manual_final_prompt"]
     if job.get("status") == "completed":
         videos = []
-        for url in job.get("video_outputs", job.get("outputs", [])) or []:
+        outputs = job.get("video_outputs", job.get("outputs", []))
+        for url in outputs if isinstance(outputs, list) else []:
             if not isinstance(url, str):
                 continue
             try:
@@ -1685,6 +1719,7 @@ async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
         raise SubmissionRejected("legacy submission requires explicit diagnostic mode")
     if production:
         assert_phase_admission(job, service)
+        verify_production_native(job)
         await verify_production_files(job, service)
     await arm_execution_protocol(service)
     cache_epoch = None
@@ -1719,6 +1754,7 @@ async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
         # A renderer/prompt reservation made while conversion awaited cannot
         # create an unsafe cold-analysis/conditioning race.
         assert_phase_admission(job, service)
+        verify_production_native(job)
     if job.get("cancel_requested"):
         raise SubmissionCancelled("job cancelled during preparation")
     if lifecycle_dispatch_blocked() or vast_control.get("plan") == "stop_after_current":
@@ -2310,7 +2346,10 @@ async def verify_production_files(job: dict, service: str) -> None:
     from .model_health import artifact_health
     profile = job_profile(job)
     def verify():
+        verify_production_native(job)
         manifest = json.loads((CONFIG / "models_manifest.json").read_text())
+        if manifest_identity(profile, document=manifest) != job["context"]["profile_identity"]["manifest_identity"]:
+            raise ValueError("captured model provenance differs from the frozen production job")
         entries = (job_workflow_adapter(job).required_render_artifacts(job["context"], manifest)
                    if is_manual_final(job) and service == "render" else list(validate_manifest(manifest).values()))
         for item in entries:
@@ -2347,6 +2386,13 @@ async def verify_production_files(job: dict, service: str) -> None:
         raise SubmissionRejected("Production model/LoRA provenance or file integrity is incomplete; run provisioning and preflight") from None
 
 
+def verify_production_native(job: dict) -> None:
+    try:
+        job_workflow_adapter(job).verify_deployed_native(COMFY_ROOT, job.get("context"))
+    except Exception:
+        raise SubmissionRejected("Production native implementation differs from frozen identity; reinstall and restart workers") from None
+
+
 def active_render_policy() -> dict | None:
     active = [job for job in queue if job.get("status") in {
         "render_preparing", "render_submitting", "render_running", "recovery_render", "render_submission_uncertain"}
@@ -2357,11 +2403,15 @@ def active_render_policy() -> dict | None:
     if len(active) != 1:
         return {"profile": None, "phase": "recovery"}
     job = active[0]
+    context = job.get("context")
+    policy = context.get("profile_identity") if isinstance(context, dict) else None
+    if not isinstance(policy, dict):
+        return {"profile": job.get("profile"), "phase": "recovery"}
     try:
-        functional_policy(job.get("context", {}).get("profile_identity", {}))
+        functional_policy(policy)
     except ValueError:
         return {"profile": job.get("profile"), "phase": "recovery"}
-    return {"profile": job.get("profile"), "policy": job.get("context", {}).get("profile_identity"), "phase": job.get("render_phase", "unknown")
+    return {"profile": job.get("profile"), "policy": policy, "phase": job.get("render_phase", "unknown")
             if job.get("status") == "render_running" else "recovery"}
 
 
@@ -2542,6 +2592,7 @@ async def render_worker() -> None:
 
 
 async def _recover_one_job(job: dict, service: str) -> None:
+    assert_manual_render_phase(job, service)
     recovery_counts[service] = recovery_counts.get(service, 0) + 1
     recovering_services.add(service)
     try:
@@ -2554,6 +2605,7 @@ async def _recover_one_job(job: dict, service: str) -> None:
 
 
 async def _recover_one_job_impl(job: dict, service: str) -> None:
+    assert_manual_render_phase(job, service)
     pid = _known_prompt_id(job, service)
     receipt = job.get(f"{service}_pending_deleted")
     if (isinstance(receipt, dict) and receipt == {"protocol": "aj-terminal-v1", "prompt_id": pid, "state": "pending_deleted"}):
@@ -2734,13 +2786,13 @@ async def config():
         "prompt_modes": list(PROMPT_MODES),
         "render_comfy_url": RENDER_COMFY_URL,
         "prompt_comfy_url": PROMPT_COMFY_URL,
-        "loras": [{"id": key, "display_name": value["display_name"], "defaults": value["defaults"],
-                   "strength_range": value["strength_range"], "compatibility": value["compatibility"],
+        "loras": [{"id": key, "display_name": value["display_name"], "defaults": registry_json(value["defaults"]),
+                   "strength_range": registry_json(value["strength_range"]), "compatibility": registry_json(value["compatibility"]),
                    "gpu_validation": value["gpu_validation"], "help": value.get("help", ""),
                    **lora_health(COMFY_MODELS_DIR, key, value)}
                   for key, value in LORA_REGISTRY.items()],
         "prompt_cache": {"epoch": analysis_cache.epoch, "service_epoch": analysis_cache.service_epoch},
-        "conditioning_bridge": {"id": CONDITIONING_BRIDGE["id"], "defaults": CONDITIONING_BRIDGE["defaults"],
+        "conditioning_bridge": {"id": CONDITIONING_BRIDGE["id"], "defaults": registry_json(CONDITIONING_BRIDGE["defaults"]),
                                 **lora_health(COMFY_MODELS_DIR, CONDITIONING_BRIDGE["id"], CONDITIONING_BRIDGE, bridge=True)},
         "gpu_validation": "pending",
         "models": await asyncio.to_thread(manifest_health, CONFIG / "models_manifest.json", COMFY_MODELS_DIR),
@@ -2806,11 +2858,10 @@ async def api_diagnostics():
                  "remote_authorization": "not_probed"}, "models": models,
         "production": {"default_profile": PRODUCTION["default_profile"], "active_render": active_render_policy(),
                        "profiles": PRODUCTION["profiles"], "prompt_cache_epoch": analysis_cache.epoch,
-                       "duration_jobs": [{"id": job["id"], "requested_duration_seconds": job.get("context", {}).get("requested_duration_seconds"),
-                           "effective_duration_seconds": job.get("context", {}).get("effective_duration_seconds"),
-                           "legal_frame_count": job.get("context", {}).get("legal_frame_count"),
+                       "duration_jobs": [{"id": job["id"], **{key: job["context"].get(key) if isinstance(job.get("context"), dict) else None
+                           for key in ("requested_duration_seconds", "effective_duration_seconds", "legal_frame_count")},
                            "temporal_guard_status": job.get("temporal_guard_status", "pending")}
-                           for job in queue if job.get("profile") in PROFILE_LABELS][:20],
+                           for job in queue if isinstance(job.get("profile"), str) and job["profile"] in PROFILE_LABELS][:20],
                        "prompt_service_epoch": analysis_cache.service_epoch, "gpu_validation": "pending"}})
     data["checks"] = checks_for(data)
     data["status"] = next((status for status in ("FAIL", "WARN") if any(
@@ -2996,12 +3047,10 @@ async def create_batches(req: BatchRequest):
         if state_load_error:
             raise HTTPException(503, state_load_error)
         request_key = str(req.request_id) if req.request_id is not None else None
-        excluded = {"request_id"} | ({"prompt_mode", "manual_final_prompt"} if req.prompt_mode == "autoprompt" else set())
-        request_hash = hashlib.sha256(json.dumps(req.model_dump(mode="json", exclude=excluded),
-                                                sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        request_hash, legacy_hash = request_fingerprints(req)
         previous = request_results.get(request_key)
         if previous:
-            if previous["request_hash"] != request_hash:
+            if previous["request_hash"] not in {request_hash, legacy_hash}:
                 raise HTTPException(409, "request_id was already used for a different request")
             return {"created_batches": list(previous["result"]["created_batches"])}
         if shutdown_armed():
@@ -3125,9 +3174,16 @@ async def get_job(controller_job_id: str):
 @app.get("/api/jobs/{controller_job_id}/prompts")
 async def prompts(controller_job_id: str):
     job = find_job(controller_job_id)
+    if job.get("reconciliation_required") or not isinstance(job.get("context"), dict):
+        public = public_job(job)
+        return {"status": public["status"], "prompt_mode": public["prompt_mode"],
+                "reconciliation_required": public.get("reconciliation_required"),
+                "manual_final_prompt": None, "user_prompt": None, "final_h3_prompt": None,
+                "approved_final_prompt": None, "visual_facts": None, "expanded_intent": None,
+                "reference_map": None, "creative_plan": None}
     manual = is_manual_final(job)
     return {
-        "prompt_mode": job.get("context", {}).get("prompt_mode", "autoprompt"),
+        "prompt_mode": job["context"].get("prompt_mode", "autoprompt"),
         "manual_final_prompt": job["context"].get("manual_final_prompt") if manual else None,
         "user_prompt": job["context"]["prompt"],
         "visual_facts": None if manual else job.get("visual_facts"),

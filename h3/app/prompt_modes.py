@@ -8,9 +8,11 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import uuid
 
 from .temporal import (TIMECODE, structural_headers, timecode_ms,
                        milliseconds, validate_duration)
+from .manual_timing import manual_clocks
 
 PROMPT_MODES = (
     {"id": "autoprompt", "label": "Autoprompt",
@@ -63,7 +65,7 @@ def validate_manual_final(text: str, effective: float) -> str:
         raise ValueError("manual final prompt shot identities must be sequential from Shot 1")
     actual_cuts, last_cut = [], 0
     for index, header in enumerate(headers):
-        tail = visible[header.end():]
+        tail = visible[header.end():headers[index + 1].start() if index + 1 < len(headers) else len(visible)]
         if index == 0:
             if re.match(r"\s*(?:At|at)\s+[+-]?[0-9]+:[0-9]+", tail) or re.match(r"\s*" + TIMECODE, tail):
                 raise ValueError("Shot 1 must not have a timestamp")
@@ -76,24 +78,10 @@ def validate_manual_final(text: str, effective: float) -> str:
             raise ValueError("manual final cuts must increase strictly inside effective duration")
         last_cut = supplied
         actual_cuts.append(header.end() + stamp.start(1) - 3)
-    cuts = [match.start() for match in re.finditer(r"\bat\s+[+-]?[0-9]+:(?:[+-]?[0-9]+|NaN|Infinity)", visible, re.I)]
+    clocks = manual_clocks(visible, target)
+    cuts = [clock.cut_start for clock in clocks if clock.cut_start is not None]
     if cuts != actual_cuts:
         raise ValueError("extra or misplaced temporal cut directive in manual final prompt")
-    # A hyphen between two canonical clocks is an interval separator, not a
-    # negative timestamp. Mask only that proven separator for the scalar scan.
-    clocks = list(visible)
-    for match in re.finditer(r"(" + TIMECODE + r")([ \t]*-[ \t]*)(" + TIMECODE + r")", visible):
-        if not timecode_ms(match.group(1)) < timecode_ms(match.group(3)) <= target:
-            raise ValueError("manual prompt time interval must be positive and within effective duration")
-        clocks[match.start(2):match.end(2)] = " " * (match.end(2) - match.start(2))
-    # A short ratio such as 16:9 is ordinary prompt prose. Clock-like values
-    # have fractional seconds or a two-digit seconds field; cut directives
-    # above are checked independently and cannot disguise malformed clocks.
-    clock_pattern = (r"(?<![\w:])[+-]?[0-9]+:(?:[+-]?[0-9]+\.[0-9]+|"
-                     r"[+-]?[0-9]{2,}(?![0-9]|\.[0-9])|NaN|Infinity)(?::[+-]?[0-9]+(?:\.[0-9]+)?)*")
-    for match in re.finditer(clock_pattern, "".join(clocks)):
-        if not re.fullmatch(TIMECODE, match.group()) or timecode_ms(match.group()) > target:
-            raise ValueError("manual prompt timestamp must use MM:SS.mmm within effective duration")
     intervals = []
     for match in re.finditer(r"(?m)^[ \t]*Timeline:([^\n]*)$", visible):
         interval = re.fullmatch(r"[ \t]*(" + TIMECODE + r")[ \t]*-[ \t]*(" + TIMECODE + r")[ \t]*\r?", match.group(1))
@@ -126,6 +114,8 @@ def freeze_prompt_source(mode, prompt, manual_final_prompt, effective) -> dict:
 
 
 def validate_prompt_source(context: dict) -> None:
+    if not isinstance(context, dict):
+        raise ValueError("persisted prompt context is malformed; reconciliation required")
     mode = context.get("prompt_mode", "autoprompt")
     if mode == "manual_final":
         validate_duration(context)
@@ -143,15 +133,37 @@ def validate_prompt_source(context: dict) -> None:
 
 
 def is_manual_final(job: dict) -> bool:
-    return job.get("prompt_mode") == "manual_final" or job.get("context", {}).get("prompt_mode") == "manual_final"
+    context = job.get("context")
+    return job.get("prompt_mode") == "manual_final" or (
+        isinstance(context, dict) and context.get("prompt_mode") == "manual_final")
+
+
+def manual_recovery_service(job: dict) -> str | None:
+    """Resolve generic manual cancellation only from durable render evidence."""
+    if not is_manual_final(job) or job.get("status") not in {
+            "cancelling", "soft_timeout_cancelling", "hard_timeout_restarting_comfy"}:
+        return None
+    pid = job.get("render_prompt_id")
+    try:
+        valid_uuid = isinstance(pid, str) and str(uuid.UUID(pid)) == pid
+    except ValueError:
+        valid_uuid = False
+    prompt_evidence = any(job.get(key) is not None for key in
+                          ("prompt_prompt_id", "prompt_submission_state", "prompt_kind")) or job.get("prompt_submission_attempted")
+    if (not valid_uuid or job.get("render_submission_state") not in {"armed", "attempting", "accepted", "uncertain"}
+            or job.get("active_service") == "prompt" or prompt_evidence or
+            job.get("prompt_id") not in (None, pid)):
+        raise ValueError("manual recovery ownership is missing or contradictory; reconciliation required")
+    return "render"
 
 
 def validate_job_prompt_source(job: dict) -> None:
-    context = job["context"]
+    context = job.get("context")
     validate_prompt_source(context)
     if job.get("prompt_mode", "autoprompt") != context.get("prompt_mode", "autoprompt"):
         raise ValueError("job prompt mode differs from frozen source; reconciliation required")
     if is_manual_final(job):
+        manual_recovery_service(job)
         if (job.get("final_h3_prompt") != context["manual_final_prompt"] or job.get("approved_final_prompt") is not None or
                 job.get("review_required") is not False or job.get("active_service") == "prompt" or
                 job.get("status", "").startswith(("prompt_", "recovery_prompt")) or

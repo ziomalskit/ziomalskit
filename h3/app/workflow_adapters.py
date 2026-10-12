@@ -12,6 +12,7 @@ import math
 from pathlib import Path
 
 from .workflow_graph import all_nodes, instruction_snapshot, set_widget
+from .production import immutable_registry, registry_identity
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = {"h3_v20": "h3_v20.json"}
@@ -38,9 +39,11 @@ def _ports(node, side):
 
 
 class WorkflowAdapter:
-    def __init__(self, descriptor: dict, root: Path = ROOT):
+    def __init__(self, descriptor: dict, root: Path = ROOT, *, registry=None, bridge=None):
         self.descriptor = copy.deepcopy(descriptor)
         self.root = root
+        self.registry = immutable_registry(registry) if registry is not None else None
+        self.bridge = immutable_registry(bridge) if bridge is not None else None
         if descriptor.get("schema_version") != 1 or descriptor.get("id") not in REGISTRY:
             self.fail("unregistered adapter or schema")
         from .adapters.v20 import V20Hooks
@@ -55,20 +58,45 @@ class WorkflowAdapter:
         raise WorkflowAdapterCompatibilityError(f"workflow-adapter {self.id if 'id' in self.descriptor else '?'} compatibility error: {detail}")
 
     def identity(self) -> dict:
+        return self._implementation_identity(self.native_manifest())
+
+    def _implementation_identity(self, native) -> dict:
         # Hash the descriptor AND the implementation closure. A hook/engine/
         # converter change cannot masquerade as the same persisted adapter.
         sources = ("workflow_adapters.py", "workflow_graph.py", "adapters/v20.py", "adapters/v20_api.py",
-                   "production.py", "analysis_cache.py", "render_settings.py", "prompt_modes.py", "writer_policy.py", "temporal.py", "workflow_conversion.py", "workflow_validation.py")
+                   "production.py", "analysis_cache.py", "render_settings.py", "prompt_modes.py", "writer_policy.py", "temporal.py", "workflow_conversion.py", "workflow_validation.py",
+                   "native_identity.py", "request_identity.py", "manual_timing.py", "main.py", "artifacts.py", "model_health.py")
         implementation = {name: hashlib.sha256((self.root / "app" / name).read_bytes()).hexdigest() for name in sources}
         return {"workflow_id": self.id, "workflow_baseline_sha256": self.descriptor["baseline_sha256"],
                 "workflow_adapter_id": self.id, "workflow_adapter_schema_version": self.descriptor["schema_version"],
-                "workflow_adapter_identity": canonical_hash({"descriptor": self.descriptor, "implementation": implementation})}
+                "workflow_adapter_identity": canonical_hash({"descriptor": self.descriptor, "implementation": implementation,
+                                                            "native": native})}
+
+    def native_manifest(self):
+        from .native_identity import native_manifest
+        return native_manifest(self.root / "custom_nodes/aj_production")
+
+    def verify_deployed_native(self, comfy_root, context):
+        from .native_identity import verify_deployed_native
+        native = self.native_manifest()
+        # Bind the exact captured manifest to the frozen job before using it as
+        # the filesystem authority. A second live source read cannot replace it.
+        if not isinstance(context, dict) or any(context.get(key) != value for key, value in self._implementation_identity(native).items()):
+            self.fail("native implementation changed from frozen job identity")
+        verify_deployed_native(Path(comfy_root) / "custom_nodes/aj_production", native)
+
+    def trusted_registry(self):
+        if self.registry is None:
+            self.fail("a validated controller LoRA registry snapshot is required")
+        return self.registry
 
     def validate_job(self, context: dict, profile: dict) -> None:
         from .prompt_modes import validate_prompt_source
         validate_prompt_source(context)
         if profile.get("workflow_id") != self.id or any(context.get(key) != value for key, value in self.identity().items()):
             self.fail("persisted workflow/adapter identity changed or missing; explicit reconciliation required")
+        if context.get("lora_registry_identity") != registry_identity(self.trusted_registry(), self.bridge):
+            self.fail("persisted functional LoRA registry identity changed or missing; explicit reconciliation required")
         settings = self.resolve_render_settings(context.get("render_settings"), frozen=True, profile=context.get("profile"))
         if context.get("workflow_render_identity") != self.render_identity(context, settings):
             self.fail("persisted render settings identity differs; explicit reconciliation required")
@@ -187,12 +215,12 @@ class WorkflowAdapter:
                 continue
             if control["type"] == "lora_stack":
                 from .render_settings import SecondPassLora
-                from .production import read_loras, resolve_loras
+                from .production import resolve_loras
                 if type(value) is not list or frozen and any(
                         not isinstance(row, dict) or set(row) != {"id", "enabled", "strength"} for row in value):
                     raise ValueError("invalid or incomplete second-pass LoRA settings")
                 rows = [SecondPassLora.model_validate(row).model_dump() for row in value]
-                result[key] = resolve_loras(read_loras(self.root / "config/lora_registry.json"), profile,
+                result[key] = resolve_loras(self.trusted_registry(), profile,
                     rows, frozen=frozen, ids_only=True, supplied_only=True) if rows else []
                 if sum(row["enabled"] for row in result[key]) > self.descriptor["lora_slots"]:
                     raise ValueError("LoRA slot capacity exceeded")
@@ -245,12 +273,12 @@ class WorkflowAdapter:
                 value = values[key] if self.control_active(key, values) else control.get("baseline_default", values[key])
                 self.set(workflow, control["anchor"], control["widget"], value)
             if control["type"] == "lora_stack":
-                from .production import read_loras, patch_lora_slots
+                from .production import patch_lora_slots
                 node = self.node(workflow, control["anchor"])
                 active = self.control_active(key, values) and any(row["enabled"] for row in values[key])
                 node["mode"] = control["on_mode"] if active else control["off_mode"]
                 if active:
-                    patch_lora_slots(node, read_loras(self.root / "config/lora_registry.json"), values[key], slots=self.descriptor["lora_slots"])
+                    patch_lora_slots(node, self.trusted_registry(), values[key], slots=self.descriptor["lora_slots"])
                 else:
                     node["widgets_values_named"] = copy.deepcopy(control["baseline_widgets"])
                     node["widgets_values"] = copy.deepcopy(control["baseline_values"])
@@ -300,6 +328,10 @@ class WorkflowAdapter:
 
     def apply_loras(self, workflow, registry, settings):
         from .production import patch_lora_slots
+        if self.registry is not None:
+            if registry_identity(registry) != registry_identity(self.registry):
+                self.fail("composition registry differs from trusted controller snapshot")
+            registry = self.registry
         patch_lora_slots(self.node(workflow, "lora_stack"), registry, settings, slots=self.descriptor["lora_slots"])
 
     def compose(self, template: Path, profiles: dict, registry: dict, *, writer_stages=None) -> dict:
@@ -397,17 +429,17 @@ class WorkflowAdapter:
         self.hook.validate_final_graph(prompt, context, phase=phase)
 
 
-def get_adapter(workflow_id: str, *, root: Path = ROOT) -> WorkflowAdapter:
+def get_adapter(workflow_id: str, *, root: Path = ROOT, registry=None, bridge=None) -> WorkflowAdapter:
     if workflow_id not in REGISTRY:
         raise WorkflowAdapterCompatibilityError("unregistered workflow adapter; explicit reconciliation required")
     descriptor = json.loads((root / "workflow_adapters" / REGISTRY[workflow_id]).read_text())
     if descriptor.get("id") != workflow_id:
         raise WorkflowAdapterCompatibilityError("workflow-adapter descriptor identity mismatch")
-    return WorkflowAdapter(descriptor, root)
+    return WorkflowAdapter(descriptor, root, registry=registry, bridge=bridge)
 
 
 def compose(template: Path, profiles: dict, registry: dict, *, writer_stages=None) -> dict:
     descriptor = json.loads(template.read_text())
     profile = profiles["profiles"].get(descriptor.get("profile"), {})
-    return get_adapter(profile.get("workflow_id"), root=template.parent.parent).compose(
+    return get_adapter(profile.get("workflow_id"), root=template.parent.parent, registry=registry).compose(
         template, profiles, registry, writer_stages=writer_stages)

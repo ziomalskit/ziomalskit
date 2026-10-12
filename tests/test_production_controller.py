@@ -322,9 +322,15 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_queued_lora_and_bridge_defaults_do_not_drift(self):
         job = await self.batch()
-        self.m.LORA_REGISTRY["h3-combat-v2"]["defaults"]["h3_full"]["enabled"] = True
-        self.m.LORA_REGISTRY["movement-v1"]["defaults"]["h3_full"]["strength"] = 1.9
-        self.m.CONDITIONING_BRIDGE["defaults"]["h3_full"] = {"enabled": False, "strength": 1.7}
+        registry_path = self.m.CONFIG / "lora_registry.json"
+        registry = json.loads(registry_path.read_text())
+        for row in registry["loras"]:
+            if row["id"] == "h3-combat-v2":
+                row["defaults"]["h3_full"]["enabled"] = True
+            if row["id"] == "movement-v1":
+                row["defaults"]["h3_full"]["strength"] = 1.9
+        registry["conditioning_bridge"]["defaults"]["h3_full"] = {"enabled": False, "strength": 1.7}
+        registry_path.write_text(json.dumps(registry))
         path = self.m.patch_workflow(job, self.m.production_workflow(job))
         nodes = {node["id"]: node for node in json.loads(path.read_text())["nodes"]}
         rows = [row for row in nodes[6164]["widgets_values"] if isinstance(row, dict) and row.get("on")]
@@ -333,9 +339,15 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
             "movement_h3_lora_v1_500.safetensors": .5})
         self.assertTrue(nodes[7362]["widgets_values_named"]["enabled"])
         self.assertEqual(nodes[7362]["widgets_values_named"]["alpha"], .1)
-        self.m.LORA_REGISTRY["movement-v1"]["filename"] = "other.safetensors"
-        with self.assertRaisesRegex(ValueError, "LoRA routing changed"):
-            self.m.production_workflow(job)
+        # A new generation may resolve new defaults, but queued selections do
+        # not change. Functional filename drift instead fences the old job.
+        with load_controller(source=self.m.ROOT, production_probes=True) as restarted:
+            self.assertEqual(restarted.job_profile(job), "h3_full")
+        next(row for row in registry["loras"] if row["id"] == "movement-v1")["filename"] = "other.safetensors"
+        registry_path.write_text(json.dumps(registry))
+        with load_controller(source=self.m.ROOT, production_probes=True) as restarted:
+            with self.assertRaisesRegex(ValueError, "functional LoRA registry identity changed"):
+                restarted.production_workflow(job)
 
     async def test_h3_cold_analysis_defers_before_any_remote_or_paid_boundary(self):
         job = await self.batch()

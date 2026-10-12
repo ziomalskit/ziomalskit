@@ -110,6 +110,23 @@ H3 defaults retain HM Breasts 1.0, MysticXXX 0.6 and Movement 0.5. 10Eros starts
 with optional LoRAs off. All Full GPU compatibility and strengths remain pending.
 Sixteen dynamic slots support future registered LoRAs; unused slots are disabled.
 
+The PR #6 adversarial remediation freezes one validated LoRA/bridge registry per
+controller generation and its functional hash per job. Adapters do not reread the
+registry. Complete bundled AJ Python source identity and installed-worker file
+verification fence native drift before production POST. Visual and audio output
+chains are validated separately. Old queued jobs with missing/newly incompatible
+identity require reconciliation; original BASE UUID/body retries still return
+their recorded receipts when no post-BASE controls were explicitly supplied.
+Quarantined contexts remain visible without hiding healthy jobs or MP4 links.
+
+Manual timing uses whole-token recognition: Unicode clock lookalikes, signed or
+reversed/chained bounds and extra decimal groups fail; ordinary `16:10` ratios
+remain unchanged. Damaged manual cancellation can recover only from durable
+render ownership or require reconciliation, and never queries Prompt Worker.
+Each LoRA row initializes within its own range; untouched unused rows add no
+payload, while explicit inactive edits remain frozen and validated. See the
+[remediation contract](../docs/WORKFLOW_ADAPTERS.md#independent-adversarial-remediation-2026-10-12).
+
 Jobs freeze their profile, core model route, LoRA selection and Bunny bridge
 settings at creation. Changing runtime defaults cannot modify queued work.
 Recovery reconciles the original UUID/profile; it never guesses from a loaded

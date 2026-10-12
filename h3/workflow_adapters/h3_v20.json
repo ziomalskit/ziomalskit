@@ -2273,6 +2273,1006 @@
     "new_slot": 1
   },
   "api": {
+    "output_chains": {
+      "origin": "Reviewed canonical v20 with pinned converter; post duration/release guards. Visual/audio paths are bound separately.",
+      "create_video": "6182",
+      "visual_input": "images",
+      "audio_input": "audio",
+      "selected_latent": "7335:6173",
+      "visual_decoder": "6960:6959",
+      "audio_decoder": "6960:6958",
+      "visual_nodes": [
+        "6036:6962:6052",
+        "6036:6962:6949",
+        "6036:6962:6950:6899",
+        "6036:6962:6950:6901",
+        "6036:6962:6950:6902",
+        "6036:6962:6950:6906",
+        "6036:6962:6950:6907",
+        "6036:6962:6950:6908",
+        "6036:6962:6950:6909",
+        "6036:6962:6951",
+        "6036:6962:6954",
+        "6036:6962:6955",
+        "6036:6962:7205",
+        "6036:6962:7206",
+        "6036:6962:7207",
+        "6036:6962:7234",
+        "6036:7138:7126",
+        "6036:7138:7127",
+        "6036:7138:7132",
+        "6036:7138:7133",
+        "6036:7138:7134",
+        "6036:7138:7169",
+        "6036:7138:7173",
+        "6036:7138:7187",
+        "6036:7138:7189",
+        "6036:7138:7191",
+        "6036:7138:7193",
+        "6036:7138:7194",
+        "6036:7138:7195",
+        "6036:7138:7196",
+        "6036:7138:7197",
+        "6036:7138:7198",
+        "6036:7138:7199",
+        "6036:7138:7200",
+        "6036:7138:7201",
+        "6036:7138:7202",
+        "6036:7138:7203",
+        "6036:7138:7235",
+        "6036:7138:7237",
+        "6036:7138:7238",
+        "6036:7138:7239",
+        "6036:7138:7240",
+        "6036:7138:7241",
+        "6036:7225:7208",
+        "6036:7225:7209",
+        "6036:7225:7211",
+        "6036:7225:7212",
+        "6036:7225:7213",
+        "6036:7225:7214",
+        "6036:7225:7215",
+        "6036:7225:7216:7218",
+        "6036:7225:7216:7219",
+        "6036:7225:7216:7220",
+        "6036:7225:7216:7221",
+        "6036:7225:7216:7222",
+        "6036:7225:7216:7223",
+        "6036:7225:7216:7224",
+        "6036:7225:7217",
+        "6960:6958",
+        "6960:6959",
+        "7456",
+        "7463",
+        "7464",
+        "7465",
+        "7466",
+        "7467"
+      ],
+      "audio_nodes": [
+        "6036:6962:6052",
+        "6036:6962:6949",
+        "6036:6962:6950:6899",
+        "6036:6962:6950:6901",
+        "6036:6962:6950:6902",
+        "6036:6962:6950:6906",
+        "6036:6962:6950:6907",
+        "6036:6962:6950:6908",
+        "6036:6962:6950:6909",
+        "6036:6962:6951",
+        "6036:6962:6954",
+        "6036:6962:6955",
+        "6036:6962:7205",
+        "6036:6962:7206",
+        "6036:6962:7207",
+        "6036:6962:7234",
+        "6036:7138:7126",
+        "6036:7138:7127",
+        "6036:7138:7132",
+        "6036:7138:7133",
+        "6036:7138:7134",
+        "6036:7138:7169",
+        "6036:7138:7173",
+        "6036:7138:7187",
+        "6036:7138:7189",
+        "6036:7138:7191",
+        "6036:7138:7193",
+        "6036:7138:7194",
+        "6036:7138:7195",
+        "6036:7138:7196",
+        "6036:7138:7197",
+        "6036:7138:7198",
+        "6036:7138:7199",
+        "6036:7138:7200",
+        "6036:7138:7201",
+        "6036:7138:7202",
+        "6036:7138:7203",
+        "6036:7138:7235",
+        "6036:7138:7237",
+        "6036:7138:7238",
+        "6036:7138:7239",
+        "6036:7138:7240",
+        "6036:7138:7241",
+        "6036:7225:7208",
+        "6036:7225:7209",
+        "6036:7225:7210",
+        "6036:7225:7211",
+        "6036:7225:7212",
+        "6036:7225:7213",
+        "6036:7225:7215",
+        "6036:7225:7216:7218",
+        "6036:7225:7216:7219",
+        "6036:7225:7216:7220",
+        "6036:7225:7216:7221",
+        "6036:7225:7216:7222",
+        "6036:7225:7216:7223",
+        "6036:7225:7216:7224",
+        "6036:7225:7217",
+        "6960:6958",
+        "6960:6959",
+        "7457"
+      ],
+      "nodes": {
+        "6036:6962:6052": {
+          "class_type": "easy PassOrNone",
+          "inputs": {
+            "anything": [
+              "6036:7138:7193",
+              0
+            ]
+          }
+        },
+        "6036:6962:6949": {
+          "class_type": "CreateList",
+          "inputs": {
+            "inputs.input0": [
+              "6036:6962:6950:6908",
+              0
+            ],
+            "inputs.input1": [
+              "6036:6962:6950:6902",
+              0
+            ]
+          }
+        },
+        "6036:6962:6950:6899": {
+          "class_type": "CustomCombo",
+          "inputs": {
+            "choice": "scale_extension",
+            "index": 0,
+            "option1": "scale_ref",
+            "option2": "scale_extension",
+            "option3": "",
+            "option4": "",
+            "option5": ""
+          }
+        },
+        "6036:6962:6950:6901": {
+          "class_type": "ImagePass",
+          "inputs": {
+            "image": [
+              "6960:6959",
+              0
+            ]
+          }
+        },
+        "6036:6962:6950:6902": {
+          "class_type": "easy anythingIndexSwitch",
+          "inputs": {
+            "index": [
+              "6036:6962:6950:6899",
+              1
+            ],
+            "value0": [
+              "6036:6962:6950:6901",
+              0
+            ],
+            "value1": [
+              "6036:6962:6950:6906",
+              0
+            ]
+          }
+        },
+        "6036:6962:6950:6906": {
+          "class_type": "ResizeImageMaskNode",
+          "inputs": {
+            "resize_type": "match size",
+            "resize_type.crop": "center",
+            "scale_method": "lanczos",
+            "input": [
+              "6036:6962:6950:6901",
+              0
+            ],
+            "resize_type.match": [
+              "6036:6962:6950:6907",
+              0
+            ]
+          }
+        },
+        "6036:6962:6950:6907": {
+          "class_type": "ImagePass",
+          "inputs": {
+            "image": [
+              "6036:6962:7205",
+              0
+            ]
+          }
+        },
+        "6036:6962:6950:6908": {
+          "class_type": "easy anythingIndexSwitch",
+          "inputs": {
+            "index": [
+              "6036:6962:6950:6899",
+              1
+            ],
+            "value0": [
+              "6036:6962:6950:6909",
+              0
+            ],
+            "value1": [
+              "6036:6962:6950:6907",
+              0
+            ]
+          }
+        },
+        "6036:6962:6950:6909": {
+          "class_type": "ResizeImageMaskNode",
+          "inputs": {
+            "resize_type": "match size",
+            "resize_type.crop": "center",
+            "scale_method": "lanczos",
+            "input": [
+              "6036:6962:6950:6907",
+              0
+            ],
+            "resize_type.match": [
+              "6036:6962:6950:6901",
+              0
+            ]
+          }
+        },
+        "6036:6962:6951": {
+          "class_type": "CreateList",
+          "inputs": {
+            "inputs.input0": [
+              "6036:6962:7206",
+              0
+            ],
+            "inputs.input1": [
+              "6960:6958",
+              0
+            ]
+          }
+        },
+        "6036:6962:6954": {
+          "class_type": "ComfySwitchNode",
+          "inputs": {
+            "switch": [
+              "6036:6962:6052",
+              1
+            ],
+            "on_false": [
+              "6036:6962:7234",
+              0
+            ],
+            "on_true": [
+              "6960:6959",
+              0
+            ]
+          }
+        },
+        "6036:6962:6955": {
+          "class_type": "ComfySwitchNode",
+          "inputs": {
+            "switch": [
+              "6036:6962:6052",
+              1
+            ],
+            "on_false": [
+              "6036:6962:7234",
+              1
+            ],
+            "on_true": [
+              "6960:6958",
+              0
+            ]
+          }
+        },
+        "6036:6962:7205": {
+          "class_type": "GetItemFromList",
+          "inputs": {
+            "index": 0,
+            "list": [
+              "6036:6962:6052",
+              0
+            ]
+          }
+        },
+        "6036:6962:7206": {
+          "class_type": "GetItemFromList",
+          "inputs": {
+            "index": 1,
+            "list": [
+              "6036:6962:6052",
+              0
+            ]
+          }
+        },
+        "6036:6962:7207": {
+          "class_type": "GetItemFromList",
+          "inputs": {
+            "index": 2,
+            "list": [
+              "6036:6962:6052",
+              0
+            ]
+          }
+        },
+        "6036:6962:7234": {
+          "class_type": "MergeImageBatchAndAudioList",
+          "inputs": {
+            "fps": 24,
+            "overlap_side": "previous",
+            "overlap_mode": "linear_blend",
+            "overlap": [
+              "6036:6962:7207",
+              0
+            ],
+            "image_batches_list": [
+              "6036:6962:6949",
+              0
+            ],
+            "audio_list": [
+              "6036:6962:6951",
+              0
+            ]
+          }
+        },
+        "6036:7138:7126": {
+          "class_type": "ComfySwitchNode",
+          "inputs": {
+            "switch": [
+              "6036:7138:7132",
+              1
+            ],
+            "on_false": [
+              "6036:7138:7132",
+              0
+            ],
+            "on_true": [
+              "6036:7138:7134",
+              0
+            ]
+          }
+        },
+        "6036:7138:7127": {
+          "class_type": "ComfySwitchNode",
+          "inputs": {
+            "switch": [
+              "6036:7138:7133",
+              1
+            ],
+            "on_false": [
+              "6036:7138:7133",
+              0
+            ],
+            "on_true": [
+              "6036:7138:7134",
+              0
+            ]
+          }
+        },
+        "6036:7138:7132": {
+          "class_type": "easy PassOrNone",
+          "inputs": {}
+        },
+        "6036:7138:7133": {
+          "class_type": "easy PassOrNone",
+          "inputs": {}
+        },
+        "6036:7138:7134": {
+          "class_type": "PrimitiveInt",
+          "inputs": {
+            "value": 0,
+            "fixed": "fixed"
+          }
+        },
+        "6036:7138:7169": {
+          "class_type": "CreateList",
+          "inputs": {
+            "inputs.input0": [
+              "6036:7138:7235",
+              0
+            ],
+            "inputs.input1": [
+              "6036:7138:7237",
+              0
+            ],
+            "inputs.input2": [
+              "6036:7138:7238",
+              0
+            ]
+          }
+        },
+        "6036:7138:7173": {
+          "class_type": "CreateList",
+          "inputs": {
+            "inputs.input0": [
+              "6036:7138:7239",
+              0
+            ],
+            "inputs.input1": [
+              "6036:7138:7240",
+              0
+            ],
+            "inputs.input2": [
+              "6036:7138:7241",
+              0
+            ]
+          }
+        },
+        "6036:7138:7187": {
+          "class_type": "easy compare",
+          "inputs": {
+            "comparison": "a == b",
+            "a": [
+              "6036:7138:7126",
+              0
+            ],
+            "b": [
+              "6036:7138:7189",
+              0
+            ]
+          }
+        },
+        "6036:7138:7189": {
+          "class_type": "PrimitiveInt",
+          "inputs": {
+            "value": 1,
+            "fixed": "fixed"
+          }
+        },
+        "6036:7138:7191": {
+          "class_type": "easy compare",
+          "inputs": {
+            "comparison": "a == b",
+            "a": [
+              "6036:7138:7127",
+              0
+            ],
+            "b": [
+              "6036:7138:7189",
+              0
+            ]
+          }
+        },
+        "6036:7138:7193": {
+          "class_type": "ComfySwitchNode",
+          "inputs": {
+            "switch": [
+              "6036:7138:7194",
+              0
+            ],
+            "on_false": [
+              "6036:7138:7195",
+              0
+            ],
+            "on_true": [
+              "6036:7138:7196",
+              0
+            ]
+          }
+        },
+        "6036:7138:7194": {
+          "class_type": "ComfyOrNode",
+          "inputs": {
+            "values.value0": [
+              "6036:7138:7187",
+              0
+            ],
+            "values.value1": [
+              "6036:7138:7191",
+              0
+            ]
+          }
+        },
+        "6036:7138:7195": {
+          "class_type": "easy PassOrNone",
+          "inputs": {}
+        },
+        "6036:7138:7196": {
+          "class_type": "ComfySwitchNode",
+          "inputs": {
+            "switch": [
+              "6036:7138:7187",
+              0
+            ],
+            "on_false": [
+              "6036:7138:7173",
+              0
+            ],
+            "on_true": [
+              "6036:7138:7169",
+              0
+            ]
+          }
+        },
+        "6036:7138:7197": {
+          "class_type": "PrimitiveInt",
+          "inputs": {
+            "value": 2,
+            "fixed": "fixed"
+          }
+        },
+        "6036:7138:7198": {
+          "class_type": "easy compare",
+          "inputs": {
+            "comparison": "a == b",
+            "b": [
+              "6036:7138:7197",
+              0
+            ]
+          }
+        },
+        "6036:7138:7199": {
+          "class_type": "easy compare",
+          "inputs": {
+            "comparison": "a == b",
+            "b": [
+              "6036:7138:7197",
+              0
+            ]
+          }
+        },
+        "6036:7138:7200": {
+          "class_type": "ComfyOrNode",
+          "inputs": {
+            "values.value0": [
+              "6036:7138:7198",
+              0
+            ],
+            "values.value1": [
+              "6036:7138:7199",
+              0
+            ]
+          }
+        },
+        "6036:7138:7201": {
+          "class_type": "ComfySwitchNode",
+          "inputs": {
+            "switch": [
+              "6036:7138:7198",
+              0
+            ],
+            "on_false": [
+              "6036:7138:7173",
+              0
+            ],
+            "on_true": [
+              "6036:7138:7169",
+              0
+            ]
+          }
+        },
+        "6036:7138:7202": {
+          "class_type": "easy PassOrNone",
+          "inputs": {}
+        },
+        "6036:7138:7203": {
+          "class_type": "ComfySwitchNode",
+          "inputs": {
+            "switch": [
+              "6036:7138:7200",
+              0
+            ],
+            "on_false": [
+              "6036:7138:7202",
+              0
+            ],
+            "on_true": [
+              "6036:7138:7201",
+              0
+            ]
+          }
+        },
+        "6036:7138:7235": {
+          "class_type": "easy PassOrNone",
+          "inputs": {}
+        },
+        "6036:7138:7237": {
+          "class_type": "easy PassOrNone",
+          "inputs": {}
+        },
+        "6036:7138:7238": {
+          "class_type": "easy PassOrNone",
+          "inputs": {}
+        },
+        "6036:7138:7239": {
+          "class_type": "easy PassOrNone",
+          "inputs": {}
+        },
+        "6036:7138:7240": {
+          "class_type": "easy PassOrNone",
+          "inputs": {}
+        },
+        "6036:7138:7241": {
+          "class_type": "easy PassOrNone",
+          "inputs": {}
+        },
+        "6036:7225:7208": {
+          "class_type": "CreateList",
+          "inputs": {
+            "inputs.input0": [
+              "6036:7225:7216:7224",
+              0
+            ],
+            "inputs.input1": [
+              "6036:7225:7216:7223",
+              0
+            ]
+          }
+        },
+        "6036:7225:7209": {
+          "class_type": "CreateList",
+          "inputs": {
+            "inputs.input0": [
+              "6036:6962:6955",
+              0
+            ],
+            "inputs.input1": [
+              "6036:7225:7211",
+              0
+            ]
+          }
+        },
+        "6036:7225:7210": {
+          "class_type": "ComfySwitchNode",
+          "inputs": {
+            "switch": [
+              "6036:7225:7217",
+              1
+            ],
+            "on_false": [
+              "6036:7225:7215",
+              1
+            ],
+            "on_true": [
+              "6036:6962:6955",
+              0
+            ]
+          }
+        },
+        "6036:7225:7211": {
+          "class_type": "GetItemFromList",
+          "inputs": {
+            "index": 1,
+            "list": [
+              "6036:7225:7217",
+              0
+            ]
+          }
+        },
+        "6036:7225:7212": {
+          "class_type": "GetItemFromList",
+          "inputs": {
+            "index": 0,
+            "list": [
+              "6036:7225:7217",
+              0
+            ]
+          }
+        },
+        "6036:7225:7213": {
+          "class_type": "GetItemFromList",
+          "inputs": {
+            "index": 2,
+            "list": [
+              "6036:7225:7217",
+              0
+            ]
+          }
+        },
+        "6036:7225:7214": {
+          "class_type": "ComfySwitchNode",
+          "inputs": {
+            "switch": [
+              "6036:7225:7217",
+              1
+            ],
+            "on_false": [
+              "6036:7225:7215",
+              0
+            ],
+            "on_true": [
+              "6036:6962:6954",
+              0
+            ]
+          }
+        },
+        "6036:7225:7215": {
+          "class_type": "MergeImageBatchAndAudioList",
+          "inputs": {
+            "fps": 24,
+            "overlap_side": "next",
+            "overlap_mode": "linear_blend",
+            "overlap": [
+              "6036:7225:7213",
+              0
+            ],
+            "image_batches_list": [
+              "6036:7225:7208",
+              0
+            ],
+            "audio_list": [
+              "6036:7225:7209",
+              0
+            ]
+          }
+        },
+        "6036:7225:7216:7218": {
+          "class_type": "CustomCombo",
+          "inputs": {
+            "choice": "scale_extension",
+            "index": 0,
+            "option1": "scale_ref",
+            "option2": "scale_extension",
+            "option3": "",
+            "option4": "",
+            "option5": ""
+          }
+        },
+        "6036:7225:7216:7219": {
+          "class_type": "ImagePass",
+          "inputs": {
+            "image": [
+              "6036:6962:6954",
+              0
+            ]
+          }
+        },
+        "6036:7225:7216:7220": {
+          "class_type": "ResizeImageMaskNode",
+          "inputs": {
+            "resize_type": "match size",
+            "resize_type.crop": "center",
+            "scale_method": "lanczos",
+            "input": [
+              "6036:7225:7216:7219",
+              0
+            ],
+            "resize_type.match": [
+              "6036:7225:7216:7221",
+              0
+            ]
+          }
+        },
+        "6036:7225:7216:7221": {
+          "class_type": "ImagePass",
+          "inputs": {
+            "image": [
+              "6036:7225:7212",
+              0
+            ]
+          }
+        },
+        "6036:7225:7216:7222": {
+          "class_type": "ResizeImageMaskNode",
+          "inputs": {
+            "resize_type": "match size",
+            "resize_type.crop": "center",
+            "scale_method": "lanczos",
+            "input": [
+              "6036:7225:7216:7221",
+              0
+            ],
+            "resize_type.match": [
+              "6036:7225:7216:7219",
+              0
+            ]
+          }
+        },
+        "6036:7225:7216:7223": {
+          "class_type": "easy anythingIndexSwitch",
+          "inputs": {
+            "index": [
+              "6036:7225:7216:7218",
+              1
+            ],
+            "value0": [
+              "6036:7225:7216:7222",
+              0
+            ],
+            "value1": [
+              "6036:7225:7216:7221",
+              0
+            ]
+          }
+        },
+        "6036:7225:7216:7224": {
+          "class_type": "easy anythingIndexSwitch",
+          "inputs": {
+            "index": [
+              "6036:7225:7216:7218",
+              1
+            ],
+            "value0": [
+              "6036:7225:7216:7219",
+              0
+            ],
+            "value1": [
+              "6036:7225:7216:7220",
+              0
+            ]
+          }
+        },
+        "6036:7225:7217": {
+          "class_type": "easy PassOrNone",
+          "inputs": {
+            "anything": [
+              "6036:7138:7203",
+              0
+            ]
+          }
+        },
+        "6182": {
+          "class_type": "CreateVideo",
+          "inputs": {
+            "fps": 24,
+            "bit_depth": 8,
+            "color_space": "sRGB",
+            "codec": "none",
+            "images": [
+              "7456",
+              0
+            ],
+            "audio": [
+              "7457",
+              0
+            ]
+          }
+        },
+        "6960:6958": {
+          "class_type": "VAEDecodeAudio",
+          "inputs": {
+            "samples": [
+              "7335:6173",
+              0
+            ],
+            "vae": [
+              "4595:122",
+              0
+            ]
+          }
+        },
+        "6960:6959": {
+          "class_type": "VAEDecode",
+          "inputs": {
+            "samples": [
+              "7335:6173",
+              0
+            ],
+            "vae": [
+              "4595:121",
+              0
+            ]
+          }
+        },
+        "7331": {
+          "class_type": "SaveVideo",
+          "inputs": {
+            "format": "auto",
+            "format.codec": "auto",
+            "codec": "auto",
+            "filename_prefix": [
+              "1724:3792:3790",
+              0
+            ],
+            "video": [
+              "aj_video_complete",
+              0
+            ]
+          }
+        },
+        "7456": {
+          "class_type": "ImageFromBatch",
+          "inputs": {
+            "batch_index": 0,
+            "length": [
+              "aj_frozen_duration",
+              0
+            ],
+            "image": [
+              "7467",
+              0
+            ]
+          }
+        },
+        "7457": {
+          "class_type": "TrimAudioDuration",
+          "inputs": {
+            "start_index": 0,
+            "duration": [
+              "aj_frozen_duration",
+              1
+            ],
+            "audio": [
+              "6036:7225:7210",
+              0
+            ]
+          }
+        },
+        "7463": {
+          "class_type": "GetImageSizeAndCount",
+          "inputs": {
+            "image": [
+              "6036:7225:7214",
+              0
+            ]
+          }
+        },
+        "7464": {
+          "class_type": "ImageFromBatch",
+          "inputs": {
+            "batch_index": -1,
+            "length": 1,
+            "image": [
+              "7463",
+              0
+            ]
+          }
+        },
+        "7465": {
+          "class_type": "ComfyMathExpression",
+          "inputs": {
+            "expression": "max(1, b - a)",
+            "values.a": [
+              "7463",
+              3
+            ],
+            "values.b": [
+              "aj_frozen_duration",
+              0
+            ]
+          }
+        },
+        "7466": {
+          "class_type": "RepeatImageBatch",
+          "inputs": {
+            "image": [
+              "7464",
+              0
+            ],
+            "amount": [
+              "7465",
+              1
+            ]
+          }
+        },
+        "7467": {
+          "class_type": "ImageBatch",
+          "inputs": {
+            "image1": [
+              "7463",
+              0
+            ],
+            "image2": [
+              "7466",
+              0
+            ]
+          }
+        },
+        "aj_video_complete": {
+          "class_type": "AJVideoBoundary",
+          "inputs": {
+            "video": [
+              "6182",
+              0
+            ],
+            "release_models": true
+          }
+        }
+      }
+    },
     "renderer": "4595:4529",
     "encoder": "4595:130",
     "video_vae": "4595:121",

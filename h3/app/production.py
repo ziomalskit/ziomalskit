@@ -2,17 +2,57 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import math
 from pathlib import Path, PurePosixPath
 import re
+from collections.abc import Mapping
+from types import MappingProxyType
 
 PROFILE_LABELS = {"h3_full": "H3 Full", "10eros_full": "10Eros Full"}
 IDENTIFIER = re.compile(r"[a-z0-9][a-z0-9_-]{0,79}\Z")
 
 
+def immutable_registry(value):
+    """One deeply immutable, validated controller-generation snapshot."""
+    if isinstance(value, MappingProxyType):
+        return value
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: immutable_registry(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(immutable_registry(item) for item in value)
+    return value
+
+
+def registry_json(value):
+    """Return public/identity JSON without exposing mutable snapshot objects."""
+    if isinstance(value, Mapping):
+        return {key: registry_json(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [registry_json(item) for item in value]
+    return value
+
+
+def registry_identity(registry, bridge=None):
+    # Defaults are used only at creation: every selection/strength is persisted.
+    # Labels/help and GPU acceptance annotations do not route or verify a file.
+    excluded = {"display_name", "help", "notes", "defaults", "gpu_validation", "installation"}
+    def functional(entry):
+        return {key: registry_json(value) for key, value in entry.items() if key not in excluded}
+    identity = {"loras": {key: functional(entry) for key, entry in registry.items()}}
+    if bridge is not None:
+        identity["conditioning_bridge"] = functional(bridge)
+    return hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False,
+                                    separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
 def functional_policy(profile: dict) -> dict:
+    if not isinstance(profile, dict):
+        raise ValueError("persisted functional profile policy is malformed; reconciliation required")
     memory, overlap = profile.get("memory_policy", {}), profile.get("overlap_policy", {})
+    if not isinstance(memory, dict) or not isinstance(overlap, dict):
+        raise ValueError("persisted functional memory/overlap policy is malformed; reconciliation required")
     if (memory.get("encoder_release") != "after_conditioning" or memory.get("render_release") != "after_video"
             or memory.get("sampling_priority") != "render"):
         raise ValueError("persisted functional memory policy missing or incompatible; explicit reconciliation required")
@@ -40,8 +80,8 @@ def validate_lora_provenance(entry: dict) -> None:
             raise ValueError("verified LoRA exact provenance missing")
 
 
-def read_bridge(path: Path) -> dict:
-    entry = json.loads(path.read_text())["conditioning_bridge"]
+def read_bridge(path: Path, *, document=None) -> dict:
+    entry = (json.loads(path.read_text()) if document is None else document)["conditioning_bridge"]
     if not isinstance(entry.get("id"), str) or not IDENTIFIER.fullmatch(entry["id"]):
         raise ValueError("invalid conditioning bridge ID")
     filename = relative_path(entry["filename"])
@@ -102,8 +142,8 @@ def read_profiles(path: Path) -> dict:
     return data
 
 
-def read_loras(path: Path) -> dict[str, dict]:
-    data = json.loads(path.read_text())
+def read_loras(path: Path, *, document=None) -> dict[str, dict]:
+    data = json.loads(path.read_text()) if document is None else document
     if data.get("schema_version") != 1 or type(data.get("slots")) is not int or data["slots"] < 8:
         raise ValueError("at least eight dynamic LoRA slots are required")
     entries = data.get("loras")
@@ -133,7 +173,7 @@ def read_loras(path: Path) -> dict[str, dict]:
         validate_lora_provenance(entry)
         registry[identifier] = entry
         filenames.add(filename)
-    bridge = read_bridge(path)
+    bridge = read_bridge(path, document=data)
     if bridge["id"] in registry or bridge["filename"] in filenames:
         raise ValueError("duplicate conditioning bridge identity")
     return registry
@@ -144,13 +184,10 @@ def resolve_loras(registry: dict, profile: str, settings: list[dict] | None, *, 
     if profile not in PROFILE_LABELS:
         raise ValueError("unknown production profile")
     result = {identifier: {"id": identifier, **entry["defaults"][profile]} for identifier, entry in registry.items()}
-    if supplied_only:
+    if supplied_only or frozen:
         result = {}
-    if frozen:
-        # New registry entries/default changes cannot modify an already queued
-        # job. Its explicit persisted IDs/strengths are the whole selection.
-        for value in result.values():
-            value["enabled"] = False
+    # Frozen rows are the entire ordered stack. Registry order, new entries and
+    # defaults must never reorder or add disabled rows to a persisted selection.
     seen = set()
     for setting in settings or []:
         # Only explicit registered identifiers/legacy canonical names are accepted.
