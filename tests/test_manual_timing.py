@@ -90,6 +90,25 @@ TIMESTAMP_PATHS = (
     "https://example.com/clock 2:0",
     "https://example.com/time 0:1",
 )
+NUMERIC_CLOCK_PROSE = (
+    "The clock reads 00:05.000 - 4K video plays on the display.",
+    "The clock reads 00:05.000 - 1920x1080 resolution is shown below.",
+)
+BACKUP_FILES = (
+    "Display camera_00:05.000.mov~ in the file browser.",
+    "Show camera_00:05.000.png-backup on the screen.",
+    "/clips/camera_00:05.000.mov~",
+    "https://example.com/video/camera_00:05.000.png-backup",
+)
+PATH_HIDDEN_RANGES = (
+    "Range: /00:20.000-00:01.000",
+    "Range /00:20.000-00:01.000",
+    "Range ./00:20.000-00:01.000",
+)
+DECLARED_NON_CLOCK_VALUES = (
+    "Clock:2026", "Clock: 4K", "Time:4K", "Timestamp:8bit",
+    "Cut:123fps", "Shot:2026", "Range:2026", "Timeline:8bit",
+)
 
 
 class ManualTimingTests(unittest.TestCase):
@@ -99,6 +118,42 @@ class ManualTimingTests(unittest.TestCase):
         source = freeze_prompt_source("manual_final", None, text, 20.04)
         self.assertEqual(source["manual_final_prompt"].encode("utf-8"), original)
         self.assertEqual(source["manual_final_prompt_sha256"], hashlib.sha256(original).hexdigest())
+
+    def test_numeric_prose_is_not_an_interval_operand(self):
+        for text in NUMERIC_CLOCK_PROSE:
+            with self.subTest(text=text):
+                self.assert_exact(text)
+
+    def test_timestamped_backup_files_accept_exactly(self):
+        for text in BACKUP_FILES:
+            with self.subTest(text=text):
+                self.assert_exact(text)
+
+    def test_explicit_range_precedes_path_opacity(self):
+        for text in PATH_HIDDEN_RANGES:
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                validate_manual_final(text, 30.04)
+
+    def test_digit_leading_words_remain_prose_after_scalar_clocks(self):
+        for word in ("4K", "8K", "1920x1080", "123fps", "2026", "8bit"):
+            with self.subTest(word=word):
+                self.assert_exact("The clock reads 00:05.000 - " + word + " is displayed.")
+
+    def test_directive_operands_cannot_become_opaque_files_or_addresses(self):
+        for directive in ("Range: ", "Timeline: ", "At ", "Clock reads ", "Time is ", "Timestamp: ", "Cut ", "Shot 2 "):
+            for operand in ("/00:01.000-00:05.000", "camera_00:05.000.mov~", "[2001:db8::1]"):
+                with self.subTest(directive=directive, operand=operand), self.assertRaises(ValueError):
+                    validate_manual_final(directive + operand, 20.04)
+
+    def test_filename_suffixes_do_not_exempt_malformed_fractional_groups(self):
+        for text in ("camera_00:05.000abc.mp4", "camera_00:05.0000.mp4", "camera_00:05..000.mp4"):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                validate_manual_final(text, 20.04)
+
+    def test_declared_temporal_values_require_canonical_clocks(self):
+        for text in DECLARED_NON_CLOCK_VALUES:
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                validate_manual_final(text, 20.04)
 
     def test_review_prefixed_clock_rejects(self):
         with self.assertRaises(ValueError):
@@ -289,6 +344,72 @@ class ManualTimingRequestTests(unittest.IsolatedAsyncioTestCase):
 
     def body_for(self, text):
         return {**self.body, "request_id": str(uuid.uuid4()), "manual_final_prompt": text}
+
+    async def assert_accepted_exact_requests(self, texts):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.m.app), base_url="http://panel",
+                                    auth=("h3", "test-only-password")) as client:
+            with patch.object(self.m.httpx, "AsyncClient", side_effect=AssertionError("Worker HTTP invoked")) as worker:
+                for text in texts:
+                    with self.subTest(text=text):
+                        original = text.encode("utf-8")
+                        digest = hashlib.sha256(original).hexdigest()
+                        response = await client.post("/api/batches", json=self.body_for(text))
+                        self.assertEqual(response.status_code, 200, response.text)
+                        self.assertEqual(validate_manual_final(text, 20.04).encode("utf-8"), original)
+                        frozen = freeze_prompt_source("manual_final", None, text, 20.04)
+                        self.assertEqual(frozen["manual_final_prompt"].encode("utf-8"), original)
+                        self.assertEqual(frozen["manual_final_prompt_sha256"], digest)
+                        job = self.m.queue[-1]
+                        self.assertEqual(job["status"], "render_queued_auto")
+                        self.assertEqual(job["context"]["manual_final_prompt"].encode("utf-8"), original)
+                        self.assertEqual(job["final_h3_prompt"].encode("utf-8"), original)
+                        self.assertEqual(job["context"]["manual_final_prompt_sha256"], digest)
+                        persisted = json.loads(self.m.QUEUE_FILE.read_text())["queue"][-1]
+                        self.assertEqual(persisted["context"]["manual_final_prompt"].encode("utf-8"), original)
+                        self.assertEqual(persisted["final_h3_prompt"].encode("utf-8"), original)
+                        self.assertEqual(persisted["context"]["manual_final_prompt_sha256"], digest)
+                        path = self.m.patch_workflow(job, self.m.production_workflow(job), approved_prompt=text)
+                        override = next(node for node in json.loads(path.read_text())["nodes"] if node["id"] == 2632)
+                        self.assertEqual(override["widgets_values_named"]["positive"].encode("utf-8"), original)
+                worker.assert_not_called()
+        self.assertEqual(len(self.m.queue), len(texts))
+        self.assertEqual(len(self.m.batches), len(texts))
+        self.assertEqual(len(self.m.request_results), len(texts))
+        self.assertIsNone(self.m.pick_next_prompt_job())
+
+    async def test_actual_batches_accepts_numeric_clock_prose_exactly(self):
+        await self.assert_accepted_exact_requests(NUMERIC_CLOCK_PROSE)
+
+    async def test_actual_batches_accepts_timestamped_backups_exactly(self):
+        await self.assert_accepted_exact_requests(BACKUP_FILES)
+
+    async def test_actual_batches_rejects_path_hidden_ranges_without_publication(self):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.m.app), base_url="http://panel",
+                                    auth=("h3", "test-only-password")) as client:
+            with patch.object(self.m.httpx, "AsyncClient", side_effect=AssertionError("Worker HTTP invoked")) as worker:
+                for text in PATH_HIDDEN_RANGES:
+                    with self.subTest(text=text):
+                        response = await client.post("/api/batches", json={**self.body_for(text), "duration_seconds": 30})
+                        self.assertEqual(response.status_code, 400, response.text)
+                worker.assert_not_called()
+        self.assertEqual(self.m.queue, [])
+        self.assertEqual(self.m.batches, [])
+        self.assertEqual(self.m.request_results, {})
+        self.assertFalse(self.m.QUEUE_FILE.exists())
+
+    async def test_actual_batches_rejects_declared_non_clock_values_without_publication(self):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.m.app), base_url="http://panel",
+                                    auth=("h3", "test-only-password")) as client:
+            with patch.object(self.m.httpx, "AsyncClient", side_effect=AssertionError("Worker HTTP invoked")) as worker:
+                for text in DECLARED_NON_CLOCK_VALUES:
+                    with self.subTest(text=text):
+                        response = await client.post("/api/batches", json=self.body_for(text))
+                        self.assertEqual(response.status_code, 400, response.text)
+                worker.assert_not_called()
+        self.assertEqual(self.m.queue, [])
+        self.assertEqual(self.m.batches, [])
+        self.assertEqual(self.m.request_results, {})
+        self.assertFalse(self.m.QUEUE_FILE.exists())
 
     async def test_actual_batches_rejects_incomplete_range_before_worker_http(self):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.m.app), base_url="http://panel",

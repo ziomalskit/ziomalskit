@@ -851,7 +851,74 @@ or worker HTTP for malformed clocks; accepted prose produces one
 Shot/Timeline rules and the 20 s → 481 frames → 20.040 s contract remain intact.
 All tests use disposable CPU fixtures; no real worker submission is performed.
 
-### Whole-interval and numeric-extension correction
+### Directive-first manual timing grammar
+
+The follow-up on `2823b508` replaces predicate-based endpoint/context decisions
+with an offset-preserving lexical stream and four grammar passes. Token classes
+distinguish canonical/malformed clocks, integer-pair prose, clock prefixes,
+ordinary words, operators, filenames, paths, URLs, addresses, host:port and
+versions. Classifying an atom as a possible file or URL does not grant opacity.
+
+1. Explicit temporal clauses are recognized and validated on the original,
+   quote-aware detection text, before opaque masking. `Range`, `Timeline`, `At`,
+   `Clock`/`clock reads`, `Time`/`timestamp`, `Cut` and supported `Shot` labels
+   bind their operands. Named declarations own their value even when malformed
+   text lacks clock punctuation: `Clock:2026` cannot become ordinary prose.
+   Shot identities bind only in the whitespace-delimited label grammar;
+   `Shot:2026` is a declaration, not a Shot identity. Structural Shot headers
+   retain their separate unchanged numbering/cut grammar. A temporal operand
+   cannot become an exempt path/file.
+2. Opaque non-temporal atoms outside those clauses are masked with barriers,
+   preserving source offsets and preventing their words/signs from supplying
+   context to neighboring clocks. Filename extensions, multiple extensions,
+   hyphenated backup suffixes and trailing `~` are one lexical production, with
+   a named stem and distinct extension structure; no media or phrase whitelist.
+3. Free intervals bind only clock-like operands. Integer-pair scores/ratios alone
+   remain prose. `4K`, `1920x1080`, `123fps`, `2026` and `8bit` are ordinary words,
+   never endpoints merely because they begin with a digit. An actual interval
+   validates both complete canonical endpoints, ASCII separator, ordering and
+   effective-duration bounds as one construction.
+4. Remaining scalar clocks use the existing canonical, duration and cut-offset
+   validation. Detection normalization never changes stored/rendered text.
+
+Consequently, the valid clock followed by `- 4K` or `- 1920x1080` remains a
+scalar plus prose; `.mov~` and `.png-backup` timestamped files remain opaque;
+all three explicit `Range` forms with `/` or `./` reject before publication,
+including ascending path-shaped ranges. `_endpoint_like` and its generic
+digit-leading endpoint rule have been removed.
+
+Six new regression methods were run before production changes and reproduced
+all three findings: 13 failed assertions/subtests and four validator errors.
+Eleven added methods bring manual timing to 43 tests. Authenticated requests prove
+HTTP 200 with exact validation/frozen/SHA256/durable/mirror/node-2632 text for
+numeric captions and backup files; rejected Range/path requests prove HTTP 400,
+no job/batch/receipt/queue file and no worker HTTP. Three additional boundary
+methods cover numeric words, directive operands and malformed file fractions.
+Two further validator/request methods protect declarations with non-clock values.
+Focused manual-final coverage contains 125 tests, including 43 manual-timing tests.
+
+Independent semantic categories supply 352 parser/request probes: 218 accept
+with the complete exact UTF-8 chain, 134 reject without publication, zero
+expectation mismatches and zero worker HTTP. Self-review caught comma decimals
+being split into integer prose and an empty extension component hiding a bad
+fraction; both lexical ownership errors were corrected before final validation.
+A final starting-version comparison also caught named declarations accepting
+ordinary numeric words; colon declarations now require canonical temporal values,
+without promoting numeric caption words to free interval operands.
+All previous timing cases, Shot/Timeline semantics, the 20 s → 481 frames →
+20.040 s contract and Autoprompt remain covered. No terminal implementation,
+assertion or timeout change belongs to this parser correction.
+
+Final local checks on this source: `make setup` PASS, `make test` **801 PASS +
+16 HTTP smoke checks**, manual-final **125 PASS**, manual timing **43 PASS**,
+and `git diff --check` PASS. There were no final failures, errors or skips;
+unchanged terminal tests passed. All 258 tracked files outside this three-file
+correction remain byte-identical to `2823b508`. Canonical v20 remains
+3,084,071 bytes, SHA256
+`276621a1992a8b8da40d981a79417fd5eb3617b44166d890c8c82ffd8eb96222`.
+No Vast/GPU, real ComfyUI submission or paid-provider action ran.
+
+### Whole-interval and numeric-extension correction (2823b508)
 
 The final micro-review of `e43ac2c0` found two new MEDIUM issues. Independent
 scalar classification dropped an incomplete right endpoint, so
