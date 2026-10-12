@@ -795,13 +795,18 @@ relabeled as legacy Autoprompt merely because an empty scene field remains.
 
 ### Manual timing and recovery ownership
 
-The manual temporal lexer consumes complete word/colon tokens, including both
-prefixes and suffixes of embedded clocks, then handles interval operators
-separately. Classification first honors established temporal context, then
-recognizes obvious IPv6-shaped hexadecimal sequences and named-file syntax,
-then checks numeric fractional/nonfinite clock syntax. Other colon prose,
-including bare integer pairs with zero operands, labels and ports, is ordinary text. There is no ratio
-phrase table or numerator/denominator heuristic.
+The manual temporal lexer has three detection-only stages. First it masks opaque
+URLs, IPv6/address-shaped tokens, named files/paths, hostname:port and version
+syntax in an offset-preserving copy. Explicit temporal context takes precedence
+over those syntax classes. Filename extensions are alphanumeric and contain a
+letter, with a named stem; there is no media-extension whitelist. A numeric
+millisecond tail or an adjoining malformed suffix does not become a filename.
+Second it recognizes whole interval-like constructions from endpoint syntax and
+clock evidence. Both endpoints must be canonical; an incomplete endpoint cannot
+fall back to prose. Finally it scans remaining whole word/colon tokens for scalar
+fractional/nonfinite clock candidates, including embedded prefixes and suffixes.
+Other colon prose, including bare integer pairs with zero operands, is ordinary
+text. There is no ratio phrase table or numerator/denominator heuristic.
 Named labels also delimit canonical values without requiring a space after the
 colon (`Clock:00:05.000`, `Timeline:00:00.000-00:10.000`). `At` cuts retain their
 existing whitespace-only grammar. IPv6 address shape includes dotted IPv4 tails.
@@ -846,7 +851,79 @@ or worker HTTP for malformed clocks; accepted prose produces one
 Shot/Timeline rules and the 20 s → 481 frames → 20.040 s contract remain intact.
 All tests use disposable CPU fixtures; no real worker submission is performed.
 
-The second review's INFO observations remain outside this parser correction:
+### Whole-interval and numeric-extension correction
+
+The final micro-review of `e43ac2c0` found two new MEDIUM issues. Independent
+scalar classification dropped an incomplete right endpoint, so
+`Range 00:20.000-00:01.` could publish a manual render job. Filename detection
+used `extension.isalpha()`, rejecting ordinary timestamped `.mp4`, `.m4v`, `.mp3`
+and `.7z` names and their URL/path forms. Both were reproduced before this fix
+by added production-validator and authenticated request tests.
+
+Intervals are now recognized as maximal constructions before scalar prose
+classification. Canonical endpoints must satisfy `start < end` and duration
+bounds. Truncation, malformed operands, multiple boundaries and non-ASCII
+separators reject. A hyphen between integer ratios or version/prose tokens does
+not itself supply clock evidence; ordinary hyphenated prose remains valid.
+URLs own their query/path punctuation; opaque spans also form barriers so their
+trailing words or signs cannot supply temporal context to neighboring values.
+UNIX, relative and Windows paths, together with alphanumeric filename
+extensions, are recognized without surrounding English words. Explicit temporal
+labels still override opaque file/address syntax.
+
+The added regressions cover the full twelve-input interval matrix at 30.040 s,
+so complete 20/21/22-second timestamps are within duration and cannot disguise
+syntax failures as bounds failures. Filename coverage includes `.mp4`, `.m4v`,
+`.mp3`, `.7z`, `.h264`, `.mov`, `.mkv`, `.webm` and `.txt`, plus digit-leading
+extensions after a seconds-only filename stem. A nearby independent probe also
+found invisible/combining characters hiding extra `At` cut directives; detection
+now rejects those under the existing cut grammar without rewriting source text.
+The same detection boundary retains signs separated from a clock by invisible
+or combining characters, so a signed clock cannot fall back to an unsigned one.
+
+**15 added tests** (12 validator, 3 authenticated request) bring the dedicated
+timing suite to 32 tests. The malformed-range request requires HTTP 400, zero
+worker HTTP, no job/batch/request receipt and no queue file. Accepted filename
+and URL/path requests require HTTP 200, `render_queued_auto`, and exact UTF-8
+validation/frozen/hash/durable/mirror/render-override identity for every example.
+Independent probes cover **154 nearby inputs**: 88 accepted exactly and 66
+rejected, spanning truncated endpoints, separators/chains, hidden cuts, numeric
+extensions, URLs/paths, ratios, IPv6, versions and host:port.
+
+Final local validation on the corrected source:
+
+| Check | Result |
+| --- | --- |
+| `make setup` | PASS; pinned dependencies and pip check |
+| `make test` | **790 PASS + 16 HTTP smoke checks** |
+| `make audit` | **790 PASS**, all **7** historical defects reproduced |
+| Complete focused PR #6 suite | **397 PASS** |
+| Manual-final suite | **114 PASS** |
+| Dedicated manual-timing suite | **32 PASS** |
+| Final failures / errors / skips | **0 / 0 / 0** |
+| `git diff --check` | PASS |
+
+The first final-source full test attempt had one 8-second timeout in the
+unchanged ENOSPC worker-recovery test. That test passed in isolation and in the
+complete sequential rerun; the subsequent full audit also passed. No harness,
+timeout, assertion or production recovery code was changed. The existing CPU
+subreaper only collects its own exited descendants and sends no signals.
+
+All **258 tracked files outside these three files** remain byte-identical to
+`e43ac2c02d2ff747acda25a69a75a94f9ad523b6`, including 66 migration files,
+6 archive files, 5 workflows, 6 configs and 4 native source modules. Canonical
+v20 remains **3,084,071 bytes**, SHA256
+`276621a1992a8b8da40d981a79417fd5eb3617b44166d890c8c82ffd8eb96222`.
+No Vast/GPU, real ComfyUI submission or paid-provider action ran. Final-head
+GitHub Actions results are recorded in the existing Draft PR #6 validation report.
+
+Shot numbering, Shot 1, later-cut ordering/bounds, Timeline grammar, the
+20 s → 481 frames → 20.040 s contract and Autoprompt remain unchanged. This
+correction changes only `manual_timing.py`, its focused tests and these notes;
+adapters, provenance/recovery architecture, native source, canonical workflows,
+prompt prose, render defaults and DavidAU work are untouched.
+
+The prior review's INFO observations remain outside this parser correction:
 
 - adapter descriptor live-reread consistency;
 - native filesystem TOCTOU and cached-worker-code verification limitations;

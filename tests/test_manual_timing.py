@@ -23,6 +23,9 @@ MALFORMED = (
     "At ００:９０.０００, change the camera angle.",
     "-00:01.000",
     "+00:01.000",
+    "-\u200b 00:01.000",
+    "+\u2060 00:01.000",
+    "−\u0301 00:01.000",
     "00:60.000",
     "00:05.0000",
     "00:05..000",
@@ -54,6 +57,39 @@ ORDINARY = REVIEW_PROSE + tuple(
     "Address ::ffff:0:192.0.2.1 is visible.",
     "Use ratio 2:1.",
 )
+INCOMPLETE_INTERVALS = (
+    "Range 00:20.000-00:01.",
+    "Range 00:20.000-00:",
+    "Range 00:20.000-00:01",
+    "Range 00:20.000-00:01..",
+    "Range 00:20.000-00:01.0",
+    "Range 00:20.000-00:01.0000",
+    "Range 00:20.000-00:01.000abc",
+    "Range abc00:20.000-00:21.000",
+    "Range 00:20.000–00:21.000",
+    "Range 00:20.000—00:21.000",
+    "Range 00:20.000-00:21.000-00:22.000",
+    "Range 00:05.000-00:04.000",
+)
+TIMESTAMP_FILES = (
+    "camera_00:05.000.mp4", "camera_00:05.000.m4v",
+    "audio_00:05.000.mp3", "archive_00:05.000.7z",
+    "camera_00:05.000.h264", "camera_00:05.000.mov",
+    "camera_00:05.000.mkv", "camera_00:05.000.webm", "camera_00:05.000.txt",
+)
+TIMESTAMP_PATHS = (
+    "/path/camera_00:05.000.mp4",
+    "https://example.com/video/camera_00:05.000.mp4",
+    "https://example.com:8080/video_00:05.000.m4v",
+    "https://example.com/camera_00:05.000.mp4",
+    "https://example.com:8080/video/camera_00:05.000.m4v",
+    r"C:\clips\camera_00:05.000.mp4",
+    "/clips/camera_00:05.000.mp4",
+    "https://example.com/at 00:05.000",
+    "https://example.com/end- 00:05.000",
+    "https://example.com/clock 2:0",
+    "https://example.com/time 0:1",
+)
 
 
 class ManualTimingTests(unittest.TestCase):
@@ -67,6 +103,91 @@ class ManualTimingTests(unittest.TestCase):
     def test_review_prefixed_clock_rejects(self):
         with self.assertRaises(ValueError):
             validate_manual_final("abc00:05.000", 20.04)
+
+    def test_review_incomplete_interval_endpoint_rejects(self):
+        with self.assertRaises(ValueError):
+            validate_manual_final("Range 00:20.000-00:01.", 20.04)
+
+    def test_review_numeric_extension_filenames_accept_exactly(self):
+        for name in TIMESTAMP_FILES + ("archive_00:05.7z", "camera_00:05.3gp"):
+            with self.subTest(name=name):
+                self.assert_exact("The file is named " + name + ".")
+
+    def test_whole_interval_syntax_cannot_drop_incomplete_endpoints(self):
+        # Every complete timestamp in this matrix is within duration, so syntax
+        # failures cannot be accidentally satisfied by an unrelated bounds error.
+        for text in INCOMPLETE_INTERVALS:
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                validate_manual_final(text, 30.04)
+
+    def test_whole_intervals_preserve_canonical_text(self):
+        for text in ("Range 00:01.000-00:05.000.", "Range 00:01.000 - 00:05.000.",
+                     "Timeline: 00:00.000-00:10.000"):
+            with self.subTest(text=text):
+                self.assert_exact(text)
+
+    def test_partial_left_endpoints_and_noncanonical_operators_reject(self):
+        for text in ("Range 00:01-00:05.000", "Range 00:-00:05.000",
+                     "Range 00:01.0-00:05.000", "Range 00:01.000--00:05",
+                     "Range 00:01.000+00:05", "Range 00:01.000- -00:05",
+                     "Range 00:01.000-\u200b 00:05", "Range 00:01.000-Clock:00:05.000"):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                validate_manual_final(text, 20.04)
+
+    def test_urls_and_paths_are_opaque_without_english_context(self):
+        for text in TIMESTAMP_PATHS:
+            with self.subTest(text=text):
+                self.assert_exact(text)
+        for text in ("[camera_00:05.000.mp4]", "Show(camera_00:05.000.m4v)",
+                     "IPv6:::ffff:0:192.0.2.1", "Address ::ffff:192.0.2.1%eth0 is visible."):
+            with self.subTest(text=text):
+                self.assert_exact(text)
+
+    def test_filename_shape_never_exempts_a_millisecond_tail(self):
+        for text in ("abc00:05.000", "00:05.000abc", "abc00:05.000abc", "00:05.000mp4"):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                validate_manual_final(text, 20.04)
+        self.assert_exact("00:05.000")
+
+    def test_hyphenated_ordinary_prose_does_not_become_an_interval(self):
+        for text in ("Version 2.10.4-beta is shown.", "Use a 16:10-compatible display.",
+                     "The score changed from 2:0 to 3:0.",
+                     "File camera_00:05.000.mp4-final.txt is displayed.",
+                     "The clock reads 00:05.000 - keep the camera steady."):
+            with self.subTest(text=text):
+                self.assert_exact(text)
+
+    def test_opaque_filename_clocks_do_not_use_temporal_duration_bounds(self):
+        for text in ("camera_05:00.000.mp4", "/clips/camera_99:99.999.m4v",
+                     "https://example.com/camera_00:60.000.mp4"):
+            with self.subTest(text=text):
+                self.assert_exact(text)
+
+    def test_explicit_clock_context_has_priority_over_opaque_spans(self):
+        for text in TIMESTAMP_FILES + TIMESTAMP_PATHS:
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                validate_manual_final("Clock:" + text, 20.04)
+        for text in ("Clock\u200b:camera_00:05.000.mp4", "The clo\u0301ck reads camera_00:05.000.mp4"):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                validate_manual_final(text, 20.04)
+
+    def test_invisible_characters_cannot_hide_extra_cut_directives(self):
+        for text in ("At\u200b 00:07.123, cut.", "A\u2060t 00:07.123, cut.",
+                     "At\u0301 00:07.123, cut.", SHOTS + "\nLater At\u200b 00:18.000, cut."):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                validate_manual_final(text, 20.04)
+
+    def test_opaque_spans_cannot_supply_context_to_neighboring_values(self):
+        for text in ("https://example.com/at 00:05.000", "https://example.com/end- 00:05.000",
+                     "https://example.com/clock 2:0", "https://example.com/time 0:1"):
+            with self.subTest(text=text):
+                self.assert_exact(text)
+        for text in ("https://example.com/at At 00:05.000, cut.",
+                     "https://example.com/end- -00:05.000",
+                     "https://example.com/clock Clock:00:60.000",
+                     "https://example.com/at 00:20.000-00:01"):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                validate_manual_final(text, 20.04)
 
     def test_review_false_positives_accept_unchanged(self):
         for text in REVIEW_PROSE:
@@ -169,6 +290,62 @@ class ManualTimingRequestTests(unittest.IsolatedAsyncioTestCase):
     def body_for(self, text):
         return {**self.body, "request_id": str(uuid.uuid4()), "manual_final_prompt": text}
 
+    async def test_actual_batches_rejects_incomplete_range_before_worker_http(self):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.m.app), base_url="http://panel",
+                                    auth=("h3", "test-only-password")) as client:
+            with patch.object(self.m.httpx, "AsyncClient", side_effect=AssertionError("Worker HTTP invoked")) as worker:
+                response = await client.post("/api/batches", json=self.body_for("Range 00:20.000-00:01."))
+                self.assertEqual(response.status_code, 400, response.text)
+                worker.assert_not_called()
+        self.assertEqual(self.m.queue, [])
+        self.assertEqual(self.m.batches, [])
+        self.assertEqual(self.m.request_results, {})
+        self.assertFalse(self.m.QUEUE_FILE.exists())
+
+    async def test_actual_batches_rejects_complete_incomplete_endpoint_matrix(self):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.m.app), base_url="http://panel",
+                                    auth=("h3", "test-only-password")) as client:
+            with patch.object(self.m.httpx, "AsyncClient", side_effect=AssertionError("Worker HTTP invoked")) as worker:
+                for text in INCOMPLETE_INTERVALS:
+                    with self.subTest(text=text):
+                        body = {**self.body_for(text), "duration_seconds": 30}
+                        response = await client.post("/api/batches", json=body)
+                        self.assertEqual(response.status_code, 400, response.text)
+                worker.assert_not_called()
+        self.assertEqual(self.m.queue, [])
+        self.assertEqual(self.m.batches, [])
+        self.assertEqual(self.m.request_results, {})
+        self.assertFalse(self.m.QUEUE_FILE.exists())
+
+    async def test_actual_batches_preserves_timestamped_files_and_paths_through_render(self):
+        texts = tuple("The file is named " + name + "." for name in TIMESTAMP_FILES) + TIMESTAMP_PATHS
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.m.app), base_url="http://panel",
+                                    auth=("h3", "test-only-password")) as client:
+            with patch.object(self.m.httpx, "AsyncClient", side_effect=AssertionError("Worker HTTP invoked")) as worker:
+                for text in texts:
+                    with self.subTest(text=text):
+                        original = text.encode("utf-8")
+                        response = await client.post("/api/batches", json=self.body_for(text))
+                        self.assertEqual(response.status_code, 200, response.text)
+                        self.assertEqual(validate_manual_final(text, 20.04).encode("utf-8"), original)
+                        frozen = freeze_prompt_source("manual_final", None, text, 20.04)
+                        self.assertEqual(frozen["manual_final_prompt"].encode("utf-8"), original)
+                        digest = hashlib.sha256(original).hexdigest()
+                        self.assertEqual(frozen["manual_final_prompt_sha256"], digest)
+                        job = self.m.queue[-1]
+                        self.assertEqual(job["status"], "render_queued_auto")
+                        self.assertEqual(job["context"]["manual_final_prompt"].encode("utf-8"), original)
+                        self.assertEqual(job["final_h3_prompt"].encode("utf-8"), original)
+                        self.assertEqual(job["context"]["manual_final_prompt_sha256"], digest)
+                        persisted = json.loads(self.m.QUEUE_FILE.read_text())["queue"][-1]
+                        self.assertEqual(persisted["context"]["manual_final_prompt"].encode("utf-8"), original)
+                        path = self.m.patch_workflow(job, self.m.production_workflow(job), approved_prompt=text)
+                        override = next(node for node in json.loads(path.read_text())["nodes"] if node["id"] == 2632)
+                        self.assertEqual(override["widgets_values_named"]["positive"].encode("utf-8"), original)
+                worker.assert_not_called()
+        self.assertEqual(len(self.m.queue), len(texts))
+        self.assertIsNone(self.m.pick_next_prompt_job())
+
     async def test_actual_batches_rejects_prefixed_clock_before_any_worker_http(self):
         # Instantiate the local ASGI client before fencing every worker client.
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.m.app), base_url="http://panel",
@@ -193,6 +370,8 @@ class ManualTimingRequestTests(unittest.IsolatedAsyncioTestCase):
                 worker.assert_not_called()
         self.assertEqual(self.m.queue, [])
         self.assertEqual(self.m.batches, [])
+        self.assertEqual(self.m.request_results, {})
+        self.assertFalse(self.m.QUEUE_FILE.exists())
 
     async def test_actual_batches_accepts_ordinary_prose_with_exact_durable_text(self):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.m.app), base_url="http://panel",
