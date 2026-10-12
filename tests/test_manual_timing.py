@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import httpx
 
+from h3.app.manual_timing import manual_clocks
 from h3.app.prompt_modes import freeze_prompt_source, validate_manual_final
 from tests.helpers import load_controller
 from tests.test_final_blocker_fixes import request
@@ -100,6 +101,17 @@ BACKUP_FILES = (
     "/clips/camera_00:05.000.mov~",
     "https://example.com/video/camera_00:05.000.png-backup",
 )
+PLUS_BACKUP_FILES = (
+    "Show camera_00:05.000+backup.mov on the screen.",
+    "Display take_00:05.000+copy.m4v in the file browser.",
+    "Show audio_00:05.000+backup.mp3 on the screen.",
+    "Show archive_00:05.000+copy.7z on the screen.",
+)
+NONFINITE_INTERVALS = (
+    "00:01.000-NaN",
+    "00:01.000-Inf",
+    "00:01.000-Infinity",
+)
 PATH_HIDDEN_RANGES = (
     "Range: /00:20.000-00:01.000",
     "Range /00:20.000-00:01.000",
@@ -128,6 +140,32 @@ class ManualTimingTests(unittest.TestCase):
         for text in BACKUP_FILES:
             with self.subTest(text=text):
                 self.assert_exact(text)
+
+    def test_timestamped_plus_backup_files_accept_exactly(self):
+        for text in PLUS_BACKUP_FILES:
+            with self.subTest(text=text):
+                self.assert_exact(text)
+
+    def test_plus_backup_suffix_cannot_hide_malformed_milliseconds(self):
+        for name in ("camera_00:05.000abc+backup.mov", "camera_00:05.0000+backup.mov",
+                     "camera_00:05..000+backup.mov"):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                validate_manual_final(name, 20.04)
+
+    def test_nonfinite_interval_operands_require_canonical_clocks(self):
+        for endpoint in ("NaN", "Inf", "Infinity", "nan", "INF", "infinity"):
+            for text in ("00:01.000-" + endpoint, endpoint + "-00:05.000",
+                         "Range 00:01.000 - " + endpoint):
+                with self.subTest(text=text), self.assertRaisesRegex(ValueError, "canonical ASCII"):
+                    validate_manual_final(text, 20.04)
+
+    def test_standalone_nonfinite_words_are_not_scalar_clocks(self):
+        for word in ("NaN", "Inf", "Infinity"):
+            with self.subTest(word=word):
+                self.assert_exact(word)
+                self.assertEqual(manual_clocks(word, 20040), [])
+                with self.assertRaisesRegex(ValueError, "canonical ASCII"):
+                    validate_manual_final("Clock:" + word, 20.04)
 
     def test_explicit_range_precedes_path_opacity(self):
         for text in PATH_HIDDEN_RANGES:
@@ -382,6 +420,23 @@ class ManualTimingRequestTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_actual_batches_accepts_timestamped_backups_exactly(self):
         await self.assert_accepted_exact_requests(BACKUP_FILES)
+
+    async def test_actual_batches_accepts_plus_timestamped_backups_exactly(self):
+        await self.assert_accepted_exact_requests(PLUS_BACKUP_FILES)
+
+    async def test_actual_batches_rejects_nonfinite_endpoints_without_publication(self):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.m.app), base_url="http://panel",
+                                    auth=("h3", "test-only-password")) as client:
+            with patch.object(self.m.httpx, "AsyncClient", side_effect=AssertionError("Worker HTTP invoked")) as worker:
+                for text in NONFINITE_INTERVALS:
+                    with self.subTest(text=text):
+                        response = await client.post("/api/batches", json=self.body_for(text))
+                        self.assertEqual(response.status_code, 400, response.text)
+                        self.assertEqual(self.m.queue, [])
+                        self.assertEqual(self.m.batches, [])
+                        self.assertEqual(self.m.request_results, {})
+                        self.assertFalse(self.m.QUEUE_FILE.exists())
+                        worker.assert_not_called()  # Neither Prompt nor Render Worker can POST.
 
     async def test_actual_batches_rejects_path_hidden_ranges_without_publication(self):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.m.app), base_url="http://panel",

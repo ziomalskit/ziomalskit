@@ -23,6 +23,7 @@ class Kind(Enum):
     MALFORMED_CLOCK = auto()
     INTEGER_PAIR_PROSE = auto()
     CLOCK_PREFIX = auto()
+    NONFINITE_OPERAND = auto()
     DIRECTIVE = auto()
     WORD = auto()
     PUNCTUATION = auto()
@@ -36,7 +37,7 @@ class Kind(Enum):
 
 
 SCALAR_CLOCKS = frozenset((Kind.CANONICAL_CLOCK, Kind.MALFORMED_CLOCK))
-CLOCK_OPERANDS = SCALAR_CLOCKS | {Kind.INTEGER_PAIR_PROSE, Kind.CLOCK_PREFIX}
+CLOCK_OPERANDS = SCALAR_CLOCKS | {Kind.INTEGER_PAIR_PROSE, Kind.CLOCK_PREFIX, Kind.NONFINITE_OPERAND}
 OPAQUE = frozenset((Kind.FILENAME, Kind.PATH, Kind.URL, Kind.ADDRESS, Kind.HOST_PORT, Kind.VERSION))
 
 
@@ -165,7 +166,7 @@ def _filename(token):
         return False
     if ":" not in body:
         return True
-    components = list(re.finditer(r"[0-9]+:[0-9]+(?:\.([0-9]+)(?=[._-]|$))?", body))
+    components = list(re.finditer(r"[0-9]+:[0-9]+(?:\.([0-9]+)(?=[._+-]|$))?", body))
     if not components:
         return False
     for component in components:
@@ -180,7 +181,7 @@ def _filename(token):
             # .000abc is a malformed millisecond group, not an extension;
             # a distinct .7z/.3gp extension after integer colon prose is valid.
             return False
-        if tail and tail[0] not in "._-":
+        if tail and tail[0] not in "._+-":
             return False
     return True
 
@@ -247,6 +248,9 @@ def _clock_kind(text):
         return Kind.INTEGER_PAIR_PROSE
     if re.search(r"[0-9]+:", evidence):
         return Kind.CLOCK_PREFIX
+    # Endpoint-like values bind attempted intervals, but are never scalar clocks.
+    if re.fullmatch(r"NaN|Inf(?:inity)?", evidence, re.I):
+        return Kind.NONFINITE_OPERAND
     return Kind.DIRECTIVE if evidence.lower() in DIRECTIVES else Kind.WORD
 
 
