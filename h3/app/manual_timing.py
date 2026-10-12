@@ -12,6 +12,7 @@ from .temporal import TIMECODE, timecode_ms
 SIGNS = {"−": "-", "–": "-", "—": "-", "‐": "-", "‑": "-", "‒": "-", "﹣": "-", "－": "-"}
 PUNCTUATION = {"：": ":", "∶": ":", "꞉": ":", "．": ".", "․": "."}
 TEMPORAL_CONTEXT = re.compile(r"\b(?:at|clock(?:\s+reads)?|time(?:stamp)?(?:\s+(?:is|reads))?|timeline|cut|shot)\s*:?\s*$", re.I)
+CLOCK_FRAGMENT = re.compile(r"[0-9]+:[+-]?(?:[0-9]*[.,]|(?:NaN|Infinity)\b)", re.I)
 
 
 def detection_character(char):
@@ -49,48 +50,105 @@ def _context(detection, start):
     return offset, detection[offset:start]
 
 
-def _ratio(token, before):
-    if not re.fullmatch(r"[1-9][0-9]*:[1-9][0-9]*", token):
+def _word_character(char):
+    # Combining marks and invisible format characters cannot split an embedded
+    # clock away from its prefix/suffix or hide part of its numeric syntax.
+    category = unicodedata.category(char)
+    return char.isalnum() or char == "_" or category[0] == "M" or category == "Cf"
+
+
+def _tokens(detection):
+    """Consume whole word/colon tokens, including both sides of embedded clocks.
+
+    Signs between tokens remain interval operators. Fractional punctuation stays
+    inside a token; a comma after fractional seconds remains prose punctuation.
+    """
+    cursor = 0
+    while cursor < len(detection):
+        if not (_word_character(detection[cursor]) or detection[cursor] == ":"):
+            cursor += 1
+            continue
+        start = end = cursor
+        while end < len(detection):
+            char = detection[end]
+            if _word_character(char) or char in ":.":
+                end += 1
+            elif char in "+-" and end > start and detection[end - 1] in ":.":
+                end += 1
+            elif char == "," and end + 1 < len(detection) and detection[end + 1].isdigit():
+                prefix = detection[start:end]
+                if ":" not in prefix or "." in prefix.rsplit(":", 1)[1]:
+                    break
+                end += 1
+            else:
+                break
+        cursor = end
+        # Sentence full stops/ellipses are outside the token. Additional decimal
+        # groups followed by digits remain inside and cannot validate a prefix.
+        token = detection[start:end].rstrip(".")
+        label, separator, value = token.partition(":")
+        # Named labels delimit values; directly adjoining letters (abc00:...)
+        # do not. At cuts retain their existing whitespace-only syntax.
+        if (separator and label.isalpha() and label.lower() != "at" and CLOCK_FRAGMENT.search(value)
+                and not _ipv6(token) and not _filename(token)):
+            yield start + len(label) + 1, start + len(token), value
+        else:
+            yield start, start + len(token), token
+
+
+def _ipv6(token):
+    """Recognize obvious hex-address shape, without networking-stack validation."""
+    if token.count(":") < 2:
         return False
-    # Integer proportions are prose, independent of the denominator's width.
-    # Explicit temporal contexts take precedence; fractional clocks never enter
-    # this branch. Explicit aspect-ratio prose remains ordinary text.
-    if re.search(r"\b(?:aspect\s+)?ratio(?:\s+of)?\s*$", before, re.I):
-        return True
-    return TEMPORAL_CONTEXT.search(before) is None
+    groups = token.split(":")
+    ipv4_tail = "." in groups[-1]
+    # IPv6 may end in a dotted IPv4-shaped component. Its decimal groups are
+    # address syntax, while an explicit temporal directive still takes priority.
+    if ipv4_tail:
+        octets = groups[-1].split(".")
+        if len(octets) != 4 or any(not part.isascii() or not part.isdigit() or
+                                  not 1 <= len(part) <= 3 for part in octets):
+            return False
+        groups[-1] = "ffff"
+    if any(char not in "0123456789abcdefABCDEF" for group in groups for char in group):
+        return False
+    if any(len(group) > 4 for group in groups):
+        return False
+    if "::" in token:
+        return token.count("::") == 1 and ":::" not in token and sum(bool(group) for group in groups) + ipv4_tail < 8
+    return len(groups) + ipv4_tail == 8 and all(groups)
+
+
+def _filename(token):
+    stem, separator, extension = token.rpartition(".")
+    # A named file with a letter extension is distinct from a scalar clock's
+    # numeric fraction/suffix. No extension list or surrounding phrase is used.
+    return bool(separator and extension.isalpha() and
+                any(char.isalpha() or char == "_" for char in stem.split(":", 1)[0]))
+
+
+def _kind(token, before):
+    # Established temporal directives take precedence even over address-shaped
+    # text. Otherwise integer pairs, labels, ports and addresses are ordinary
+    # prose; only fractional/nonfinite numeric clock syntax supplies evidence.
+    label, separator, value = token.partition(":")
+    if TEMPORAL_CONTEXT.search(before) or separator and value and TEMPORAL_CONTEXT.fullmatch(label):
+        return "clock"
+    if _ipv6(token):
+        return "address"
+    if _filename(token):
+        return "filename"
+    evidence = "".join(char for char in token if unicodedata.category(char)[0] != "M"
+                       and unicodedata.category(char) != "Cf")
+    return "clock" if CLOCK_FRAGMENT.search(evidence) else "prose"
 
 
 def manual_clocks(visible: str, target: int) -> list[Clock]:
     detection = "".join(detection_character(char) for char in visible)
     clocks = []
-    cursor = 0
-    while cursor < len(detection):
-        if not detection[cursor].isascii() or not detection[cursor].isdigit():
-            cursor += 1
-            continue
-        if cursor and (detection[cursor - 1].isalnum() or detection[cursor - 1] in "_:."):
-            cursor += 1
-            continue
-        start = cursor
-        end = cursor
-        # Consume the entire punctuation/numeric suffix, including malformed
-        # extra decimal groups and NaN/Infinity; never validate a prefix.
-        while end < len(detection):
-            char = detection[end]
-            if char.isascii() and (char.isdigit() or char.isalpha()) or char in ":._":
-                end += 1
-            elif char in "+-" and end > start and detection[end - 1] in ":.":
-                end += 1
-            else:
-                break
-        cursor = max(end, cursor + 1)
-        token = detection[start:end]
+    for start, end, token in _tokens(detection):
         if ":" not in token:
             continue
-        # Full stops/ellipses after a clock are punctuation, but a dot followed
-        # by another number remains part of the malformed clock token.
-        end -= len(token) - len(token.rstrip("."))
-        token = detection[start:end]
         sign = start
         while sign and detection[sign - 1].isspace():
             sign -= 1
@@ -101,14 +159,7 @@ def manual_clocks(visible: str, target: int) -> list[Clock]:
                 token = detection[start:end]
         context_offset, before = _context(detection, start)
         cut = re.search(r"\bat\s+$", before, re.I)
-        if _ratio(token, before):
-            continue
-        left, right = token.split(":", 1)
-        # A numeric prose label ("Reference 1: ...") has no numeric right
-        # operand. Leading-zero clocks, explicit temporal contexts, and numeric
-        # or nonfinite operands remain clock candidates and fail if malformed.
-        if (left.isdigit() and not left.startswith("0") and not TEMPORAL_CONTEXT.search(before)
-                and (not right or right[0].isalpha() and not right.lower().startswith(("nan", "inf")))):
+        if _kind(token, before) != "clock":
             continue
         raw = visible[start:end]
         if raw != token or not re.fullmatch(TIMECODE, raw, re.ASCII):

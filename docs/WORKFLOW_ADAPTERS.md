@@ -795,18 +795,26 @@ relabeled as legacy Autoprompt merely because an empty scene field remains.
 
 ### Manual timing and recovery ownership
 
-The manual temporal lexer scans one complete numeric/colon candidate at a time,
-including all decimal groups or malformed numeric suffixes, then handles interval
-operators separately. Unicode minus/dashes, full-width digits/colon/dot and other
-lookalikes are folded only for detection; clock directives must still be canonical
-ASCII in the original string. Standalone clocks are bounded inclusively by
-effective duration; shot cuts remain strictly increasing inside that duration.
-Intervals have two increasing bounds with an ASCII hyphen. Chained intervals,
-signed clocks (including spaced signs), malformed suffixes and noncanonical clock
-punctuation fail before publication or any POST. Integer ratios in ordinary prose
-have no one-digit-denominator heuristic. Numbered reference prose remains valid.
-The original text and SHA256 are preserved; Autoprompt's temporal contract is
-unchanged.
+The manual temporal lexer consumes complete word/colon tokens, including both
+prefixes and suffixes of embedded clocks, then handles interval operators
+separately. Classification first honors established temporal context, then
+recognizes obvious IPv6-shaped hexadecimal sequences and named-file syntax,
+then checks numeric fractional/nonfinite clock syntax. Other colon prose,
+including bare integer pairs with zero operands, labels and ports, is ordinary text. There is no ratio
+phrase table or numerator/denominator heuristic.
+Named labels also delimit canonical values without requiring a space after the
+colon (`Clock:00:05.000`, `Timeline:00:00.000-00:10.000`). `At` cuts retain their
+existing whitespace-only grammar. IPv6 address shape includes dotted IPv4 tails.
+
+Unicode minus/dashes, full-width digits/colon/dot and other lookalikes are folded
+only for detection. Combining marks and invisible format characters stay inside
+tokens and cannot hide clock boundaries. Clock candidates must still match
+canonical ASCII in the original string. Standalone clocks are bounded inclusively
+by effective duration; shot cuts remain strictly increasing inside that duration.
+Intervals retain two increasing bounds with an ASCII hyphen. Chained intervals,
+signed clocks, malformed boundaries/decimal suffixes and noncanonical clock
+punctuation reject. The original text and UTF-8 SHA256 are preserved; no accepted
+manual text is reformatted or retimed. Autoprompt's temporal contract is unchanged.
 
 All five supplied adversarial strings are rejected:
 
@@ -820,6 +828,29 @@ At ００:９０.０００, change the camera angle.
 
 `Use an aspect ratio of 16:10.` and the other ordinary ratio cases are accepted
 unchanged. Quoted references retain the existing temporal masking rules.
+
+### Second Ultra F5 correction
+
+The second independent review of `210e5309` found two remaining MEDIUM issues:
+`abc00:05.000` was skipped, while expanded IPv6, scoreboard `2:0` and mixing ratio
+`0:1` prose was rejected. Focused regressions in `test_manual_timing` reproduced
+both findings before this correction. Whole-token classification now rejects both
+`abc00:05.000` and `00:05.000abc`, while accepting the three prose examples and
+nearby addresses, ratios, URLs, ports, versions and filenames unchanged.
+Filename coverage includes `camera_00:05.000.png`, which the previous scanner
+accepted; a filename token does not exempt malformed temporal directives.
+
+Actual local `POST /api/batches` tests require HTTP 400 and no queue publication
+or worker HTTP for malformed clocks; accepted prose produces one
+`render_queued_auto` job with exact durable and render-override text. Existing
+Shot/Timeline rules and the 20 s → 481 frames → 20.040 s contract remain intact.
+All tests use disposable CPU fixtures; no real worker submission is performed.
+
+The second review's INFO observations remain outside this parser correction:
+
+- adapter descriptor live-reread consistency;
+- native filesystem TOCTOU and cached-worker-code verification limitations;
+- inherited multi-field damaged legacy recovery state.
 
 Manual cancellation ownership is checked before generic recovery status mapping.
 A canonical persisted render UUID with `armed`, `attempting`, `accepted` or
