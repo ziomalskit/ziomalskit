@@ -12,6 +12,8 @@ This note records the currently verified evidence for the canonical 10Eros Step 
 
 The production requirement remains a deterministic BF16 GGUF generated from the exact BF16 source. A public quantized substitute is not accepted as the production writer.
 
+Project decision (2026-10-13): retain BF16 as the production requirement. The successful public IQ4_XS run remains diagnostic compatibility evidence only and must not replace, relax, or silently downgrade the canonical 10Eros writer.
+
 ## Newly verified public source evidence
 
 The Hugging Face source page for
