@@ -1,0 +1,76 @@
+name: 10Eros provenance probe
+
+on:
+  push:
+    branches:
+      - feat/10eros-writer-provenance
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe exact DavidAU source metadata
+        shell: bash
+        env:
+          REPO: DavidAU/Qwen3.5-9B-F451-AND-TRI-Polar-Ultra-Pro-Writer-Uncensored-Heretic
+          REV: 72f2d803ae63499fc463607d997fe48abd38f093
+        run: |
+          set -u
+          base="https://huggingface.co/$REPO"
+
+          echo "=== API revision ==="
+          curl -sS -o /tmp/revision.json -w 'HTTP %{http_code}\n'             "$base/resolve/$REV/config.json" || true
+
+          echo "=== API tree ==="
+          curl -sS -D /tmp/tree.headers -o /tmp/tree.json             "https://huggingface.co/api/models/$REPO/tree/$REV?recursive=true&expand=true" || true
+          head -n 20 /tmp/tree.headers || true
+          if python - <<'PY'
+          import json
+          try:
+              x=json.load(open('/tmp/tree.json', encoding='utf-8'))
+          except Exception:
+              raise SystemExit(1)
+          print(json.dumps(x, indent=2)[:50000])
+          PY
+          then
+            :
+          else
+            echo "tree body:"
+            head -c 2000 /tmp/tree.json || true
+            echo
+          fi
+
+          files=(
+            config.json
+            generation_config.json
+            model-00001-of-00002.safetensors
+            model-00002-of-00002.safetensors
+            model.safetensors.index.json
+            processor_config.json
+            tokenizer.json
+            tokenizer_config.json
+          )
+
+          mkdir -p /tmp/hf-small
+          for f in "${files[@]}"; do
+            echo
+            echo "=== HEAD $f ==="
+            curl -sS -I "$base/resolve/$REV/$f" | sed -n '1,30p' || true
+            case "$f" in
+              *.safetensors)
+                ;;
+              *)
+                echo "=== GET+SHA256 $f ==="
+                if curl -fsSL "$base/resolve/$REV/$f" -o "/tmp/hf-small/${f//\//_}"; then
+                  stat -c '%n %s bytes' "/tmp/hf-small/${f//\//_}"
+                  sha256sum "/tmp/hf-small/${f//\//_}"
+                else
+                  echo "GET failed: $f"
+                fi
+                ;;
+            esac
+          done
