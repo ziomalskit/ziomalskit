@@ -3,7 +3,7 @@
 Current AJ/H3 runtime for CPU development and the eventual consolidated Vast
 acceptance session. Live GPU/Vast acceptance is still pending. Follow
 [`docs/ROADMAP.md`](../docs/ROADMAP.md): finish the feature set, run the full CPU
-regression/audit, close the remaining 9B provenance blocker, then perform one
+regression/audit, close the pending replacement provenance/load gates, then perform one
 consolidated GPU/Vast session. [Migration evidence and self-review](../docs/MODEL_MIGRATION_2026-10-09.md)
 records what is verified and what still blocks readiness.
 
@@ -20,7 +20,7 @@ Conservative first-release input contract:
 - exactly 6 images: Picture 1 + 5 supporting references
 - 0 or 1 audio reference
 - exactly two normal production profiles: H3 Full (default) and 10Eros Full
-- exact v20 Heretic prompt baseline, shared Step 0–2 and profile-specific Step 3/4
+- exact v20 Heretic prompt baseline, shared Step 0, quantization-specific Step 1/2 and profile-specific Step 3/4
 - legacy INT8 graphs are explicit diagnostic artifacts only
 
 If preserving data, set `H3_PERSISTENCE_MODE=volume` and
@@ -140,13 +140,27 @@ Duration remains synchronized through v20's Generation Settings and both duratio
 locks. Seeds remain Step 0 stable, Step 1 analysis seed, Step 2 +1, Step 3 candidate
 seed and Step 4 +1. Writer/temperature/output separation remains intact.
 
+[Current dual-profile evidence and pending gates](../docs/DUAL_LLM_PROFILES_2026-10-13.md):
+
+| Profile | Step 1/2 | Step 3/4 |
+| --- | --- | --- |
+| H3 Full | Mistral Small 3.2 24B Heretic Q4_K_M | Qwen3-14B Heretic Q4_K_M |
+| 10Eros Full | Mistral Small 3.2 24B Heretic Q6_K | Qwen3.5-27B Heretic Q5_K_M |
+
+Step 0A JoyCaption F16, 0B Qwen3-VL Caption V4.5 F16 and 0C Gemma Philadelphia
+F16 remain unchanged. Step 1/2 retain their images and require the matching
+Mistral GGUF F16 vision projector. Both profile quantizations use the same projector.
+
 Normal compilation uses each profile's writer for both Step 3 and Step 4, without
 a vision projector. Step 3 thinking is OFF; Step 4 thinking is ON with the pinned
 CLI's native 4,096-token reasoning budget. Step 4 allows 12,352 generated tokens
 (8,192 final + 4,096 reasoning + 64 framing) and 29,184 context tokens, retaining
 the previous input allowance. These settings and runtime pins are frozen in each
 job; restart/default changes cannot change queued settings. The Step 4 adapter
-reads the CLI's native output file and forwards only its validated final channel.
+uses a private one-shot sibling `llama-server` from the same pinned revision
+and requires machine-readable natural EOS, no truncation and a validated final
+channel. Step 0–3 retain `llama-cli`; a persistent server remains a separate
+future optimization, not part of this change.
 Actual writer quality and truncation remain model acceptance benchmarks.
 `compiler: shared_gemma` is a server-configured
 acceptance benchmark only; it retains v20 instructions and raises overlap headroom.
@@ -173,18 +187,30 @@ then sampling gets VRAM priority. Another boundary releases resources after vide
 creation. Render `/free` clears the idle renderer at job/model boundaries; it
 does not touch Prompt ComfyUI. No per-sampling-step CPU/GPU streaming was added.
 
-H3 Full defers cold Step 0–2 during sampling. Valid saved Step 0–2 text lets the
-smaller 4B writer overlap with measured headroom. 10Eros's balanced policy also
-permits analysis when measured headroom is sufficient. Conditioning, decoding,
-unknown phase and recovery defer prompt work. Thresholds in
-`config/production_profiles.json` are conservative, adjustable acceptance inputs.
-The 66 GB transformer and 51 GB encoder must not be assumed simultaneously resident.
+Both profiles pause Step 0–2 during sampling. Verified saved analysis permits
+only Step 3/4 overlap, using fresh measured free VRAM and the frozen profile's
+headroom. Thresholds in `config/production_profiles.json` are configurable GPU
+acceptance inputs (H3 writer 24,576 MiB, 10Eros writer 40,960 MiB). They include
+budget for weights, KV/context, workspace and reserve; file bytes are disk cost,
+never a VRAM measurement. All thresholds remain GPU-unvalidated.
 
-Step 0–2 text is shared per batch, independent of render profile/candidate seed.
-Prompt ComfyUI exposes a process UUID epoch. Restart invalidates assumed live
-cache residency, while verified durable text can feed Step 3/4 directly.
-The pinned LLM node launches/reaps a separate llama-cli process per stage;
-an epoch never claims that those model weights remain resident.
+Native workers coordinate through OS phase leases under the shared ComfyUI
+output directory `.aj-gpu`. Before conditioning, decoding, recovery or an unknown
+node, the renderer closes admission and waits for the current LLM invocation to
+finish and reap; subsequent model stages pause before allocation. Sampling opens
+a measured writer window. Missing/stale state, dead owner and unavailable VRAM
+keep it closed. Ready renders also outrank new controller prompt preparation.
+Reinstall the complete owned package and restart both workers after updating code.
+
+Step 0 facts are shared across profiles/batches with matching assets, instructions
+and model identities. Step 1/2 keys additionally bind the exact model/projector
+source, quantization and analysis seed. Candidate seed, writer and LoRAs are
+excluded. Candidates #2–10 reuse all completed analysis for their profile.
+Partial Step 0 and full Step 0–2 survive a terminal writer failure and controller
+restart. Unidentified old records are never silently relabeled as current cache.
+Prompt service epochs invalidate ephemeral residency, preserving durable texts.
+The pinned runtime launches/reaps a separate native process per invocation;
+no cache epoch claims that model weights stay resident on the GPU.
 
 ## Persistent model integrity and downloads
 
@@ -195,9 +221,11 @@ artifact identities or force verified weights to download again.
 
 `config/models_manifest.json` has shared/profile artifacts and a link to the
 canonical LoRA registry. Each downloaded file has a pinned commit, exact bytes
-and SHA256. The 13 required core artifacts total **219,551,087,416 bytes**;
-all 17 pinned downloads total **221,692,946,200 bytes**, before 9B source/output,
-external LoRAs and staging. `provision_models.py --plan` reports disk requirements
+and SHA256. The known stack now also includes both Mistral quantizations, their F16 projector
+and the Qwen3.5-27B Q5_K_M writer. Qwen3-14B immutable metadata is pending. The
+required DavidAU gate is retained until the replacement is load/generation
+accepted. Use the manifest disk plan for known totals, pending files and staging;
+older migration totals describe the earlier stack. `provision_models.py --plan` reports disk requirements
 and fails when known required storage exceeds available space.
 
 Existing correct bytes are rehashed and reused. Wrong size/hash, symlinks and

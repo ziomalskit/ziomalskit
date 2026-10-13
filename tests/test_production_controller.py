@@ -44,7 +44,7 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         job = {"id": "other-render", "profile": profile, "render_phase": phase, "status": "render_running",
                "context": {"profile_identity": self.m.profile_identity(profile)}}
         self.m.queue.append(job)
-        self.m.overlap_telemetry.update(free_vram_mb=40000, sampled_at=time.monotonic())
+        self.m.overlap_telemetry.update(free_vram_mb=65536, sampled_at=time.monotonic())
         return job
 
     def transport(self, callback=None):
@@ -240,8 +240,8 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         job=await self.batch()
         manifest=self.m.CONFIG/"models_manifest.json"
         data=json.loads(manifest.read_text())
-        writer=next(item for item in data["artifacts"] if item["destination"].endswith("Qwen3.5-4B-Heretic-Q8_0.gguf"))
-        writer["sha256"]="a"*64
+        writer=next(item for item in data["pending_artifacts"] if item["destination"].endswith(self.m.PRODUCTION["profiles"]["h3_full"]["writer"]))
+        writer["observed_sha256"]="a"*64
         manifest.write_text(json.dumps(data))
         with self.assertRaisesRegex(ValueError,"model provenance changed"):self.m.production_workflow(job)
         self.req=self.req.model_copy(update={"request_id":__import__("uuid").uuid4()})
@@ -374,9 +374,11 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         active.update(render_phase="sampling", status="recovery_render")
         self.assertFalse(self.m.phase_admission(job, "prompt")[0])
 
-    async def test_10eros_cold_overlap_requires_fresh_measured_headroom(self):
+    async def test_10eros_writer_overlap_requires_fresh_measured_headroom(self):
         job = await self.batch("10eros_full")
         self.render_active("10eros_full")
+        self.assertFalse(self.m.phase_admission(job, "prompt")[0])
+        self.warm(job)
         self.assertTrue(self.m.phase_admission(job, "prompt")[0])
         self.m.overlap_telemetry["sampled_at"] -= 4
         self.assertFalse(self.m.phase_admission(job, "prompt")[0])
@@ -458,7 +460,7 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         verdict = {"data": {"valid": True, "error_count": 0}}
         with transport, patch.object(self.m, "run_cli_envelope", AsyncMock(return_value=verdict)):
             prepared = await self.m._prepare_workflow_api(path, "prompt", preview_envelope={"data": {"status": "preview", "prompt": converted}})
-        models = [node["inputs"]["model"] for node in prepared.values() if node["class_type"] in {"LLMTextProcessor", "AJCompilerTextProcessor"}]
+        models = [node["inputs"]["model"] for node in prepared.values() if node["class_type"] in {"LLMTextProcessor", "AJPromptTextProcessor", "AJCompilerTextProcessor", "AJGatedCompilerTextProcessor"}]
         self.assertEqual(models, [self.m.PRODUCTION["profiles"]["10eros_full"]["writer"]] * 2)
         self.assertEqual(job["prompt_kind"], "durable_text")
         self.assertEqual(calls, [("GET", 8189, "/object_info")])

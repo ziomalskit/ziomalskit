@@ -2,6 +2,8 @@
 
 Projekt przyjmuje **6 obrazów i opcjonalnie 1 plik audio**, analizuje referencje, przygotowuje 10 wariantów promptu i generuje wideo przez ComfyUI na GPU Vast.ai. Produkcyjne profile to wyłącznie **H3 Full** i **10Eros Full**, ze wspólną, dokładnie zachowaną logiką promptów **v20 Heretic**. Legacy INT8 pozostaje tylko jawną ścieżką diagnostyczną.
 
+**Draft: dwa profile LLM (13 października 2026).** H3 Full używa Mistral Small 3.2 24B Heretic Q4_K_M w Step 1/2 i Qwen3-14B Heretic Q4_K_M w Step 3/4. 10Eros Full używa odpowiednio Q6_K i Qwen3.5-27B Heretic Q5_K_M. Step 0 pozostaje wspólny. Cache Step 1/2 jest izolowany według źródła modelu, kwantyzacji i instrukcji. [Raport źródeł, bramek pending i acceptance GPU](docs/DUAL_LLM_PROFILES_2026-10-13.md). Nowe routing i testy nie oznaczają odblokowania produkcji: immutable metadata Qwen3-14B i acceptance zamiennika DavidAU pozostają pending.
+
 Draft PR #6 dodaje wybór **Autoprompt / Own final H3 prompt**. Autoprompt zachowuje
 10 kandydatów (5 auto + 5 review). Własny finalny prompt przechodzi lokalną
 walidację i trafia bez zmian do renderu: bez Prompt Workera, Step 0–4 i generowania
@@ -50,7 +52,7 @@ całego manifestu; provisioning i production preflight zatrzymują się na tym
 braku. To nie jest jeszcze stan gotowy do końcowej sesji GPU. Nie wykonano
 realnych działań Vast ani inference/renderowania GPU.
 
-Kolejność: **zamknięcie provenance 9B -> provisioning/preflight -> jedna
+Kolejność: **zamknięcie brakujących metadata i weryfikacja zamiennika -> provisioning/preflight -> jedna
 skonsolidowana sesja Vast/GPU**. Szczegóły profili, pamięci, persistent storage,
 LoRA i tokenów jednorazowych: [h3/README.md](h3/README.md).
 

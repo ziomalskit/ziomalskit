@@ -110,8 +110,11 @@ def run_completion(command, messages, values):
             raise RuntimeError('native compiler runtime exited before completion')
 
     try:
+        from .gpu_runtime import current_lease
+        descriptor = current_lease()
         process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                   stderr=subprocess.DEVNULL, shell=False, close_fds=True)
+                                   stderr=subprocess.DEVNULL, shell=False, close_fds=True,
+                                   pass_fds=() if descriptor is None else (descriptor,))
         url = f'http://127.0.0.1:{port}'
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         while True:

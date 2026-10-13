@@ -1,5 +1,9 @@
 # Uruchomienie na GPU — acceptance po CPU/runtime PASS
 
+Aktualne źródła, pending i dodatkowe kryteria dwóch profili LLM są w
+[raporcie z 13 października](DUAL_LLM_PROFILES_2026-10-13.md). Te kryteria zastępują
+starszy wybór 4B/9B opisany w raportach migracyjnych. Niczego nie uruchomiono na GPU.
+
 Ten dokument opisuje **końcową, skonsolidowaną sesję GPU/Vast**. Zgodnie z
 [ROADMAP.md](ROADMAP.md) najpierw kończymy feature set offline/CPU, wykonujemy pełną
 regresję/audyt CPU i zamrażamy kompletne provenance finalnych modeli.
@@ -111,7 +115,9 @@ Kryteria PASS:
 - brak podwójnego autopromptera na render workerze;
 - kolejka/persistence pozostają zdrowe.
 - full/F16 JoyCaption + mmproj, verifier V4.5 F16 + mmproj oraz Gemma F16 + mmproj;
-- 4B Heretic Q8_0 dla H3, wygenerowany z canonical 9B BF16 GGUF dla 10Eros;
+- Step 1/2: Mistral Small 3.2 24B Heretic Q4_K_M dla H3 i Q6_K dla 10Eros,
+  oba z pasującym Mistral mmproj F16 i zachowanymi wejściami obrazów;
+- Step 3/4: Qwen3-14B Heretic Q4_K_M dla H3 i Qwen3.5-27B Heretic Q5_K_M dla 10Eros;
 - osobne Step 3/4 prompts, seeds, temperatury i outputs, bez vision mmproj;
 - Step 3 thinking OFF; Step 4 ON, natywny budget 4096, total 12352/context 29184;
 - reasoning nie dociera do final prompt; natywny output file i guarded final channel;
@@ -124,7 +130,9 @@ Kryteria PASS:
 - Step 4 cuts odpowiadają canonical Step 3 starts; Shot 1 nie ma timestamp;
 - rzeczywisty MP4 frame count/FPS/duration potwierdza legal frames. Nie oceniaj
   quantization delta jako błędu; odróżnij request, timeline i frame duration;
-- zmiana profilu nie powtarza Step 0–2, a restart Prompt Worker zmienia epoch;
+- zmiana profilu współdzieli Step 0, ale rozdziela Step 1/2 według modelu,
+  kwantyzacji i instrukcji; kandydaci #2–10 odzyskują tę samą analizę swojego profilu;
+- restart Prompt Worker zmienia epoch, zachowując zweryfikowane teksty;
 - durable tekst po restarcie nie wymaga założenia, że modele/cache GPU przetrwały;
 - writer → Gemma compiler można porównać jako osobny acceptance benchmark,
   zachowując v20 instructions i bez dodatkowego selektora w normalnym UI.
@@ -163,10 +171,12 @@ Zapisz: GPU, sterownik, CUDA, torch, peak VRAM, czas renderu, resolution, durati
 
 Dopiero po pojedynczym renderze:
 
-1. Zmierz conservative H3 i balanced 10Eros. Podczas H3 sampling cold Step 0–2
-   ma czekać; warm/durable analysis może uruchomić mały writer tylko przy fresh
-   measured headroom. 10Eros może dopuścić analysis z measured headroom.
-   Conditioning/decoding/recovery muszą zamykać okno overlap.
+1. Zmierz oba nowe writery. Step 0–2 czeka podczas samplingu obu profili.
+   Warm/durable analysis dopuszcza Step 3/4 tylko przy fresh measured headroom.
+   Sprawdź progi powyżej i poniżej granicy z rzeczywistym KV/context/workspace.
+   Conditioning/decoding/recovery/unknown zamykają admission przed GPU pracą,
+   czekają na reap aktywnego LLM i pauzują kolejne kroki. Nie zamrażaj procesu CUDA
+   sygnałem STOP; musi zwolnić model przed decodingiem.
 2. Porównaj wall time z render-only baseline.
 3. Sprawdź restart prompt/render service podczas bezpiecznych stanów kolejki.
 4. Sprawdź recovery po restarcie panelu.

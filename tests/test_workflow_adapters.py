@@ -129,7 +129,7 @@ class CompositionParityTests(unittest.TestCase):
         for key, expected in self.fixture["digests"].items():
             if predicate(key):
                 with self.subTest(graph=key):
-                    self.assertEqual(graph_digest(self.graphs[key]), expected)
+                    self.assertEqual(graph_digest(self.graphs[key], previous_llm_routes=True), expected)
 
     def test_default_composition_canonical_json_equivalent_to_pr5(self):
         self.check(lambda key: key.endswith("/composition"))

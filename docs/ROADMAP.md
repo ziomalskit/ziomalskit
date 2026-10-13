@@ -1,5 +1,9 @@
 # AJ / H3 Ref2Video — product roadmap
 
+Current dual-LLM draft selection, split cache and replacement blockers are
+documented in [13 October report](DUAL_LLM_PROFILES_2026-10-13.md). This supersedes
+the older 4B/9B model choice below; GPU acceptance remains pending.
+
 Status: PR #4 is merged at `bfcc2bb22ff9691fda924fe17bd060a7e131c2e2`.
 Its offline feature set and full CPU regression/audit are **PASS**:
 [9 October evidence and safety review](CPU_PRODUCT_ACCEPTANCE_2026-10-09.md).

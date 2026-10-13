@@ -10,7 +10,7 @@
       "encoder": "qwen3vl_32b_minimax_h3_bf16.safetensors",
       "video_vae": "minimax_h3_video_vae_fp16.safetensors",
       "audio_vae": "minimax_h3_audio_vae_fp32.safetensors",
-      "writer": "Qwen3.5-4B-Heretic-Q8_0.gguf",
+      "writer": "Qwen3-14B-heretic.Q4_K_M.gguf",
       "compiler": "profile_writer",
       "memory_policy": {
         "label": "Condition first; release encoder; load transformer; release after video",
@@ -20,53 +20,9 @@
         "gpu_validation": "pending"
       },
       "overlap_policy": {
-        "label": "Conservative: cold analysis waits; cached analysis permits the small writer during sampling with measured headroom",
+        "label": "Render priority; measured model, KV and workspace headroom; GPU calibration pending",
         "cold_analysis_during_sampling": false,
-        "analysis_headroom_mb": 28672,
-        "writer_headroom_mb": 12288,
-        "gpu_validation": "pending"
-      },
-      "writer_stages": {
-        "step3": {
-          "reasoning": "off",
-          "reasoning_budget": 0,
-          "max_tokens": 8192,
-          "ctx_size": 24576,
-          "final_answer_tokens": 8192,
-          "framing_tokens": 0
-        },
-        "step4": {
-          "reasoning": "on",
-          "reasoning_budget": 4096,
-          "max_tokens": 12352,
-          "ctx_size": 29184,
-          "final_answer_tokens": 8192,
-          "framing_tokens": 64
-        }
-      },
-      "workflow_id": "h3_v20"
-    },
-    "10eros_full": {
-      "label": "10Eros Full",
-      "user_facing": true,
-      "render_template": "10EROS_FULL_RENDER.json",
-      "checkpoint": "10Eros_Max_h3_hybrid_beta5.safetensors",
-      "encoder": "qwen3vl_32b_minimax_h3_bf16.safetensors",
-      "video_vae": "minimax_h3_video_vae_fp16.safetensors",
-      "audio_vae": "minimax_h3_audio_vae_fp32.safetensors",
-      "writer": "Qwen3.5-9B-F451-AND-TRI-Polar-Ultra-Pro-Writer-Uncensored-Heretic-BF16.gguf",
-      "compiler": "profile_writer",
-      "memory_policy": {
-        "label": "Condition first; release encoder; load Beta5 Full; release after video",
-        "encoder_release": "after_conditioning",
-        "render_release": "after_video",
-        "sampling_priority": "render",
-        "gpu_validation": "pending"
-      },
-      "overlap_policy": {
-        "label": "Balanced: analysis or writer overlap during sampling requires measured headroom",
-        "cold_analysis_during_sampling": true,
-        "analysis_headroom_mb": 28672,
+        "analysis_headroom_mb": 49152,
         "writer_headroom_mb": 24576,
         "gpu_validation": "pending"
       },
@@ -88,7 +44,55 @@
           "framing_tokens": 64
         }
       },
-      "workflow_id": "h3_v20"
+      "workflow_id": "h3_v20",
+      "analysis_model": "Mistral-Small-3.2-24B-Instruct-2506-Heretic-v1.2-2.Q4_K_M.gguf",
+      "analysis_mmproj": "Mistral-Small-3.2-24B-Instruct-2506-Heretic-v1.2-2.mmproj-f16.gguf"
+    },
+    "10eros_full": {
+      "label": "10Eros Full",
+      "user_facing": true,
+      "render_template": "10EROS_FULL_RENDER.json",
+      "checkpoint": "10Eros_Max_h3_hybrid_beta5.safetensors",
+      "encoder": "qwen3vl_32b_minimax_h3_bf16.safetensors",
+      "video_vae": "minimax_h3_video_vae_fp16.safetensors",
+      "audio_vae": "minimax_h3_audio_vae_fp32.safetensors",
+      "writer": "Qwen3.5-27B-heretic.Q5_K_M.gguf",
+      "compiler": "profile_writer",
+      "memory_policy": {
+        "label": "Condition first; release encoder; load Beta5 Full; release after video",
+        "encoder_release": "after_conditioning",
+        "render_release": "after_video",
+        "sampling_priority": "render",
+        "gpu_validation": "pending"
+      },
+      "overlap_policy": {
+        "label": "Render priority; measured model, KV and workspace headroom; GPU calibration pending",
+        "cold_analysis_during_sampling": false,
+        "analysis_headroom_mb": 57344,
+        "writer_headroom_mb": 40960,
+        "gpu_validation": "pending"
+      },
+      "writer_stages": {
+        "step3": {
+          "reasoning": "off",
+          "reasoning_budget": 0,
+          "max_tokens": 8192,
+          "ctx_size": 24576,
+          "final_answer_tokens": 8192,
+          "framing_tokens": 0
+        },
+        "step4": {
+          "reasoning": "on",
+          "reasoning_budget": 4096,
+          "max_tokens": 12352,
+          "ctx_size": 29184,
+          "final_answer_tokens": 8192,
+          "framing_tokens": 64
+        }
+      },
+      "workflow_id": "h3_v20",
+      "analysis_model": "Mistral-Small-3.2-24B-Instruct-2506-Heretic-v1.2-2.Q6_K.gguf",
+      "analysis_mmproj": "Mistral-Small-3.2-24B-Instruct-2506-Heretic-v1.2-2.mmproj-f16.gguf"
     }
   },
   "writer_runtime": {

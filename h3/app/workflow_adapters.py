@@ -299,6 +299,13 @@ class WorkflowAdapter:
             self.set(workflow, role, widget, profile[field])
         for patch in self.descriptor["analysis_model_patches"]:
             self.set(workflow, patch["anchor"], patch["widget"], patch["value"])
+        # Step 1/2 still consume the canonical image and text inputs. Mistral
+        # Small 3.2 requires its own matching vision projector, not Gemma's.
+        self.set(workflow, "analysis_source_2640", "model", profile["analysis_model"])
+        self.set(workflow, "analysis_source_2640", "mmproj", profile["analysis_mmproj"])
+        for role in ("writer_step1", "writer_step2"):
+            self.set(workflow, role, "model", profile["analysis_model"])
+            self.set(workflow, role, "mmproj", profile["analysis_mmproj"])
         from .writer_policy import stage_routes, native_extra_args
         for stage, policy in stage_routes(profile).items():
             role = self.descriptor["writer_anchors"][stage]

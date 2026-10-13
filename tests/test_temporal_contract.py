@@ -134,7 +134,9 @@ class WriterAndTemporalGraphTests(unittest.TestCase):
     def setUpClass(cls):api_fixture.ProductionAPITests.setUpClass()
     def graph(self,profile="h3_full"):
         fixture=api_fixture.ProductionAPITests()
-        return temporal_guards(frozen_duration(fixture.convert(profile,"prompt"),duration_identity(20),fixture.catalog),fixture.catalog)
+        from h3.app.workflow_adapters import get_adapter
+        context={**duration_identity(20), "profile_identity": fixture.profiles["profiles"][profile]}
+        return get_adapter("h3_v20").install_runtime_guards(fixture.convert(profile,"prompt"),fixture.catalog,context,phase="prompt")[0]
 
     def test_guarded_plan_is_the_only_step_four_path_and_both_captures_are_guarded(self):
         for profile in ("h3_full","10eros_full"):

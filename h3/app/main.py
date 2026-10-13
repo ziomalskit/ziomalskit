@@ -27,7 +27,7 @@ PROMPT_ONLY = WORKFLOWS / "VAST_H3_PROMPT_ONLY_STAGE2.json"
 MAP = json.loads((CONFIG / "VAST_H3_API_MAP.json").read_text(encoding="utf-8"))
 from .production import (read_profiles, read_loras, read_bridge, resolve_loras, PROFILE_LABELS, functional_policy,
                          immutable_registry, registry_json, registry_identity)
-from .analysis_cache import AnalysisCache, prompt_admission
+from .analysis_cache import AnalysisCache, prompt_admission, model_identity
 from .workflow_adapters import get_adapter as _get_adapter, IDENTITY_FIELDS
 from .request_identity import request_fingerprints
 from .render_settings import RenderSettings
@@ -66,6 +66,9 @@ def job_profile(job: dict) -> str:
         raise ValueError("persisted writer runtime changed; explicit reconciliation is required")
     if identity.get("manifest_identity") != manifest_identity(profile):
         raise ValueError("persisted model provenance changed; explicit reconciliation is required")
+    current_analysis = profile_analysis_identities(profile)
+    if any(identity.get(key) != value for key, value in current_analysis.items()):
+        raise ValueError("persisted analysis provenance changed or missing; explicit reconciliation is required")
     validate_duration(job["context"])
     if job["context"]["duration_seconds"] != job["context"]["requested_duration_seconds"]:
         raise ValueError("persisted requested duration differs from job context")
@@ -87,14 +90,27 @@ def job_profile(job: dict) -> str:
 def profile_identity(profile: str) -> dict:
     return copy.deepcopy({**{key: PRODUCTION["profiles"][profile][key] for key in MODEL_FIELDS},
                           **functional_policy(PRODUCTION["profiles"][profile]),
+                          **profile_analysis_identities(profile),
                           "writer_stages": PRODUCTION["profiles"][profile]["writer_stages"],
                           "writer_runtime": PRODUCTION["writer_runtime"], "manifest_identity": manifest_identity(profile)})
+
+
+def profile_analysis_identities(profile: str) -> dict:
+    manifest = json.loads((CONFIG / "models_manifest.json").read_text())
+    visual_ids = {"joycaption", "joycaption-mmproj", "verifier", "verifier-mmproj", "gemma", "gemma-mmproj"}
+    visual = {item["destination"] for item in manifest["artifacts"] if item["id"] in visual_ids}
+    if len(visual) != len(visual_ids):
+        raise ValueError("Step 0 provenance missing")
+    policy = PRODUCTION["profiles"][profile]
+    return {"step0_identity": model_identity(manifest, visual, PRODUCTION["writer_runtime"]),
+            "analysis_identity": model_identity(manifest, {"LLM/" + policy[key] for key in
+                ("analysis_model", "analysis_mmproj")}, PRODUCTION["writer_runtime"])}
 
 
 def manifest_identity(profile: str, *, document=None) -> str:
     manifest = json.loads((CONFIG / "models_manifest.json").read_text()) if document is None else document
     facts = ("provider", "repository", "revision", "repository_path", "destination", "size_bytes", "sha256", "generation",
-             "source_repository", "source_revision", "observed_source_revision", "llama_cpp_revision", "converter_revision", "converter_sha256")
+             "source_repository", "source_revision", "observed_source_revision", "observed_sha256", "observed_size_bytes", "llama_cpp_revision", "converter_revision", "converter_sha256")
     entries = [item for item in [*manifest["artifacts"], *manifest.get("pending_artifacts", [])]
                if item["required"] and (profile in item["profiles"] or "shared" in item["profiles"])]
     # GPU-validation flags and human diagnostics do not change artifact identity.
@@ -1270,6 +1286,18 @@ def _apply_history_outcome(job: dict, service: str, entry: dict) -> bool:
     outcome = _history_outcome(entry)
     if outcome is None:
         return False
+    if service == "prompt" and job.get("profile") in PROFILE_LABELS:
+        # A terminal writer failure must not discard independently completed
+        # analysis. Bind the captured graph before retaining even partial Step 0.
+        try:
+            adapter = job_workflow_adapter(job)
+            adapter.validate_final_graph(_prompt_graph_from_history(entry), job["context"], phase="prompt")
+            analysis = extract_prompt_texts(entry, capture=adapter.capture_contract(), analysis_only=True)
+            batch = batch_for_job(job)
+            if batch is not None:
+                analysis_cache.record(job, batch, analysis, execution_epoch=job.get("prompt_cache_epoch", ""))
+        except (ValueError, KeyError, TypeError):
+            pass
     if outcome == "error":
         job["status"] = "cancelled" if job.get("cancel_requested") else (
             f"{service}_stuck_skipped" if job.get(f"{service}_cancel_reason") == "timeout" else f"{service}_failed"
@@ -1353,7 +1381,7 @@ def _title_for_api_node(node: dict) -> str:
     return str(node.get("class_type", ""))
 
 
-def extract_prompt_texts(entry: dict, *, capture=None) -> dict[str, str | None]:
+def extract_prompt_texts(entry: dict, *, capture=None, analysis_only=False) -> dict[str, str | None]:
     outputs = entry.get("outputs") or {}
     graph = _prompt_graph_from_history(entry)
     capture = MAP["prompt_capture"] if capture is None else capture
@@ -1364,6 +1392,8 @@ def extract_prompt_texts(entry: dict, *, capture=None) -> dict[str, str | None]:
         capture["step3_creative_plan_title"]: "creative_plan",
         capture["step4_final_prompt_title"]: "final_h3_prompt",
     }
+    if analysis_only:
+        wanted = {title: field for title, field in wanted.items() if field in {"visual_facts", "expanded_intent", "reference_map"}}
     result = {v: None for v in wanted.values()}
     sources = {title: [] for title in wanted}
     for node_id, node in graph.items():
@@ -1383,6 +1413,8 @@ def extract_prompt_texts(entry: dict, *, capture=None) -> dict[str, str | None]:
             raise ValueError(f"Unexpected prompt capture type: {title}")
         out = outputs.get(node_id)
         if not isinstance(out, dict) or "text" not in out or out["text"] is None:
+            if analysis_only:
+                continue
             raise ValueError(f"Missing prompt capture output: {title}")
         raw = out["text"]
         value = "\n".join(str(x) for x in raw) if isinstance(raw, list) else str(raw)
@@ -1390,6 +1422,8 @@ def extract_prompt_texts(entry: dict, *, capture=None) -> dict[str, str | None]:
 
     # Conversion normally preserves the top-level PreviewAny id. Use it as a
     # final-prompt fallback if subgraph title metadata was not retained.
+    if analysis_only:
+        return result
     fallback_id = str(capture.get("fallback_top_level_final_node_id", ""))
     if not sources[capture["step4_final_prompt_title"]] and fallback_id:
         node = graph.get(fallback_id)
@@ -1662,9 +1696,9 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
             validate_render_prompt(job, approved)
         else:
             batch = batch_for_job(job)
-            job["prompt_kind"] = analysis_cache.classify(job, batch)
+            job["prompt_kind"] = analysis_cache.classify(job, batch, records=batches)
             if job["prompt_kind"] != "cold_analysis":
-                analysis_texts = batch["analysis"]["texts"]
+                analysis_texts = analysis_cache.texts(job, batch, records=batches)
         prepared, mapping = adapter.install_runtime_guards(prepared, catalog, job["context"],
                                                          phase=service, analysis_texts=analysis_texts)
         adapter.validate_final_graph(prepared, job["context"], phase=service)
@@ -1727,7 +1761,7 @@ async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
         await refresh_prompt_epoch()
         cache_epoch = analysis_cache.epoch
         job["prompt_cache_epoch"] = cache_epoch
-        job["prompt_kind"] = analysis_cache.classify(job, batch_for_job(job))
+        job["prompt_kind"] = analysis_cache.classify(job, batch_for_job(job), records=batches)
     if production and service == "render":
         # Only the Render Worker owns this idle render process. Clear cached CPU
         # model objects at each new render/profile boundary, before preparation.
@@ -1816,7 +1850,7 @@ async def submit_and_watch(job: dict, workflow: Path, service: str, approved_pro
     job[f"{service}_submission_state"] = "preparing"
     if job.get("profile") in PROFILE_LABELS:
         if service == "prompt":
-            job["prompt_kind"] = analysis_cache.classify(job, batch_for_job(job))
+            job["prompt_kind"] = analysis_cache.classify(job, batch_for_job(job), records=batches)
         else:
             job["render_phase"] = "conditioning"
     try:
@@ -2429,8 +2463,10 @@ def phase_admission(job: dict, service: str) -> tuple[bool, str]:
         if service_work_active("prompt") or service_recovering("prompt"):
             return False, "conditioning window waits for the active Prompt Worker to settle"
         return True, "exclusive render conditioning window"
+    if active_render_policy() is None and any(other.get("status") in {"render_queued_review", "render_queued_auto"} for other in queue):
+        return False, "ready render has priority over new LLM preparation"
     free = overlap_telemetry["free_vram_mb"] if time.monotonic() - overlap_telemetry["sampled_at"] <= 3 else None
-    return prompt_admission(prompt_kind=analysis_cache.classify(job, batch_for_job(job)),
+    return prompt_admission(prompt_kind=analysis_cache.classify(job, batch_for_job(job), records=batches),
         prompt_profile=job_profile(job), active_render=active_render_policy(), profiles=PRODUCTION,
         prompt_policy=job["context"]["profile_identity"], free_vram_mb=free)
 

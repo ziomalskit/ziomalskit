@@ -22,9 +22,15 @@ class ProductionArchitectureTests(unittest.TestCase):
 
     def job(self, profile="h3_full"):
         from h3.app.workflow_adapters import get_adapter
+        from h3.app.analysis_cache import model_identity
+        manifest = json.loads((ROOT / "config/models_manifest.json").read_text())
+        policy = self.profiles["profiles"][profile]
+        identity = {"step0_identity": model_identity(manifest, {item["destination"] for item in manifest["artifacts"] if item["id"] in {
+            "joycaption", "joycaption-mmproj", "verifier", "verifier-mmproj", "gemma", "gemma-mmproj"}}, self.profiles["writer_runtime"]),
+            "analysis_identity": model_identity(manifest, {"LLM/" + policy[field] for field in ("analysis_model", "analysis_mmproj")}, self.profiles["writer_runtime"])}
         return {"batch_id": "batch", "analysis_seed": 101, "prompt_seed": 201, "profile": profile,
                 "context": {**get_adapter("h3_v20").identity(), "profile": profile, "prompt": "walk", "pictures": [f"ref-{i}.png" for i in range(6)],
-                            "audio": [], "duration_seconds": 20}}
+                            "audio": [], "duration_seconds": 20, "profile_identity": identity}}
 
     def test_canonical_attachment_exact_size_and_hash(self):
         self.assertEqual(len((ROOT / "workflows" / BASELINE_FILE).read_bytes()), 3084071)
@@ -111,7 +117,9 @@ class ProductionArchitectureTests(unittest.TestCase):
         first, second = self.job(), self.job("10eros_full")
         second["prompt_seed"] += 2
         second["context"]["loras"] = [{"id": "movement-v1", "enabled": False, "strength": 0.5}]
-        self.assertEqual(analysis_key(first), analysis_key(second))
+        from h3.app.analysis_cache import step0_key
+        self.assertEqual(step0_key(first), step0_key(second))
+        self.assertNotEqual(analysis_key(first), analysis_key(second))
         second["context"]["duration_seconds"] = 10
         self.assertNotEqual(analysis_key(first), analysis_key(second))
 
@@ -120,7 +128,7 @@ class ProductionArchitectureTests(unittest.TestCase):
         self.assertEqual(cache.classify(first, batch), "cold_analysis")
         texts = {field: field + " exact text" for field in ("visual_facts", "expanded_intent", "reference_map")}
         self.assertTrue(cache.record(first, batch, texts, execution_epoch=cache.epoch))
-        self.assertEqual(cache.classify(self.job("10eros_full"), batch), "cached_text")
+        self.assertEqual(cache.classify(self.job("10eros_full"), batch), "step0_text")
         cache.observe_service("1" * 32)
         self.assertFalse(cache.resident)
         self.assertEqual(cache.classify(first, batch), "durable_text")
@@ -150,7 +158,7 @@ class ProductionArchitectureTests(unittest.TestCase):
             self.assertFalse(self.admission("cached_text", free=free))
 
     def test_10eros_balanced_policy_still_requires_measured_headroom(self):
-        self.assertTrue(self.admission("cold_analysis", render_profile="10eros_full"))
+        self.assertFalse(self.admission("cold_analysis", render_profile="10eros_full"))
         self.assertFalse(self.admission("cold_analysis", render_profile="10eros_full", free=28000))
         self.assertFalse(self.admission("cached_text", prompt_profile="10eros_full", free=20000))
 

@@ -123,8 +123,10 @@ def read_profiles(path: Path) -> dict:
         from .workflow_adapters import REGISTRY
         if profile.get("workflow_id") not in REGISTRY:
             raise ValueError("production profile requires a trusted workflow adapter")
-        for field in ("render_template", "checkpoint", "writer", "encoder", "video_vae", "audio_vae"):
+        for field in ("render_template", "checkpoint", "writer", "encoder", "video_vae", "audio_vae", "analysis_model", "analysis_mmproj"):
             relative_path(profile[field])
+        if any("/" in profile[field] or not profile[field].endswith(".gguf") for field in ("writer", "analysis_model", "analysis_mmproj")):
+            raise ValueError("profile LLM routes require registered GGUF basenames")
         if any(word in profile["checkpoint"].lower() for word in ("int8", "w4a8", "turbo", "quant")):
             raise ValueError("legacy checkpoint cannot be a production profile")
         policy = profile.get("memory_policy", {})

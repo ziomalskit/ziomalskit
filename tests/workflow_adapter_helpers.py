@@ -8,8 +8,35 @@ from tests.test_workflows import exact_convert
 from tests.test_temporal_contract import CANONICAL, FINAL
 
 
-def graph_digest(document):
+def graph_digest(document, *, previous_llm_routes=False):
     document = copy.deepcopy(document)
+    if previous_llm_routes:
+        # Keep the received PR #5 hashes intact. Only the explicitly requested
+        # model/projector substitutions and new per-LLM gates are normalized.
+        # Every other graph byte/edge/setting still has to match that baseline.
+        # Exact new routes and gate controls are independently asserted in
+        # test_dual_llm_profiles and test_gpu_phase_gate.
+        replacements = {
+            "Mistral-Small-3.2-24B-Instruct-2506-Heretic-v1.2-2.Q4_K_M.gguf": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.f16.gguf",
+            "Mistral-Small-3.2-24B-Instruct-2506-Heretic-v1.2-2.Q6_K.gguf": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.f16.gguf",
+            "Mistral-Small-3.2-24B-Instruct-2506-Heretic-v1.2-2.mmproj-f16.gguf": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.mmproj-f16.gguf",
+            "Qwen3-14B-heretic.Q4_K_M.gguf": "Qwen3.5-4B-Heretic-Q8_0.gguf",
+            "Qwen3.5-27B-heretic.Q5_K_M.gguf": "Qwen3.5-9B-F451-AND-TRI-Polar-Ultra-Pro-Writer-Uncensored-Heretic-BF16.gguf",
+        }
+        def normalize(value):
+            if isinstance(value, str):
+                return replacements.get(value, value)
+            if isinstance(value, list):
+                return [normalize(item) for item in value]
+            if isinstance(value, dict):
+                value = {key: normalize(item) for key, item in value.items()}
+                if value.get("class_type") in {"AJPromptTextProcessor", "AJGatedCompilerTextProcessor"}:
+                    value["class_type"] = "LLMTextProcessor" if value["class_type"] == "AJPromptTextProcessor" else "AJCompilerTextProcessor"
+                    value["inputs"].pop("aj_headroom_mb")
+                    value["inputs"].pop("aj_allow_sampling")
+                return value
+            return value
+        document = normalize(document)
     metadata = document.get("extra", {}).get("aj_production")
     if metadata:
         document["extra"]["aj_production"] = {key: metadata[key] for key in

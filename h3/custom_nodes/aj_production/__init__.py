@@ -5,6 +5,7 @@ from pathlib import Path
 from .temporal import normalize_plan, final_timeline, final_answer, validate_duration
 from .execution_journal import ExecutionJournal, PROTOCOL
 from .compiler import generate as generate_compiler, completion_response
+from .gpu_runtime import prompt_lease, install_renderer, generate_native, native_lease
 
 from aiohttp import web
 import comfy.model_management
@@ -33,6 +34,8 @@ def execution_journal():
 # CPU-only node stubs intentionally have no queue; real workers always do.
 if hasattr(PromptServer.instance, 'prompt_queue'):
     execution_journal()
+    from comfy.cli_args import args
+    install_renderer(PromptServer.instance, args.port)
 
 
 @PromptServer.instance.routes.get('/aj/execution_protocol')
@@ -90,6 +93,26 @@ def compiler_file_response(body, completion=None):
     return content, reasoning, ""
 
 
+class AJPromptTextProcessor:
+    """Retain the pinned llama-cli path; pause before allocating each model."""
+    @classmethod
+    def INPUT_TYPES(cls):
+        import copy
+        result = copy.deepcopy(nodes.NODE_CLASS_MAPPINGS["LLMTextProcessor"].INPUT_TYPES())
+        result["required"].update(aj_headroom_mb=("INT", {"min": 1}), aj_allow_sampling=("BOOLEAN",))
+        return result
+    RETURN_TYPES = ("STRING", "STRING", "STRING")
+    RETURN_NAMES = ("RESPONSE", "REASONING", "PERF")
+    FUNCTION = "generate"
+    CATEGORY = "AJ/production"
+    @classmethod
+    def VALIDATE_INPUTS(cls, model, mmproj, system_prompt):
+        return nodes.NODE_CLASS_MAPPINGS["LLMTextProcessor"].VALIDATE_INPUTS(model, mmproj, system_prompt)
+    def generate(self, aj_headroom_mb, aj_allow_sampling, **values):
+        with prompt_lease(aj_headroom_mb, aj_allow_sampling, values["timeout_seconds"]) as descriptor:
+            return generate_native(nodes.NODE_CLASS_MAPPINGS["LLMTextProcessor"], values, descriptor)
+
+
 class AJCompilerTextProcessor:
     """Step 4 requires the pinned engine's machine-readable EOS receipt."""
     @classmethod
@@ -106,6 +129,15 @@ class AJCompilerTextProcessor:
         if values.get("enable_processing", True) is not True or values.get("reasoning") != "on" or values.get("mmproj") != "none" or values.get("image") is not None:
             raise ValueError("compiler requires native thinking and text-only processing")
         return generate_compiler(nodes.NODE_CLASS_MAPPINGS['LLMTextProcessor'], values)
+
+
+class AJGatedCompilerTextProcessor(AJCompilerTextProcessor):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return AJPromptTextProcessor.INPUT_TYPES()
+    def generate(self, aj_headroom_mb, aj_allow_sampling, **values):
+        with prompt_lease(aj_headroom_mb, aj_allow_sampling, values["timeout_seconds"]) as descriptor, native_lease(descriptor):
+            return super().generate(**values)
 
 
 class AJFrozenDuration:
@@ -219,5 +251,5 @@ class AJVideoBoundary:
 
 
 NODE_CLASS_MAPPINGS = {cls.__name__: cls for cls in (
-    AJAnalysisText, AJCompilerTextProcessor, AJFrozenDuration, AJCreativeTimelineGuard, AJFinalPromptTimeGuard,
+    AJAnalysisText, AJPromptTextProcessor, AJCompilerTextProcessor, AJGatedCompilerTextProcessor, AJFrozenDuration, AJCreativeTimelineGuard, AJFinalPromptTimeGuard,
     AJConditioningBoundary, AJLateUNETLoader, AJVideoBoundary)}
