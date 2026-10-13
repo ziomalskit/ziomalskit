@@ -32,6 +32,40 @@ of `nuofang/Qwen3.5-9B-F451-AND-TRI-Polar-Ultra-Pro-Writer-Uncensored-Heretic-GG
 That is lineage evidence only; the quantized repository is not an authoritative
 replacement for the canonical BF16 source.
 
+## Independent access probe
+
+A temporary GitHub Actions probe was run from a fresh GitHub-hosted Ubuntu runner,
+without user credentials, against the exact source revision. Workflow run
+`38404902870`, job `115321854210`, completed normally and independently
+reproduced the access restriction.
+
+The exact-revision Hugging Face model-tree API and exact-revision resolver
+HEAD/GET requests returned HTTP 401 with:
+
+`x-error-message: Invalid username or password.`
+
+This was reproduced for the model tree and for the requested source paths:
+
+- `config.json`
+- `generation_config.json`
+- `model-00001-of-00002.safetensors`
+- `model-00002-of-00002.safetensors`
+- `model.safetensors.index.json`
+- `processor_config.json`
+- `tokenizer.json`
+- `tokenizer_config.json`
+
+Therefore the remaining metadata gap is an upstream Hugging Face authorization
+boundary, not a failure of the AJ manifest/builder or the user's Windows machine.
+The temporary probe workflow is not part of the production design and is removed
+after recording this evidence.
+
+Separately, the user's Hugging Face token successfully authenticated to
+`/api/whoami-v2` (HTTP 200) but received HTTP 404 for this model and its exact
+revision. That proves the token itself was syntactically valid but did not provide
+usable access to this source. No token value or credential is stored in this
+repository.
+
 ## Local compatibility smoke completed
 
 A Windows-native local smoke was completed with the public IQ4_XS derivative using
@@ -69,7 +103,13 @@ SHA256 identities for every converter input. At minimum this must cover:
 No hash or byte size may be copied from a related DavidAU/Qwen3.5 model or inferred
 from a rounded web UI value.
 
-After the complete source identities are obtained, the existing
+The pinned converter itself was inspected at
+`60eeeb6082c1126bb8bc72902c83123cd056811b`. Its Qwen tokenizer path delegates
+to `AutoTokenizer.from_pretrained(dir_model, trust_remote_code=True)`; therefore
+the tokenizer/config files used by that exact source are part of the conversion
+input identity and cannot be safely guessed from a neighboring Qwen3.5 model.
+
+After authorized source identities are obtained, the existing
 `h3/scripts/build_generated_models.py` path should be used unchanged to:
 
 1. verify every pinned source file;
