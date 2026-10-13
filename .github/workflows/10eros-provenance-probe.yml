@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feat/10eros-writer-provenance
+  pull_request:
+    branches:
+      - feat/workflow-adapters-render-controls
 
 permissions:
   contents: read
