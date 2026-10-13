@@ -59,6 +59,14 @@ This was reproduced for the model tree and for the requested source paths:
 
 Therefore the remaining metadata gap is an upstream Hugging Face authorization
 boundary, not a failure of the AJ manifest/builder or the user's Windows machine.
+
+The user also opened the canonical source repository while logged in through the
+normal Hugging Face web UI on 2026-10-13 and received HTTP-style 404/not-found
+behavior rather than a usable request-access flow. A same-day public search found
+the surviving `nuofang/...-GGUF` quantized derivative and cached/indexed evidence
+for the original source, but no trustworthy publicly indexed full BF16 mirror or
+complete source snapshot. This does not prove that no private/archive copy exists;
+it only means none was suitable for freezing into production provenance.
 The temporary probe workflow is not part of the production design and is removed
 after recording this evidence.
 
