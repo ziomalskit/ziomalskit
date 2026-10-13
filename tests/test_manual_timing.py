@@ -112,6 +112,28 @@ NONFINITE_INTERVALS = (
     "00:01.000-Inf",
     "00:01.000-Infinity",
 )
+NONFINITE_PROSE = (
+    "Show a timer reading 00:05.000.\n- NaN appears as the diagnostic result.",
+    "The clock reads 00:05.000.\n- Infinity symbol rotates below.",
+    "The timer reads 00:05.000.\nThen NaN appears below.",
+    "The timer reads 00:05.000.\n- Diagnostic result: Inf",
+    "00:05.000 is visible.\n- Infinity is shown elsewhere.",
+    "Show a timer reading 00:05.000.\r\n- NaN appears as the diagnostic result.",
+)
+PROSE_INTERVAL_GAPS = (
+    ".\n- ", ";\n- ", ",\n- ", "\n- ", "\r\n- ", ". - ",
+    ".\r\n- ", "; - ", ", - ", "! - ", "? - ", "… - ", " ( - ",
+)
+NONFINITE_LOCAL_INTERVALS = tuple(
+    "00:01.000" + gap + sign + endpoint
+    for gap in ("-", " - ", "\t-\t", "+", " + ")
+    for sign in ("", "+", "-")
+    for endpoint in ("NaN", "Inf", "Infinity", "nan", "NAN", "inf", "INF", "infinity", "INFINITY")
+)
+NONCANONICAL_INTERVAL_GAPS = (
+    "−", "–", "—", "‐", "‑", "‒", "﹣", "－", "＋",
+    "\u200b-\u2060", "\u0301-\u0301", "\t−\t",
+)
 PATH_HIDDEN_RANGES = (
     "Range: /00:20.000-00:01.000",
     "Range /00:20.000-00:01.000",
@@ -166,6 +188,38 @@ class ManualTimingTests(unittest.TestCase):
                 self.assertEqual(manual_clocks(word, 20040), [])
                 with self.assertRaisesRegex(ValueError, "canonical ASCII"):
                     validate_manual_final("Clock:" + word, 20.04)
+
+    def test_nonfinite_prose_clauses_accept_exactly(self):
+        for text in NONFINITE_PROSE:
+            with self.subTest(text=text):
+                self.assert_exact(text)
+
+    def test_sentence_and_line_gaps_do_not_bind_free_intervals(self):
+        for prefix in ("", "The clock reads "):
+            for gap in PROSE_INTERVAL_GAPS:
+                for endpoint in ("NaN", "Inf", "Infinity"):
+                    text = prefix + "00:05.000" + gap + endpoint
+                    with self.subTest(text=text):
+                        self.assert_exact(text)
+                        clocks = manual_clocks(text, 20040)
+                        self.assertEqual([clock.value for clock in clocks], [5000])
+
+    def test_local_nonfinite_intervals_reject_signed_and_cased_operands(self):
+        for text in NONFINITE_LOCAL_INTERVALS:
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                validate_manual_final(text, 20.04)
+
+    def test_local_lookalike_or_hidden_separators_still_reject(self):
+        for gap in NONCANONICAL_INTERVAL_GAPS:
+            for endpoint in ("NaN", "00:10.000"):
+                text = "00:05.000" + gap + endpoint
+                with self.subTest(text=text), self.assertRaises(ValueError):
+                    validate_manual_final(text, 20.04)
+
+    def test_local_canonical_intervals_preserve_horizontal_spacing(self):
+        for gap in ("-", " - ", "\t-\t"):
+            with self.subTest(gap=gap):
+                self.assert_exact("00:05.000" + gap + "00:10.000")
 
     def test_explicit_range_precedes_path_opacity(self):
         for text in PATH_HIDDEN_RANGES:
@@ -437,6 +491,40 @@ class ManualTimingRequestTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(self.m.request_results, {})
                         self.assertFalse(self.m.QUEUE_FILE.exists())
                         worker.assert_not_called()  # Neither Prompt nor Render Worker can POST.
+
+    async def test_actual_batches_accepts_nonfinite_prose_clauses_exactly(self):
+        await self.assert_accepted_exact_requests(NONFINITE_PROSE)
+
+    async def test_actual_batches_accepts_sentence_and_line_boundary_matrix(self):
+        texts = tuple("00:05.000" + gap + endpoint
+                      for gap in PROSE_INTERVAL_GAPS for endpoint in ("NaN", "Inf", "Infinity"))
+        await self.assert_accepted_exact_requests(texts)
+
+    async def test_actual_batches_rejects_local_nonfinite_and_lookalike_intervals(self):
+        texts = NONFINITE_LOCAL_INTERVALS + tuple(
+            "00:05.000" + gap + endpoint
+            for gap in NONCANONICAL_INTERVAL_GAPS for endpoint in ("NaN", "00:10.000"))
+        before = {path.relative_to(self.m.STATE): path.read_bytes()
+                  for path in self.m.STATE.rglob("*") if path.is_file()}
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.m.app), base_url="http://panel",
+                                    auth=("h3", "test-only-password")) as client:
+            with patch.object(self.m.httpx, "AsyncClient", side_effect=AssertionError("Worker HTTP invoked")) as worker, \
+                    patch.object(self.m, "_dispatch_prepared_workflow",
+                                 side_effect=AssertionError("Paid dispatch invoked")) as dispatch:
+                for text in texts:
+                    with self.subTest(text=text):
+                        response = await client.post("/api/batches", json=self.body_for(text))
+                        self.assertEqual(response.status_code, 400, response.text)
+                        self.assertEqual(self.m.queue, [])
+                        self.assertEqual(self.m.batches, [])
+                        self.assertEqual(self.m.request_results, {})
+                        self.assertFalse(self.m.QUEUE_FILE.exists())
+                        self.assertFalse(self.m.QUEUE_PUBLICATION_FILE.exists())
+                worker.assert_not_called()
+                dispatch.assert_not_called()
+        after = {path.relative_to(self.m.STATE): path.read_bytes()
+                 for path in self.m.STATE.rglob("*") if path.is_file()}
+        self.assertEqual(after, before)  # No durable job or paid-render receipt.
 
     async def test_actual_batches_rejects_path_hidden_ranges_without_publication(self):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.m.app), base_url="http://panel",

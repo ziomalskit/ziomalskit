@@ -334,7 +334,7 @@ def _construction(tokens, start, detection):
         if tokens[following].kind not in CLOCK_OPERANDS:
             break
         gap = detection[tokens[operands[-1]].end:tokens[following].start]
-        if not _operator(gap):
+        if not _interval_gap(gap):
             break
         operands.append(following)
     return operands
@@ -385,7 +385,7 @@ def _directive_clocks(tokens, visible, detection, target):
         if not temporal and name in {"range", "timeline"}:
             rhs = _next_operand(tokens, following)
             temporal = (rhs is not None and tokens[rhs].kind in CLOCK_OPERANDS and
-                        _operator(detection[first.end:tokens[rhs].start]))
+                        _interval_gap(detection[first.end:tokens[rhs].start]))
         if not temporal:
             continue
         gap = _evidence(detection[tokens[header].end:first.start]).strip()
@@ -425,6 +425,12 @@ def _remaining_text(detection, tokens, clauses):
 def _operator(gap):
     evidence = _evidence(gap)
     return any(char in "+-" for char in evidence) and not any(_word_character(char) for char in evidence)
+
+
+def _interval_gap(gap):
+    """Discover local separator/sign runs; punctuation and line breaks end them."""
+    # Extra signs remain candidates so signed endpoints still reach validation.
+    return re.fullmatch(r"[ \t]*[+-][ \t+-]*", _evidence(gap)) is not None
 
 
 def _validated_clock(token, visible, detection, target, *, leading_sign=True):
