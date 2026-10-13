@@ -360,7 +360,9 @@ class ControllerUltraTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('paid.mp4', by_id['paid-completed']['video_outputs'][0])
         self.assertEqual(by_id[old['id']]['status'], 'reconciliation_required')
         self.assertEqual(by_id[old['id']]['render_prompt_id'], identity)
-        self.assertNotIn('profile_identity', by_id[old['id']]['context'])
+        self.assertNotIn('context', by_id[old['id']])  # Quarantine exposes safe scalar metadata.
+        self.assertEqual(self.m.find_job(old['id'])['context'], old['context'])
+        self.assertNotIn('profile_identity', self.m.find_job(old['id'])['context'])
         self.assertTrue(self.m.lifecycle_dispatch_blocked());self.assertTrue(self.m.service_recovering('render'))
         self.assertIsNone(self.m.state_load_error)
 

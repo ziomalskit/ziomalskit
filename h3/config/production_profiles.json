@@ -43,7 +43,8 @@
           "final_answer_tokens": 8192,
           "framing_tokens": 64
         }
-      }
+      },
+      "workflow_id": "h3_v20"
     },
     "10eros_full": {
       "label": "10Eros Full",
@@ -86,7 +87,8 @@
           "final_answer_tokens": 8192,
           "framing_tokens": 64
         }
-      }
+      },
+      "workflow_id": "h3_v20"
     }
   },
   "writer_runtime": {

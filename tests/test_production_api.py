@@ -33,6 +33,21 @@ def production_catalog():
     catalog["AJLateUNETLoader"] = copy.deepcopy(catalog["UNETLoader"])
     catalog["AJCompilerTextProcessor"] = copy.deepcopy(catalog["LLMTextProcessor"])
     catalog["AJLateUNETLoader"]["input"]["required"]["after_conditioning"] = ["INT", {"forceInput": True}]
+    # Pinned core nodes_logic.py SwitchNode uses lazy MatchType inputs. The
+    # structural attachment fixture predates that complete worker contract.
+    catalog["ComfySwitchNode"] = {"input": {"required": {"switch": ["BOOLEAN", {}]},
+        "optional": {"on_false": ["*", {"lazy": True}], "on_true": ["*", {"lazy": True}]}},
+        "output": ["*"], "output_node": False}
+    catalog["LTXVSeparateAVLatent"]["input"] = {"required": {"av_latent": ["LATENT", {}]}}
+    catalog["LTXVConcatAVLatent"] = {"input": {"required": {"video_latent": ["LATENT", {}],
+        "audio_latent": ["LATENT", {}]}}, "output": ["LATENT"], "output_node": False}
+    # Pinned upscaler 40316c... declares a V3 dynamic combo, not independent
+    # string/numeric widgets. The dotted MPx field is flattened in /object_info.
+    fields = catalog["MinimaxH3LatentUpscaler3D"]["input"]["required"]
+    fields["latent"] = ["*", {}]
+    fields["mode"] = ["COMFY_DYNAMICCOMBO_V3", {"options": [
+        {"key": "megapixels", "inputs": {"required": {"megapixels": ["FLOAT", {"min": 0.1, "max": 16.0, "default": 1.0}]}}}]}]
+    fields.pop("mode.megapixels")
     return catalog
 
 

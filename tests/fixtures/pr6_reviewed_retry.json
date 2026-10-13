@@ -1,0 +1,334 @@
+{
+  "origin_commit": "44e47699cd2bb00898055a3c9011a43cecd1d019",
+  "origin": "Captured from actual reviewed HEAD BatchRequest/create_batches/save_state in a disposable checkout; no worker contacted.",
+  "body": {
+    "request_id": "5739a241-4d06-455b-a431-5b8d3ad01782",
+    "prompt_mode": "manual_final",
+    "manual_final_prompt": "A continuous shot. Use an aspect ratio of 16:9.",
+    "profile": "10eros_full",
+    "pictures": [
+      "ref0.png",
+      "ref1.png",
+      "ref2.png",
+      "ref3.png",
+      "ref4.png",
+      "ref5.png"
+    ]
+  },
+  "accepted": {
+    "created_batches": [
+      "9912d0e023ff478eb03a8363a826f26b"
+    ]
+  },
+  "snapshot": {
+    "queue": [
+      {
+        "id": "0f6b49ee6d2b47f08096e1711894dc1a",
+        "batch_id": "9912d0e023ff478eb03a8363a826f26b",
+        "profile": "10eros_full",
+        "batch_seq": 1,
+        "candidate_index": 1,
+        "render_seed": 2126290339,
+        "prompt_mode": "manual_final",
+        "final_h3_prompt": "A continuous shot. Use an aspect ratio of 16:9.",
+        "prompt_ready_at": 1791791232.6666512,
+        "seed": 2126290339,
+        "created_at": 1791791232.666652,
+        "status": "render_queued_auto",
+        "review_required": false,
+        "render_priority": null,
+        "context": {
+          "prompt_mode": "manual_final",
+          "prompt": "",
+          "manual_final_prompt": "A continuous shot. Use an aspect ratio of 16:9.",
+          "manual_final_prompt_sha256": "5f58108c88f472bbac0aad0e7ec9b868e1f659484b3ac5e0091b8c8e9b9f5e30",
+          "workflow_prompt_identity": "ab39d1853aa0768bf1fc3b93c794d5525404c840fdd18c42022467c89eb59c32",
+          "model": "10eros_full",
+          "profile": "10eros_full",
+          "profile_identity": {
+            "checkpoint": "10Eros_Max_h3_hybrid_beta5.safetensors",
+            "writer": "Qwen3.5-9B-F451-AND-TRI-Polar-Ultra-Pro-Writer-Uncensored-Heretic-BF16.gguf",
+            "compiler": "profile_writer",
+            "encoder": "qwen3vl_32b_minimax_h3_bf16.safetensors",
+            "video_vae": "minimax_h3_video_vae_fp16.safetensors",
+            "audio_vae": "minimax_h3_audio_vae_fp32.safetensors",
+            "memory_policy": {
+              "encoder_release": "after_conditioning",
+              "render_release": "after_video",
+              "sampling_priority": "render"
+            },
+            "overlap_policy": {
+              "cold_analysis_during_sampling": true,
+              "analysis_headroom_mb": 28672,
+              "writer_headroom_mb": 24576
+            },
+            "writer_stages": {
+              "step3": {
+                "reasoning": "off",
+                "reasoning_budget": 0,
+                "max_tokens": 8192,
+                "ctx_size": 24576,
+                "final_answer_tokens": 8192,
+                "framing_tokens": 0
+              },
+              "step4": {
+                "reasoning": "on",
+                "reasoning_budget": 4096,
+                "max_tokens": 12352,
+                "ctx_size": 29184,
+                "final_answer_tokens": 8192,
+                "framing_tokens": 64
+              }
+            },
+            "writer_runtime": {
+              "llama_cpp_revision": "60eeeb6082c1126bb8bc72902c83123cd056811b",
+              "llm_node_revision": "65983de33681816f856db7e16767da906084c688"
+            },
+            "manifest_identity": "d08292a603313a9ed42d437f1904e90ab28990968296169de8defc40a5620c50"
+          },
+          "workflow_id": "h3_v20",
+          "workflow_baseline_sha256": "276621a1992a8b8da40d981a79417fd5eb3617b44166d890c8c82ffd8eb96222",
+          "workflow_adapter_id": "h3_v20",
+          "workflow_adapter_schema_version": 1,
+          "workflow_adapter_identity": "7c612b6522b43d2c803bbd1b52b15cfe1402d73b0953dc6272e8fd14c59436c1",
+          "render_settings": {
+            "target_mpx": 0.4,
+            "first_steps": 24,
+            "latent_upscaler_enabled": false,
+            "latent_upscaler_mpx": 1.2,
+            "second_pass_enabled": false,
+            "second_steps": 4,
+            "second_pass_loras": []
+          },
+          "workflow_render_identity": "6941018a01a8f8c976b93801b2b63a48f32c3f767f772c007384bb68807e1c62",
+          "lora_identity": {
+            "hm-breasts-v2": "HMBreastsV2.safetensors",
+            "mysticxxx-v4": "MysticXXX_MMH3-V4-ref2va.safetensors",
+            "movement-v1": "movement_h3_lora_v1_500.safetensors",
+            "h3-turbo-8step": "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+            "hm-nsfw-aio-v25": "HMNSFW-AIO-V2.5.safetensors",
+            "h3-mpov": "MMH3-MPOV.safetensors",
+            "h3-combat-v2": "H3_Combat_V2.safetensors"
+          },
+          "conditioning_bridge": {
+            "id": "bunny-actionlogic-v1",
+            "filename": "BUNNY_H3_ActionLogic_Bridge_V1.safetensors",
+            "enabled": false,
+            "strength": 0.1
+          },
+          "duration_seconds": 20,
+          "requested_duration_seconds": 20,
+          "legal_frame_count": 481,
+          "effective_duration_seconds": 20.04,
+          "effective_duration_ms": 20040,
+          "duration_contract": "v20_24fps_v1",
+          "soft_timeout_minutes": 8,
+          "hard_restart_after_seconds": 90,
+          "pictures": [
+            "ref0.png",
+            "ref1.png",
+            "ref2.png",
+            "ref3.png",
+            "ref4.png",
+            "ref5.png"
+          ],
+          "audio": [],
+          "loras": [
+            {
+              "id": "hm-breasts-v2",
+              "enabled": false,
+              "strength": 1.0
+            },
+            {
+              "id": "mysticxxx-v4",
+              "enabled": false,
+              "strength": 0.6
+            },
+            {
+              "id": "movement-v1",
+              "enabled": false,
+              "strength": 0.5
+            },
+            {
+              "id": "h3-turbo-8step",
+              "enabled": false,
+              "strength": 1.0
+            },
+            {
+              "id": "hm-nsfw-aio-v25",
+              "enabled": false,
+              "strength": 0.6
+            },
+            {
+              "id": "h3-mpov",
+              "enabled": false,
+              "strength": 0.6
+            },
+            {
+              "id": "h3-combat-v2",
+              "enabled": false,
+              "strength": 0.6
+            }
+          ]
+        }
+      }
+    ],
+    "batches": [
+      {
+        "id": "9912d0e023ff478eb03a8363a826f26b",
+        "profile": "10eros_full",
+        "seq": 1,
+        "created_at": 1791791232.666641,
+        "context": {
+          "prompt_mode": "manual_final",
+          "prompt": "",
+          "manual_final_prompt": "A continuous shot. Use an aspect ratio of 16:9.",
+          "manual_final_prompt_sha256": "5f58108c88f472bbac0aad0e7ec9b868e1f659484b3ac5e0091b8c8e9b9f5e30",
+          "workflow_prompt_identity": "ab39d1853aa0768bf1fc3b93c794d5525404c840fdd18c42022467c89eb59c32",
+          "model": "10eros_full",
+          "profile": "10eros_full",
+          "profile_identity": {
+            "checkpoint": "10Eros_Max_h3_hybrid_beta5.safetensors",
+            "writer": "Qwen3.5-9B-F451-AND-TRI-Polar-Ultra-Pro-Writer-Uncensored-Heretic-BF16.gguf",
+            "compiler": "profile_writer",
+            "encoder": "qwen3vl_32b_minimax_h3_bf16.safetensors",
+            "video_vae": "minimax_h3_video_vae_fp16.safetensors",
+            "audio_vae": "minimax_h3_audio_vae_fp32.safetensors",
+            "memory_policy": {
+              "encoder_release": "after_conditioning",
+              "render_release": "after_video",
+              "sampling_priority": "render"
+            },
+            "overlap_policy": {
+              "cold_analysis_during_sampling": true,
+              "analysis_headroom_mb": 28672,
+              "writer_headroom_mb": 24576
+            },
+            "writer_stages": {
+              "step3": {
+                "reasoning": "off",
+                "reasoning_budget": 0,
+                "max_tokens": 8192,
+                "ctx_size": 24576,
+                "final_answer_tokens": 8192,
+                "framing_tokens": 0
+              },
+              "step4": {
+                "reasoning": "on",
+                "reasoning_budget": 4096,
+                "max_tokens": 12352,
+                "ctx_size": 29184,
+                "final_answer_tokens": 8192,
+                "framing_tokens": 64
+              }
+            },
+            "writer_runtime": {
+              "llama_cpp_revision": "60eeeb6082c1126bb8bc72902c83123cd056811b",
+              "llm_node_revision": "65983de33681816f856db7e16767da906084c688"
+            },
+            "manifest_identity": "d08292a603313a9ed42d437f1904e90ab28990968296169de8defc40a5620c50"
+          },
+          "workflow_id": "h3_v20",
+          "workflow_baseline_sha256": "276621a1992a8b8da40d981a79417fd5eb3617b44166d890c8c82ffd8eb96222",
+          "workflow_adapter_id": "h3_v20",
+          "workflow_adapter_schema_version": 1,
+          "workflow_adapter_identity": "7c612b6522b43d2c803bbd1b52b15cfe1402d73b0953dc6272e8fd14c59436c1",
+          "render_settings": {
+            "target_mpx": 0.4,
+            "first_steps": 24,
+            "latent_upscaler_enabled": false,
+            "latent_upscaler_mpx": 1.2,
+            "second_pass_enabled": false,
+            "second_steps": 4,
+            "second_pass_loras": []
+          },
+          "workflow_render_identity": "6941018a01a8f8c976b93801b2b63a48f32c3f767f772c007384bb68807e1c62",
+          "lora_identity": {
+            "hm-breasts-v2": "HMBreastsV2.safetensors",
+            "mysticxxx-v4": "MysticXXX_MMH3-V4-ref2va.safetensors",
+            "movement-v1": "movement_h3_lora_v1_500.safetensors",
+            "h3-turbo-8step": "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+            "hm-nsfw-aio-v25": "HMNSFW-AIO-V2.5.safetensors",
+            "h3-mpov": "MMH3-MPOV.safetensors",
+            "h3-combat-v2": "H3_Combat_V2.safetensors"
+          },
+          "conditioning_bridge": {
+            "id": "bunny-actionlogic-v1",
+            "filename": "BUNNY_H3_ActionLogic_Bridge_V1.safetensors",
+            "enabled": false,
+            "strength": 0.1
+          },
+          "duration_seconds": 20,
+          "requested_duration_seconds": 20,
+          "legal_frame_count": 481,
+          "effective_duration_seconds": 20.04,
+          "effective_duration_ms": 20040,
+          "duration_contract": "v20_24fps_v1",
+          "soft_timeout_minutes": 8,
+          "hard_restart_after_seconds": 90,
+          "pictures": [
+            "ref0.png",
+            "ref1.png",
+            "ref2.png",
+            "ref3.png",
+            "ref4.png",
+            "ref5.png"
+          ],
+          "audio": [],
+          "loras": [
+            {
+              "id": "hm-breasts-v2",
+              "enabled": false,
+              "strength": 1.0
+            },
+            {
+              "id": "mysticxxx-v4",
+              "enabled": false,
+              "strength": 0.6
+            },
+            {
+              "id": "movement-v1",
+              "enabled": false,
+              "strength": 0.5
+            },
+            {
+              "id": "h3-turbo-8step",
+              "enabled": false,
+              "strength": 1.0
+            },
+            {
+              "id": "hm-nsfw-aio-v25",
+              "enabled": false,
+              "strength": 0.6
+            },
+            {
+              "id": "h3-mpov",
+              "enabled": false,
+              "strength": 0.6
+            },
+            {
+              "id": "h3-combat-v2",
+              "enabled": false,
+              "strength": 0.6
+            }
+          ]
+        },
+        "prompt_mode": "manual_final",
+        "prompts_per_batch": 1,
+        "auto_approved": 1,
+        "review_required": 0
+      }
+    ],
+    "requests": {
+      "5739a241-4d06-455b-a431-5b8d3ad01782": {
+        "request_hash": "8483aca0c98e26c7fd6824bf76c1481f6a81ba0bd0b336ac046a4a3eeb566c2c",
+        "result": {
+          "created_batches": [
+            "9912d0e023ff478eb03a8363a826f26b"
+          ]
+        }
+      }
+    },
+    "safety_generation": 0
+  }
+}

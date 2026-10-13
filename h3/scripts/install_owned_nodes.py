@@ -9,6 +9,12 @@ import sys
 import tempfile
 
 try:
+    from ..app.native_identity import read_native_sources, verify_deployed_native, validate_manifest_paths
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from app.native_identity import read_native_sources, verify_deployed_native, validate_manifest_paths
+
+try:
     from .deployment import exchange, sync_directory
 except ImportError:
     from deployment import exchange, sync_directory
@@ -20,15 +26,7 @@ def install(source: Path, custom_nodes: Path) -> None:
     if custom_nodes.is_symlink():
         raise ValueError("custom node parent is symlinked")
     target = custom_nodes / name
-    if source.is_symlink() or (source / "__init__.py").is_symlink():
-        raise ValueError("owned node source is symlinked")
-    bodies = {}
-    for filename in ("__init__.py", "temporal.py", "execution_journal.py", "compiler.py"):
-        path = source / filename
-        if path.is_symlink():
-            raise ValueError("owned node source is symlinked")
-        if path.exists():
-            bodies[filename] = path.read_bytes()
+    bodies = read_native_sources(source)
     digests = {name: hashlib.sha256(body).hexdigest() for name, body in bodies.items()}
     if target.exists() or target.is_symlink():
         if target.is_symlink() or not target.is_dir():
@@ -38,25 +36,29 @@ def install(source: Path, custom_nodes: Path) -> None:
             raise ValueError("AJ node ownership files are symlinked")
         previous = json.loads(owner.read_text())
         previous_files = previous.get("files_sha256", {"__init__.py": previous.get("sha256")})
-        if previous.get("owner") != "AJ" or not isinstance(previous_files, dict) or not previous_files or set(previous_files) - {"__init__.py", "temporal.py", "execution_journal.py", "compiler.py"}:
+        if previous.get("owner") != "AJ":
             raise ValueError("AJ node local edits preserved; reconcile before provisioning")
-        for name, digest in previous_files.items():
-            module = target / name
-            if module.is_symlink() or not module.is_file() or hashlib.sha256(module.read_bytes()).hexdigest() != digest:
-                raise ValueError("AJ node local edits preserved; reconcile before provisioning")
-        if set(path.name for path in target.iterdir()) - (set(previous_files) | {".aj-owner.json", "__pycache__"}):
-            raise ValueError("AJ node contains unrelated files; preserved")
+        try:
+            validate_manifest_paths(previous_files)
+            verify_deployed_native(target, previous_files)
+        except (ValueError, OSError) as error:
+            raise ValueError("AJ node local edits or ambiguous ownership preserved; reconcile before provisioning") from error
         if previous_files == digests:
             return
     stage = Path(tempfile.mkdtemp(prefix=".aj-node-", dir=custom_nodes))
     try:
         receipt = {"owner": "AJ", "sha256": digests["__init__.py"], "files_sha256": digests}
         for filename, content in [*bodies.items(), (".aj-owner.json", json.dumps(receipt).encode())]:
+            (stage / filename).parent.mkdir(parents=True, exist_ok=True)
             descriptor = os.open(stage / filename, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             with os.fdopen(descriptor, "wb") as handle:
                 handle.write(content)
                 handle.flush()
                 os.fsync(handle.fileno())
+        # Persist every subpackage's entries before publishing the package root.
+        for directory in sorted((path for path in stage.rglob("*") if path.is_dir()),
+                                key=lambda path: len(path.parts), reverse=True):
+            sync_directory(directory)
         sync_directory(stage)
         if target.exists():
             exchange(stage, target)

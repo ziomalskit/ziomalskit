@@ -21,8 +21,9 @@ class ProductionArchitectureTests(unittest.TestCase):
         cls.baseline = verified_baseline(ROOT / "workflows" / BASELINE_FILE)
 
     def job(self, profile="h3_full"):
+        from h3.app.workflow_adapters import get_adapter
         return {"batch_id": "batch", "analysis_seed": 101, "prompt_seed": 201, "profile": profile,
-                "context": {"profile": profile, "prompt": "walk", "pictures": [f"ref-{i}.png" for i in range(6)],
+                "context": {**get_adapter("h3_v20").identity(), "profile": profile, "prompt": "walk", "pictures": [f"ref-{i}.png" for i in range(6)],
                             "audio": [], "duration_seconds": 20}}
 
     def test_canonical_attachment_exact_size_and_hash(self):

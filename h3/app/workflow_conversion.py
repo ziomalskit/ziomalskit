@@ -85,11 +85,13 @@ def _ancestors(prompt: dict, roots: set[str]) -> set[str]:
     return result
 
 
-def _route_approved_prompt(prompt: dict, approved_prompt: str | None) -> None:
+def _route_approved_prompt(prompt: dict, approved_prompt: str | None, *, contract=None) -> None:
+    override_id = PROMPT_OVERRIDE_ID if contract is None else contract["prompt_override"]
+    resolver_id = FINAL_RESOLVER_ID if contract is None else contract["final_resolver"]
     if not isinstance(approved_prompt, str) or not approved_prompt.strip():
         raise WorkflowPreparationError("Rendering requires the candidate's nonempty approved prompt")
-    override = prompt.get(PROMPT_OVERRIDE_ID)
-    resolver = prompt.get(FINAL_RESOLVER_ID)
+    override = prompt.get(override_id)
+    resolver = prompt.get(resolver_id)
     if not isinstance(override, dict) or override.get("class_type") != "easy positive":
         raise WorkflowPreparationError("Audited prompt override node 2632 is missing or changed")
     if override["inputs"].get("positive") != approved_prompt:
@@ -97,15 +99,15 @@ def _route_approved_prompt(prompt: dict, approved_prompt: str | None) -> None:
     if (
         not isinstance(resolver, dict)
         or resolver.get("class_type") != "ComfySwitchNode"
-        or resolver["inputs"].get("on_false") != [PROMPT_OVERRIDE_ID, 0]
+        or resolver["inputs"].get("on_false") != [override_id, 0]
     ):
         raise WorkflowPreparationError("Audited final-prompt resolver contract has changed")
     rewired = 0
     for node_id, node in prompt.items():
         for name, value in node["inputs"].items():
             source = _link(value, node_id=node_id, input_name=name)
-            if source == (FINAL_RESOLVER_ID, 0):
-                node["inputs"][name] = [PROMPT_OVERRIDE_ID, 0]
+            if source == (resolver_id, 0):
+                node["inputs"][name] = [override_id, 0]
                 rewired += 1
     if not rewired:
         raise WorkflowPreparationError("No consumers of the audited final prompt were found")
@@ -117,6 +119,7 @@ def prepare_api_prompt(
     *,
     phase: Literal["prompt", "render"],
     approved_prompt: str | None = None,
+    contract: dict | None = None,
 ) -> dict:
     """Return a validated backend graph containing only this phase's sinks.
 
@@ -124,6 +127,9 @@ def prepare_api_prompt(
     ``comfy --json run --workflow ... --print-prompt`` envelope. ``object_info``
     must come from the same worker. Both arguments remain unchanged.
     """
+    sink_id = RENDER_SINK_ID if contract is None else contract["render_sink"]
+    preview_id = FINAL_PREVIEW_ID if contract is None else contract["final_preview"]
+    override_id = PROMPT_OVERRIDE_ID if contract is None else contract["prompt_override"]
     if phase not in ("prompt", "render"):
         raise WorkflowPreparationError(f"Unknown workflow phase: {phase!r}")
     if not isinstance(converted_prompt, dict):
@@ -136,17 +142,17 @@ def prepare_api_prompt(
     # hidden simply because its node happens to be disconnected in this graph.
     validate_api_prompt(prompt, object_info)
     if phase == "render":
-        sink = prompt.get(RENDER_SINK_ID)
+        sink = prompt.get(sink_id)
         if not isinstance(sink, dict) or sink.get("class_type") != "SaveVideo":
             raise WorkflowPreparationError("Audited SaveVideo output 7331 is required for rendering")
         if object_info["SaveVideo"].get("output_node") is not True:
             raise WorkflowPreparationError("The worker does not register SaveVideo as an output node")
-        _route_approved_prompt(prompt, approved_prompt)
-        roots = {RENDER_SINK_ID}
+        _route_approved_prompt(prompt, approved_prompt, contract=contract)
+        roots = {sink_id}
     else:
         if approved_prompt is not None:
             raise WorkflowPreparationError("Prompt generation must not receive a render override")
-        final = prompt.get(FINAL_PREVIEW_ID)
+        final = prompt.get(preview_id)
         if not isinstance(final, dict) or final.get("class_type") != "PreviewAny":
             raise WorkflowPreparationError("Final prompt PreviewAny output 5732 is required")
         roots = {
@@ -155,7 +161,7 @@ def prepare_api_prompt(
             if node["class_type"] in PROMPT_PREVIEW_CLASSES
             and object_info[node["class_type"]].get("output_node") is True
         }
-        if FINAL_PREVIEW_ID not in roots:
+        if preview_id not in roots:
             raise WorkflowPreparationError("The worker does not register final prompt preview as an output node")
     retained = _ancestors(prompt, roots)
     prepared = {node_id: node for node_id, node in prompt.items() if node_id in retained}
@@ -164,7 +170,7 @@ def prepare_api_prompt(
         raise WorkflowPreparationError("Render output still depends on the autoprompter")
     if phase == "prompt" and classes & {"SamplerCustomAdvanced", "KSampler", "KSamplerAdvanced", "SaveVideo"}:
         raise WorkflowPreparationError("Prompt previews unexpectedly depend on rendering")
-    if phase == "render" and PROMPT_OVERRIDE_ID not in prepared:
+    if phase == "render" and override_id not in prepared:
         raise WorkflowPreparationError("Render output does not consume the approved prompt")
     validate_api_prompt(prepared, object_info)
     return prepared

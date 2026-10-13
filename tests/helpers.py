@@ -22,7 +22,12 @@ def production_fixture_context(module, request):
     context=request.model_dump(mode="json")
     profile=request.profile or module.PRODUCTION["default_profile"]
     context.update(profile=profile,model=profile,profile_identity=module.profile_identity(profile),
+                   **module.workflow_context(profile),
                    **module.duration_identity(request.duration_seconds))
+    context.update(module.freeze_prompt_source(request.prompt_mode, request.prompt, request.manual_final_prompt,
+                                               context["effective_duration_seconds"]))
+    context["conditioning_bridge"] = {"id": module.CONDITIONING_BRIDGE["id"],
+        "filename": module.CONDITIONING_BRIDGE["filename"], **module.CONDITIONING_BRIDGE["defaults"][profile]}
     return context
 
 
@@ -64,6 +69,12 @@ def load_controller(source: Path = ACTIVE, *, production_probes: bool = False, t
     with tempfile.TemporaryDirectory(prefix="aj-test-") as temporary:
         target = Path(temporary) / "h3"
         shutil.copytree(source, target, ignore=shutil.ignore_patterns("__pycache__", "runtime.env"))
+        if source == ACTIVE:
+            # Production verification checks the actual installed filesystem;
+            # every disposable current-controller fixture receives its own
+            # authentic owned package, never a mocked verification exemption.
+            from h3.scripts.install_owned_nodes import install
+            install(target / "custom_nodes/aj_production", target / "comfy/custom_nodes")
         package_name = "_aj_fixture_" + uuid.uuid4().hex
         package = types.ModuleType(package_name)
         package.__path__ = [str(target / "app")]

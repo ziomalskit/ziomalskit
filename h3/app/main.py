@@ -1,7 +1,7 @@
 from __future__ import annotations
 import asyncio, base64, copy, errno, hashlib, hmac, json, math, os, shutil, signal, subprocess, sys, time, uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit, urlencode, parse_qs
 
 if sys.version_info < (3, 11):
@@ -13,7 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, Response, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "static"
@@ -25,18 +25,30 @@ STATE.mkdir(exist_ok=True)
 MASTER = WORKFLOWS / "VAST_H3_MASTER_NATIVE_INT8_96GB.json"
 PROMPT_ONLY = WORKFLOWS / "VAST_H3_PROMPT_ONLY_STAGE2.json"
 MAP = json.loads((CONFIG / "VAST_H3_API_MAP.json").read_text(encoding="utf-8"))
-from .production import read_profiles, read_loras, read_bridge, resolve_loras, patch_lora_slots, PROFILE_LABELS, functional_policy
+from .production import (read_profiles, read_loras, read_bridge, resolve_loras, PROFILE_LABELS, functional_policy,
+                         immutable_registry, registry_json, registry_identity)
 from .analysis_cache import AnalysisCache, prompt_admission
-from .v20 import compose as compose_v20, set_widget as set_v20_widget
-from .writer_policy import MODEL_FIELDS, validate_stages, stage_routes, validate_writer_graph, final_answer
+from .workflow_adapters import get_adapter as _get_adapter, IDENTITY_FIELDS
+from .request_identity import request_fingerprints
+from .render_settings import RenderSettings
+from .writer_policy import MODEL_FIELDS, validate_stages, final_answer
 from .temporal import duration_identity, validate_duration, final_timeline
+from .prompt_modes import (PROMPT_MODES, freeze_prompt_source, validate_prompt_fields, is_manual_final,
+                           validate_job_prompt_source, final_prompt_for_render, validate_render_prompt,
+                           manual_recovery_service)
 from .redaction import redact
 
 PRODUCTION = read_profiles(CONFIG / "production_profiles.json")
-LORA_REGISTRY = read_loras(CONFIG / "lora_registry.json")
-CONDITIONING_BRIDGE = read_bridge(CONFIG / "lora_registry.json")
+_registry_document = json.loads((CONFIG / "lora_registry.json").read_text())
+LORA_REGISTRY = immutable_registry(read_loras(CONFIG / "lora_registry.json", document=_registry_document))
+CONDITIONING_BRIDGE = immutable_registry(read_bridge(CONFIG / "lora_registry.json", document=_registry_document))
+del _registry_document
 analysis_cache = AnalysisCache()
 overlap_telemetry = {"free_vram_mb": None, "sampled_at": 0.0}
+
+
+def get_adapter(workflow_id, *, root=ROOT):
+    return _get_adapter(workflow_id, root=root, registry=LORA_REGISTRY, bridge=CONDITIONING_BRIDGE)
 
 
 def job_profile(job: dict) -> str:
@@ -57,12 +69,18 @@ def job_profile(job: dict) -> str:
     validate_duration(job["context"])
     if job["context"]["duration_seconds"] != job["context"]["requested_duration_seconds"]:
         raise ValueError("persisted requested duration differs from job context")
+    if job["context"].get("lora_registry_identity") != registry_identity(LORA_REGISTRY, CONDITIONING_BRIDGE):
+        raise ValueError("persisted functional LoRA registry identity changed or missing; explicit reconciliation is required")
     lora_identity = job["context"].get("lora_identity")
+    if lora_identity is not None and not isinstance(lora_identity, dict):
+        raise ValueError("persisted LoRA filename identity is malformed; reconciliation required")
     if lora_identity is not None and any(key not in LORA_REGISTRY or LORA_REGISTRY[key]["filename"] != value for key, value in lora_identity.items()):
         raise ValueError("persisted LoRA routing changed; explicit reconciliation is required")
     bridge = job["context"].get("conditioning_bridge")
-    if bridge is not None and (bridge.get("id") != CONDITIONING_BRIDGE["id"] or bridge.get("filename") != CONDITIONING_BRIDGE["filename"]):
+    if bridge is not None and (not isinstance(bridge, dict) or bridge.get("id") != CONDITIONING_BRIDGE["id"] or bridge.get("filename") != CONDITIONING_BRIDGE["filename"]):
         raise ValueError("persisted conditioning bridge routing changed")
+    get_adapter(job["context"].get("workflow_id"), root=ROOT).validate_job(job["context"], PRODUCTION["profiles"][profile])
+    validate_job_prompt_source(job)
     return profile
 
 
@@ -73,8 +91,8 @@ def profile_identity(profile: str) -> dict:
                           "writer_runtime": PRODUCTION["writer_runtime"], "manifest_identity": manifest_identity(profile)})
 
 
-def manifest_identity(profile: str) -> str:
-    manifest = json.loads((CONFIG / "models_manifest.json").read_text())
+def manifest_identity(profile: str, *, document=None) -> str:
+    manifest = json.loads((CONFIG / "models_manifest.json").read_text()) if document is None else document
     facts = ("provider", "repository", "revision", "repository_path", "destination", "size_bytes", "sha256", "generation",
              "source_repository", "source_revision", "observed_source_revision", "llama_cpp_revision", "converter_revision", "converter_sha256")
     entries = [item for item in [*manifest["artifacts"], *manifest.get("pending_artifacts", [])]
@@ -86,6 +104,20 @@ def manifest_identity(profile: str) -> str:
 
 def production_workflow(job: dict) -> Path:
     return WORKFLOWS / PRODUCTION["profiles"][job_profile(job)]["render_template"]
+
+
+def job_workflow_adapter(job: dict):
+    job_profile(job)
+    return get_adapter(job["context"]["workflow_id"], root=ROOT)
+
+
+def workflow_context(profile: str, render_settings=None) -> dict:
+    adapter = get_adapter(PRODUCTION["profiles"][profile]["workflow_id"], root=ROOT)
+    adapter.render_capabilities()  # Verify anchors and canonical defaults before freezing.
+    context = {**adapter.identity(), "render_settings": adapter.resolve_render_settings(render_settings, profile=profile),
+               "lora_registry_identity": registry_identity(LORA_REGISTRY, CONDITIONING_BRIDGE)}
+    context["workflow_render_identity"] = adapter.render_identity(context, context["render_settings"])
+    return context
 
 
 def execution_workflow(job: dict, service: str) -> Path:
@@ -219,7 +251,9 @@ class LoraSetting(BaseModel):
 class BatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_id: uuid.UUID | None = None
-    prompt: str
+    prompt_mode: Literal["autoprompt", "manual_final"] = "autoprompt"
+    prompt: str | None = None
+    manual_final_prompt: str | None = None
     profile: str | None = None
     model: str | None = None
     duration_seconds: float = Field(20, ge=1, le=120, allow_inf_nan=False)
@@ -231,6 +265,12 @@ class BatchRequest(BaseModel):
     pictures: list[str] = []
     audio: list[str] = []
     loras: list[LoraSetting] = []
+    render_settings: RenderSettings = Field(default_factory=RenderSettings)
+
+    @model_validator(mode="after")
+    def validate_prompt_mode(self):
+        validate_prompt_fields(self.prompt_mode, self.prompt, self.manual_final_prompt)
+        return self
 
 
 class ApprovalRequest(BaseModel):
@@ -576,6 +616,9 @@ def load_state() -> None:
                 try:
                     if j.get("batch_id") in incompatible_batches:
                         raise ValueError(incompatible_batches[j["batch_id"]])
+                    owner = manual_recovery_service(j)
+                    if owner is not None:
+                        j["active_service"] = owner
                     job_profile(j)
                     if j.get("batch_id") in profiles_by_batch and profiles_by_batch[j["batch_id"]] != j["profile"]:
                         raise ValueError("job persisted profile differs from batch")
@@ -609,42 +652,6 @@ def find_job(job_id: str) -> dict:
     if not job:
         raise HTTPException(404, "job not found")
     return job
-
-
-def node_by_id(wf: dict, node_id: int) -> dict:
-    matches = [node for node in wf["nodes"] if node.get("id") == node_id]
-    if len(matches) != 1:
-        raise ValueError(f"Expected exactly one UI node at {node_id}, found {len(matches)}")
-    return matches[0]
-
-
-def iter_all_nodes(doc: dict):
-    for n in doc.get("nodes", []):
-        yield n
-    for sg in doc.get("definitions", {}).get("subgraphs", []):
-        yield from iter_all_nodes(sg)
-
-
-def set_named_and_positional(node: dict, field: str, value: Any) -> None:
-    node.setdefault("widgets_values_named", {})[field] = value
-    if node.get("id") == 4595 and field == "unet_name":
-        node["widgets_values"][0] = value
-    elif node.get("id") in (2624, 2632) and field == "positive":
-        node["widgets_values"][0] = value
-    elif node.get("type") == "LoadImage" and field == "image":
-        node["widgets_values"][0] = value
-    elif node.get("type") == "LoadAudio" and field == "audio":
-        node["widgets_values"][0] = value
-
-
-def patch_rgthree_seed(wf: dict, node_id: int, seed: int) -> None:
-    n = node_by_id(wf, node_id)
-    if n.get("type") != "Seed (rgthree)":
-        raise RuntimeError(f"Expected Seed (rgthree) at node {node_id}, got {n.get('type')}")
-    n.setdefault("widgets_values_named", {})["seed"] = int(seed)
-    if not n.get("widgets_values"):
-        raise RuntimeError(f"Seed node {node_id} has no positional widgets")
-    n["widgets_values"][0] = int(seed)
 
 
 def validate_input_filename(name: str) -> str:
@@ -705,84 +712,6 @@ def normalized_audio_slots(audio: list[str]) -> tuple[list[str], str]:
     return slots, "LLM sees Audio 0"
 
 
-def set_collect_refs_audio_mode(wf: dict, choice: str) -> None:
-    n = node_by_id(wf, 2249)
-    n.setdefault("widgets_values_named", {})["choice_1"] = choice
-    vals = n.get("widgets_values") or []
-    if len(vals) < 3:
-        raise RuntimeError("Collect Refs node 2249 has unexpected widget layout")
-    vals[2] = choice
-
-
-def set_primary_audio_reference_enabled(wf: dict, enabled: bool) -> None:
-    # Node 3423 exposes Audio 0 `is_reference`; its BOOLEAN output feeds
-    # Set_ref_audio_0_apply. This makes "no audio" truly mean no H3 audio ref.
-    n = node_by_id(wf, 3423)
-    vals = n.get("widgets_values") or []
-    if not vals:
-        raise RuntimeError("Audio 0 controller 3423 has unexpected widget layout")
-    n.setdefault("widgets_values_named", {})["value_3"] = bool(enabled)
-    vals[0] = bool(enabled)
-
-
-def patch_llm_pipeline_seeds(wf: dict, analysis_seed: int, prompt_seed: int) -> None:
-    """
-    Patch the REAL seed sources used by the LLM dashboard.
-
-    The four LLMTextProcessor nodes have their `seed` sockets connected, so their
-    local widget values are only mirrors. Node 4022 is the upstream controller
-    that actually feeds Step 1/2/3/4 seeds into the nested dashboard.
-
-    Step 1–2: fixed per batch -> cacheable across 10 candidates.
-    Step 3–4: unique per candidate -> actual prompt diversity.
-    """
-    controller = None
-    downstream = {}
-    for n in iter_all_nodes(wf):
-        if n.get("id") == 4022:
-            controller = n
-        if n.get("id") in (2441, 2447, 2445, 4275):
-            downstream[n["id"]] = n
-
-    if controller is None:
-        raise RuntimeError("Could not find LLM dashboard seed controller node 4022")
-
-    vals = controller.get("widgets_values") or []
-    if len(vals) <= 17:
-        raise RuntimeError("LLM dashboard seed controller 4022 has unexpected widget layout")
-
-    seeds = {
-        "value_4": int(analysis_seed),       # Step 1
-        "value_4_1": int(analysis_seed) + 1, # Step 2
-        "value_4_2": int(prompt_seed),       # Step 3
-        "value_4_3": int(prompt_seed) + 1,   # Step 4
-    }
-    controller.setdefault("widgets_values_named", {}).update(seeds)
-    for idx, value in ((5, seeds["value_4"]), (9, seeds["value_4_1"]),
-                       (13, seeds["value_4_2"]), (17, seeds["value_4_3"])):
-        vals[idx] = value
-
-    # Keep local widgets synchronized too; connected sockets remain authoritative.
-    mirrors = {
-        2441: seeds["value_4"],
-        2447: seeds["value_4_1"],
-        2445: seeds["value_4_2"],
-        4275: seeds["value_4_3"],
-    }
-    missing = set(mirrors) - set(downstream)
-    if missing:
-        raise RuntimeError(f"Missing LLM processor nodes: {sorted(missing)}")
-    for nid, seed in mirrors.items():
-        n = downstream[nid]
-        expected_type = "AJCompilerTextProcessor" if nid == 4275 and wf.get("extra", {}).get("aj_production") else "LLMTextProcessor"
-        if n.get("type") != expected_type:
-            raise RuntimeError(f"Expected LLMTextProcessor at {nid}, got {n.get('type')}")
-        n.setdefault("widgets_values_named", {})["seed"] = int(seed)
-        if len(n.get("widgets_values", [])) <= 13:
-            raise RuntimeError(f"LLMTextProcessor {nid} has unexpected widget layout")
-        n["widgets_values"][13] = int(seed)
-
-
 def patch_workflow(job: dict, workflow_template: Path, *, approved_prompt: str | None = None) -> Path:
     requested_phase = "prompt" if workflow_template == PROMPT_ONLY else "render"
     if job.get("profile") in PROFILE_LABELS and workflow_template in (MASTER, PROMPT_ONLY):
@@ -791,88 +720,23 @@ def patch_workflow(job: dict, workflow_template: Path, *, approved_prompt: str |
     if is_production:
         if workflow_template != production_workflow(job):
             raise ValueError("workflow does not match job's persisted profile")
-        wf = compose_v20(workflow_template, PRODUCTION, LORA_REGISTRY,
-                         writer_stages=job["context"]["profile_identity"]["writer_stages"])
-    else:
-        # These explicitly addressed legacy templates are diagnostic artifacts.
-        # Normal workers always select production_workflow(job).
-        wf = json.loads(workflow_template.read_text(encoding="utf-8"))
-    from .workflow_validation import validate_ui_workflow, lora_slots
-    validate_ui_workflow(wf, patch_contract=True)
-    ctx = job["context"]
+        adapter = job_workflow_adapter(job)
+        phase = job.get("active_service", requested_phase)
+        audio_slots, _ = normalized_audio_slots(job["context"].get("audio", []))
+        wf = adapter.compose_job(workflow_template, PRODUCTION, LORA_REGISTRY, job,
+                                 audio_slots, approved_prompt, phase)
+        from .workflow_validation import validate_ui_workflow
+        validate_ui_workflow(wf)
+        out = STATE / f"job_{job['id']}_{phase}.json"
+        out.write_text(json.dumps(wf, ensure_ascii=False, indent=2), encoding="utf-8")
+        return out
+    # Explicit legacy diagnostics retain their isolated historical contract.
+    from .legacy_workflow import patch_diagnostic_workflow
+    audio_slots, audio_choice = normalized_audio_slots(job["context"].get("audio", []))
+    wf = patch_diagnostic_workflow(job, workflow_template, MAP, audio_slots, audio_choice,
+        approved_prompt=approved_prompt, prompt_only=workflow_template == PROMPT_ONLY, setting_model=LoraSetting)
 
-    checkpoint = (PRODUCTION["profiles"][job_profile(job)]["checkpoint"] if is_production else
-                  MAP["nodes"]["model_loader"]["alternatives"].get(ctx["model"]))
-    if not checkpoint:
-        raise ValueError(f"Unknown model preset: {ctx['model']}")
-    set_named_and_positional(node_by_id(wf, 4595), "unet_name", checkpoint)
-    set_named_and_positional(node_by_id(wf, 2624), "positive", ctx["prompt"])
-    set_named_and_positional(node_by_id(wf, 2632), "positive", approved_prompt or "")
-
-    # Exact fixed-width reference context is bound to the batch and copied into every candidate.
-    pictures = list(ctx.get("pictures", []))
-    if len(pictures) != 6:
-        raise RuntimeError("job context does not contain exactly 6 picture slots")
-    for slot, filename in enumerate(pictures, start=1):
-        nid = MAP["nodes"]["pictures"][slot - 1]["id"]
-        set_named_and_positional(node_by_id(wf, nid), "image", filename)
-
-    requested_audio = list(ctx.get("audio", []))
-    audio_slots, audio_choice = normalized_audio_slots(requested_audio)
-    for slot, filename in enumerate(audio_slots, start=1):
-        nid = MAP["nodes"]["audio"][slot - 1]["id"]
-        set_named_and_positional(node_by_id(wf, nid), "audio", filename)
-    set_collect_refs_audio_mode(wf, audio_choice)
-    set_primary_audio_reference_enabled(wf, bool(requested_audio))
-
-    # Connected Seed (rgthree) nodes are authoritative; sampler widget values are only UI mirrors.
-    render_seed = int(job["render_seed"])
-    patch_rgthree_seed(wf, 1854, render_seed)
-    patch_rgthree_seed(wf, 6067, render_seed + 1)
-    for nid, seed in ((7334, render_seed), (7335, render_seed + 1)):
-        n = node_by_id(wf, nid)
-        n.setdefault("widgets_values_named", {})["noise_seed"] = seed
-        if n.get("widgets_values"):
-            n["widgets_values"][0] = seed
-
-    # One analysis token per batch stabilizes Step 0-2 input text.
-    patch_rgthree_seed(wf, 7360, int(job["analysis_seed"]))
-    if workflow_template == PROMPT_ONLY or is_production:
-        patch_llm_pipeline_seeds(
-            wf,
-            int(job["analysis_seed"]),
-            int(job["prompt_seed"]),
-        )
-
-    if is_production:
-        patch_lora_slots(node_by_id(wf, 6164), LORA_REGISTRY,
-                         resolve_loras(LORA_REGISTRY, job_profile(job), ctx.get("loras"), frozen=True))
-        set_v20_widget(node_by_id(wf, 1731), "value", ctx["duration_seconds"])
-        defaults = ctx.get("conditioning_bridge", CONDITIONING_BRIDGE["defaults"][job_profile(job)])
-        set_v20_widget(node_by_id(wf, 7362), "enabled", defaults["enabled"])
-        set_v20_widget(node_by_id(wf, 7362), "alpha", defaults["strength"])
-        wf["extra"]["aj_production"].update(job_id=job["id"], phase=job.get("active_service", requested_phase))
-    elif ctx.get("loras"):
-        n = node_by_id(wf, 6164)
-        settings = [LoraSetting.model_validate(value) for value in ctx["loras"]]
-        if len({setting.name for setting in settings}) != len(settings):
-            raise ValueError("Duplicate LoRA settings")
-        supported = [item["lora"] for item in MAP["nodes"]["first_pass_loras"]["entries"]]
-        slots = lora_slots(wf, supported)
-        for setting in settings:
-            if setting.name not in slots:
-                raise ValueError(f"Unsupported LoRA: {setting.name}")
-            _, named = slots[setting.name]
-            rows = [item for item in n["widgets_values"] if isinstance(item, dict) and item.get("lora") == setting.name]
-            if len(rows) != 1:
-                raise ValueError(f"Ambiguous positional LoRA slot: {setting.name}")
-            for item in (named, rows[0]):
-                item.update(on=setting.enabled, strength=setting.strength)
-        lora_slots(wf, supported)
-
-    validate_ui_workflow(wf, patch_contract=True)
-
-    phase = job.get("active_service", requested_phase) if is_production else requested_phase
+    phase = requested_phase
     out = STATE / f"job_{job['id']}_{phase}.json"
     out.write_text(json.dumps(wf, ensure_ascii=False, indent=2), encoding="utf-8")
     return out
@@ -1357,10 +1221,30 @@ def _record_render_finish(job: dict, entry: dict) -> None:
 
 def public_job(job: dict) -> dict:
     """Read-only result normalization, including pre-contract queue snapshots."""
-    result = dict(job)
+    context = job.get("context")
+    valid_context = isinstance(context, dict)
+    context = context if valid_context else {}
+    modes = {value for value in (job.get("prompt_mode"), context.get("prompt_mode")) if isinstance(value, str)}
+    mode = next(iter(modes)) if len(modes) == 1 and modes <= {"autoprompt", "manual_final"} else None
+    invalid_mode = any("prompt_mode" in source and (not isinstance(source["prompt_mode"], str) or
+                       source["prompt_mode"] not in {"autoprompt", "manual_final"}) for source in (job, context))
+    if invalid_mode:
+        mode = None
+    if (not modes and not invalid_mode and valid_context and isinstance(context.get("prompt"), str)
+            and context.get("manual_final_prompt") is None and "workflow_prompt_identity" not in context
+            and "manual_final_prompt_sha256" not in context):
+        mode = "autoprompt"  # Knowable legacy scene source; never execution migration.
+    quarantined = bool(job.get("reconciliation_required")) or not valid_context or (
+        is_manual_final(job) and not isinstance(context.get("manual_final_prompt"), str))
+    result = ({key: value for key, value in job.items() if key != "context" and
+               (value is None or type(value) in (str, int, float, bool))} if quarantined else dict(job))
+    result["prompt_mode"] = mode
+    if mode == "manual_final" and isinstance(context.get("manual_final_prompt"), str):
+        result["manual_final_prompt"] = context["manual_final_prompt"]
     if job.get("status") == "completed":
         videos = []
-        for url in job.get("video_outputs", job.get("outputs", [])) or []:
+        outputs = job.get("video_outputs", job.get("outputs", []))
+        for url in outputs if isinstance(outputs, list) else []:
             if not isinstance(url, str):
                 continue
             try:
@@ -1399,12 +1283,10 @@ def _apply_history_outcome(job: dict, service: str, entry: dict) -> bool:
     elif service == "prompt":
         capture_error = None
         try:
-            captured = extract_prompt_texts(entry)
-            if job.get("profile") in PROFILE_LABELS:
-                job_profile(job)
-                validate_writer_graph(_prompt_graph_from_history(entry), stage_routes(job["context"]["profile_identity"]))
-                from .production_api import validate_temporal_graph
-                validate_temporal_graph(_prompt_graph_from_history(entry), job["context"])
+            adapter = job_workflow_adapter(job) if job.get("profile") in PROFILE_LABELS else None
+            captured = extract_prompt_texts(entry, capture=adapter.capture_contract() if adapter else None)
+            if adapter:
+                adapter.validate_final_graph(_prompt_graph_from_history(entry), job["context"], phase="prompt")
                 final_timeline(captured.get("final_h3_prompt"), captured.get("creative_plan"), job["context"]["effective_duration_seconds"])
                 job["temporal_guard_status"] = "verified"
         except ValueError as error:
@@ -1471,10 +1353,10 @@ def _title_for_api_node(node: dict) -> str:
     return str(node.get("class_type", ""))
 
 
-def extract_prompt_texts(entry: dict) -> dict[str, str | None]:
+def extract_prompt_texts(entry: dict, *, capture=None) -> dict[str, str | None]:
     outputs = entry.get("outputs") or {}
     graph = _prompt_graph_from_history(entry)
-    capture = MAP["prompt_capture"]
+    capture = MAP["prompt_capture"] if capture is None else capture
     wanted = {
         capture["step0_visual_facts_title"]: "visual_facts",
         capture["step1_expanded_intent_title"]: "expanded_intent",
@@ -1736,7 +1618,13 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
     from .workflow_conversion import prepare_api_prompt
     from .workflow_validation import validate_ui_workflow, validate_converted_widgets
     ui_workflow = json.loads(workflow.read_text(encoding="utf-8"))
-    validate_ui_workflow(ui_workflow, patch_contract=True)
+    owner = next((job for job in queue if workflow == STATE / f"job_{job['id']}_{service}.json"), None)
+    if owner and is_manual_final(owner):
+        assert_manual_render_phase(owner, service)
+    metadata = ui_workflow.get("extra", {}).get("aj_production")
+    if owner and owner.get("profile") in PROFILE_LABELS and (not metadata or metadata.get("job_id") != owner["id"]):
+        raise ValueError("production workflow adapter metadata missing or owner changed")
+    validate_ui_workflow(ui_workflow, patch_contract=not bool(ui_workflow.get("extra", {}).get("aj_production")))
 
     envelope = preview_envelope if preview_envelope is not None else await run_cli_envelope(
         service, "run", "--workflow", str(workflow), "--print-prompt"
@@ -1748,41 +1636,40 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
         response = await client.get(f"{service_url(service)}/object_info")
         response.raise_for_status()
         catalog = response.json()
-    validate_ui_workflow(ui_workflow, catalog, patch_contract=True)
+    validate_ui_workflow(ui_workflow, catalog, patch_contract=not bool(ui_workflow.get("extra", {}).get("aj_production")))
     validate_converted_widgets(ui_workflow, data["prompt"], catalog)
-    approved = None
-    if service == "render":
-        override = node_by_id(ui_workflow, 2632)
-        approved = override.get("widgets_values_named", {}).get("positive")
-        if approved is None:
-            approved = override["widgets_values"][0]
-    prepared = prepare_api_prompt(data["prompt"], catalog, phase=service, approved_prompt=approved)
     production = ui_workflow.get("extra", {}).get("aj_production")
+    adapter = None
     if production:
         job = find_job(production["job_id"])
         profile = job_profile(job)
-        if production.get("profile") != profile or production.get("phase") != service:
-            raise ValueError("prepared workflow/profile identity mismatch")
-        from .production_api import phase_boundaries, reuse_analysis, frozen_duration, temporal_guards, validate_temporal_graph
-        prepared = frozen_duration(prepared, job["context"], catalog)
+        adapter = job_workflow_adapter(job)
+        if (production.get("profile") != profile or production.get("phase") != service or
+                any(production.get(key) != job["context"].get(key) for key in IDENTITY_FIELDS)):
+            raise ValueError("prepared workflow/profile/adapter identity mismatch")
+    approved = None
+    if service == "render":
+        if adapter:
+            approved = adapter.approved_prompt(ui_workflow)
+        else:
+            from .legacy_workflow import approved_prompt as diagnostic_prompt
+            approved = diagnostic_prompt(ui_workflow)
+    prepared = (adapter.prepare_api_prompt(data["prompt"], catalog, phase=service, approved_prompt=approved, context=job["context"])
+                if adapter else prepare_api_prompt(data["prompt"], catalog, phase=service, approved_prompt=approved))
+    if adapter:
+        analysis_texts = None
         if service == "render":
-            final_timeline(approved, job.get("creative_plan"), job["context"]["effective_duration_seconds"])
-            values = PRODUCTION["profiles"][profile]
-            for node, field, expected in (("4595:4529", "unet_name", values["checkpoint"]),
-                ("4595:130", "clip_name", values["encoder"]), ("4595:121", "vae_name", values["video_vae"]),
-                ("4595:122", "vae_name", values["audio_vae"])):
-                if prepared.get(node, {}).get("inputs", {}).get(field) != expected:
-                    raise ValueError("converted render loader differs from persisted production profile")
-            prepared, mapping = phase_boundaries(prepared, catalog, job["context"]["profile_identity"]["memory_policy"])
-            job["render_phase_nodes"] = mapping
+            validate_render_prompt(job, approved)
         else:
             batch = batch_for_job(job)
             job["prompt_kind"] = analysis_cache.classify(job, batch)
             if job["prompt_kind"] != "cold_analysis":
-                prepared = reuse_analysis(prepared, batch["analysis"]["texts"], catalog)
-            prepared = temporal_guards(prepared, catalog)
-            validate_writer_graph(prepared, stage_routes(job["context"]["profile_identity"]))
-            validate_temporal_graph(prepared, job["context"])
+                analysis_texts = batch["analysis"]["texts"]
+        prepared, mapping = adapter.install_runtime_guards(prepared, catalog, job["context"],
+                                                         phase=service, analysis_texts=analysis_texts)
+        adapter.validate_final_graph(prepared, job["context"], phase=service)
+        if mapping is not None:
+            job["render_phase_nodes"] = mapping
     api_path = workflow.with_suffix(".api.json")
     catalog_path = workflow.with_suffix(".catalog.json")
     _atomic_json_write(api_path, prepared)
@@ -1811,7 +1698,15 @@ async def _dispatch_prepared_workflow(prepared: Any, workflow: Path, service: st
     return data["prompt_id"]
 
 
+def assert_manual_render_phase(job: dict, service: str) -> None:
+    if is_manual_final(job):
+        if service != "render":
+            raise SubmissionRejected("manual final jobs never use Prompt Worker")
+        validate_job_prompt_source(job)
+
+
 async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
+    assert_manual_render_phase(job, service)
     if state_load_error or queue_persistence_error or vast_control_load_error or (controller_started and _worker_health()[1]):
         raise RuntimeError("Stored controller state is unavailable; submission is blocked")
     if not submissions_allowed():
@@ -1824,6 +1719,7 @@ async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
         raise SubmissionRejected("legacy submission requires explicit diagnostic mode")
     if production:
         assert_phase_admission(job, service)
+        verify_production_native(job)
         await verify_production_files(job, service)
     await arm_execution_protocol(service)
     cache_epoch = None
@@ -1858,6 +1754,7 @@ async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
         # A renderer/prompt reservation made while conversion awaited cannot
         # create an unsafe cold-analysis/conditioning race.
         assert_phase_admission(job, service)
+        verify_production_native(job)
     if job.get("cancel_requested"):
         raise SubmissionCancelled("job cancelled during preparation")
     if lifecycle_dispatch_blocked() or vast_control.get("plan") == "stop_after_current":
@@ -1913,6 +1810,7 @@ async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
 
 
 async def submit_and_watch(job: dict, workflow: Path, service: str, approved_prompt: str | None = None) -> dict:
+    assert_manual_render_phase(job, service)
     job["active_service"] = service
     job["status"] = f"{service}_preparing"
     job[f"{service}_submission_state"] = "preparing"
@@ -1981,6 +1879,8 @@ async def _finish_watched_job(job: dict, service: str, result: dict) -> None:
 
 
 async def generate_prompt_candidate(job: dict) -> None:
+    if is_manual_final(job):
+        raise SubmissionRejected("manual final jobs never use Prompt Worker")
     if job.get("cancel_requested"):
         job["status"] = "cancelled"
         save_state()
@@ -2415,7 +2315,7 @@ def service_work_active(service: str) -> bool:
 
 
 def prompt_prefetch_status() -> dict:
-    ready = sum(j.get("status") in {"render_queued_auto", "render_queued_review"} for j in queue)
+    ready = sum(j.get("status") in {"render_queued_auto", "render_queued_review"} and not is_manual_final(j) for j in queue)
     # The one Prompt Worker reserves one slot before its first await. Review
     # Pool entries are decisions, not future render work; counting them would
     # deadlock automatic batches and prevent all five reviews being prepared.
@@ -2446,17 +2346,22 @@ async def verify_production_files(job: dict, service: str) -> None:
     from .model_health import artifact_health
     profile = job_profile(job)
     def verify():
+        verify_production_native(job)
         manifest = json.loads((CONFIG / "models_manifest.json").read_text())
-        entries = validate_manifest(manifest)
-        for item in entries.values():
+        if manifest_identity(profile, document=manifest) != job["context"]["profile_identity"]["manifest_identity"]:
+            raise ValueError("captured model provenance differs from the frozen production job")
+        entries = (job_workflow_adapter(job).required_render_artifacts(job["context"], manifest)
+                   if is_manual_final(job) and service == "render" else list(validate_manifest(manifest).values()))
+        for item in entries:
             if item["required"] and ("shared" in item["profiles"] or profile in item["profiles"]):
                 if artifact_health(COMFY_MODELS_DIR, item)["status"] != "verified_file":
                     raise ValueError("required production artifact is not integrity-verified")
         if service == "render":
             from .artifacts import verify_file
             settings = resolve_loras(LORA_REGISTRY, profile, job["context"].get("loras"), frozen=True)
-            expected = [(setting["id"], "loras/" + LORA_REGISTRY[setting["id"]]["filename"], LORA_REGISTRY[setting["id"]])
-                        for setting in settings if setting["enabled"]]
+            settings.extend(job_workflow_adapter(job).active_render_loras(job["context"]))
+            identifiers = dict.fromkeys(setting["id"] for setting in settings if setting["enabled"])
+            expected = [(key, "loras/" + LORA_REGISTRY[key]["filename"], LORA_REGISTRY[key]) for key in identifiers]
             bridge = CONDITIONING_BRIDGE
             if job["context"].get("conditioning_bridge", bridge["defaults"][profile])["enabled"]:
                 expected.append((bridge["id"], "semantic_bridge/" + bridge["filename"], bridge))
@@ -2481,6 +2386,13 @@ async def verify_production_files(job: dict, service: str) -> None:
         raise SubmissionRejected("Production model/LoRA provenance or file integrity is incomplete; run provisioning and preflight") from None
 
 
+def verify_production_native(job: dict) -> None:
+    try:
+        job_workflow_adapter(job).verify_deployed_native(COMFY_ROOT, job.get("context"))
+    except Exception:
+        raise SubmissionRejected("Production native implementation differs from frozen identity; reinstall and restart workers") from None
+
+
 def active_render_policy() -> dict | None:
     active = [job for job in queue if job.get("status") in {
         "render_preparing", "render_submitting", "render_running", "recovery_render", "render_submission_uncertain"}
@@ -2491,15 +2403,21 @@ def active_render_policy() -> dict | None:
     if len(active) != 1:
         return {"profile": None, "phase": "recovery"}
     job = active[0]
+    context = job.get("context")
+    policy = context.get("profile_identity") if isinstance(context, dict) else None
+    if not isinstance(policy, dict):
+        return {"profile": job.get("profile"), "phase": "recovery"}
     try:
-        functional_policy(job.get("context", {}).get("profile_identity", {}))
+        functional_policy(policy)
     except ValueError:
         return {"profile": job.get("profile"), "phase": "recovery"}
-    return {"profile": job.get("profile"), "policy": job.get("context", {}).get("profile_identity"), "phase": job.get("render_phase", "unknown")
+    return {"profile": job.get("profile"), "policy": policy, "phase": job.get("render_phase", "unknown")
             if job.get("status") == "render_running" else "recovery"}
 
 
 def phase_admission(job: dict, service: str) -> tuple[bool, str]:
+    if service == "prompt" and is_manual_final(job):
+        return False, "manual final jobs bypass Prompt Worker"
     if job.get("profile") not in PROFILE_LABELS:
         return True, "explicit diagnostic fixture; normal workers require persisted profiles"
     if service == "render":
@@ -2531,14 +2449,14 @@ def pick_next_prompt_job() -> dict | None:
         return None
     if vast_control.get("plan") in {"stop_after_current", "stop_after_queue", "destroy_after_queue_keep_data"}:
         # auto prompts may already be queued for stop-after-queue, but review generation is intentionally skipped when armed.
-        pending_auto = [j for j in queue if j.get("status") == "prompt_queued" and not j.get("review_required")]
+        pending_auto = [j for j in queue if j.get("status") == "prompt_queued" and not j.get("review_required") and not is_manual_final(j)]
         if vast_control.get("plan") == "stop_after_current":
             return None
         if pending_auto:
             pending_auto.sort(key=lambda j: (j["batch_seq"], j["candidate_index"]))
             return next((job for job in pending_auto if phase_admission(job, "prompt")[0]), None)
         return None
-    pending = [j for j in queue if j.get("status") == "prompt_queued"]
+    pending = [j for j in queue if j.get("status") == "prompt_queued" and not is_manual_final(j)]
     # A phase-deferred automatic candidate retains its accepted priority over
     # all unstarted reviews. Admission cannot turn a warm review into a bypass
     # of cold automatic work in another batch.
@@ -2579,7 +2497,7 @@ async def render_job(job: dict) -> None:
         job["status"] = "cancelled"
         save_state()
         return
-    approved = job.get("approved_final_prompt") or job.get("final_h3_prompt")
+    approved = final_prompt_for_render(job)
     if not approved:
         job["status"] = "render_failed"
         job["error"] = "missing final prompt"
@@ -2674,6 +2592,7 @@ async def render_worker() -> None:
 
 
 async def _recover_one_job(job: dict, service: str) -> None:
+    assert_manual_render_phase(job, service)
     recovery_counts[service] = recovery_counts.get(service, 0) + 1
     recovering_services.add(service)
     try:
@@ -2686,6 +2605,7 @@ async def _recover_one_job(job: dict, service: str) -> None:
 
 
 async def _recover_one_job_impl(job: dict, service: str) -> None:
+    assert_manual_render_phase(job, service)
     pid = _known_prompt_id(job, service)
     receipt = job.get(f"{service}_pending_deleted")
     if (isinstance(receipt, dict) and receipt == {"protocol": "aj-terminal-v1", "prompt_id": pid, "state": "pending_deleted"}):
@@ -2858,17 +2778,21 @@ async def index():
 async def config():
     from .model_health import manifest_health, lora_health
     return {
-        "profiles": [{"id": key, **value} for key, value in PRODUCTION["profiles"].items()],
+        "profiles": [{"id": key, **value,
+                      "workflow": get_adapter(value["workflow_id"], root=ROOT).render_capabilities()}
+                     for key, value in PRODUCTION["profiles"].items()],
         "default_profile": PRODUCTION["default_profile"],
+        "default_prompt_mode": "autoprompt",
+        "prompt_modes": list(PROMPT_MODES),
         "render_comfy_url": RENDER_COMFY_URL,
         "prompt_comfy_url": PROMPT_COMFY_URL,
-        "loras": [{"id": key, "display_name": value["display_name"], "defaults": value["defaults"],
-                   "strength_range": value["strength_range"], "compatibility": value["compatibility"],
+        "loras": [{"id": key, "display_name": value["display_name"], "defaults": registry_json(value["defaults"]),
+                   "strength_range": registry_json(value["strength_range"]), "compatibility": registry_json(value["compatibility"]),
                    "gpu_validation": value["gpu_validation"], "help": value.get("help", ""),
                    **lora_health(COMFY_MODELS_DIR, key, value)}
                   for key, value in LORA_REGISTRY.items()],
         "prompt_cache": {"epoch": analysis_cache.epoch, "service_epoch": analysis_cache.service_epoch},
-        "conditioning_bridge": {"id": CONDITIONING_BRIDGE["id"], "defaults": CONDITIONING_BRIDGE["defaults"],
+        "conditioning_bridge": {"id": CONDITIONING_BRIDGE["id"], "defaults": registry_json(CONDITIONING_BRIDGE["defaults"]),
                                 **lora_health(COMFY_MODELS_DIR, CONDITIONING_BRIDGE["id"], CONDITIONING_BRIDGE, bridge=True)},
         "gpu_validation": "pending",
         "models": await asyncio.to_thread(manifest_health, CONFIG / "models_manifest.json", COMFY_MODELS_DIR),
@@ -2934,11 +2858,10 @@ async def api_diagnostics():
                  "remote_authorization": "not_probed"}, "models": models,
         "production": {"default_profile": PRODUCTION["default_profile"], "active_render": active_render_policy(),
                        "profiles": PRODUCTION["profiles"], "prompt_cache_epoch": analysis_cache.epoch,
-                       "duration_jobs": [{"id": job["id"], "requested_duration_seconds": job.get("context", {}).get("requested_duration_seconds"),
-                           "effective_duration_seconds": job.get("context", {}).get("effective_duration_seconds"),
-                           "legal_frame_count": job.get("context", {}).get("legal_frame_count"),
+                       "duration_jobs": [{"id": job["id"], **{key: job["context"].get(key) if isinstance(job.get("context"), dict) else None
+                           for key in ("requested_duration_seconds", "effective_duration_seconds", "legal_frame_count")},
                            "temporal_guard_status": job.get("temporal_guard_status", "pending")}
-                           for job in queue if job.get("profile") in PROFILE_LABELS][:20],
+                           for job in queue if isinstance(job.get("profile"), str) and job["profile"] in PROFILE_LABELS][:20],
                        "prompt_service_epoch": analysis_cache.service_epoch, "gpu_validation": "pending"}})
     data["checks"] = checks_for(data)
     data["status"] = next((status for status in ("FAIL", "WARN") if any(
@@ -3124,29 +3047,42 @@ async def create_batches(req: BatchRequest):
         if state_load_error:
             raise HTTPException(503, state_load_error)
         request_key = str(req.request_id) if req.request_id is not None else None
-        request_hash = hashlib.sha256(json.dumps(req.model_dump(mode="json", exclude={"request_id"}),
-                                                sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        request_hash, legacy_hash = request_fingerprints(req)
         previous = request_results.get(request_key)
         if previous:
-            if previous["request_hash"] != request_hash:
+            if previous["request_hash"] not in {request_hash, legacy_hash}:
                 raise HTTPException(409, "request_id was already used for a different request")
             return {"created_batches": list(previous["result"]["created_batches"])}
         if shutdown_armed():
             raise HTTPException(409, "shutdown plan is armed; cancel it before creating a new batch")
         if request_key is None:
             raise HTTPException(400, "A client-generated UUID request_id is required; reuse it when retrying")
-        if not req.prompt.strip():
+        try:
+            validate_prompt_fields(req.prompt_mode, req.prompt, req.manual_final_prompt)
+            frozen_duration = duration_identity(req.duration_seconds)
+            frozen_prompt = freeze_prompt_source(req.prompt_mode, req.prompt, req.manual_final_prompt,
+                                                frozen_duration["effective_duration_seconds"])
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+        manual = req.prompt_mode == "manual_final"
+        if not manual and not req.prompt.strip():
             raise HTTPException(400, "scene prompt is empty")
         selected_profile = req.profile or req.model or PRODUCTION["default_profile"]
         if selected_profile not in PROFILE_LABELS:
             raise HTTPException(400, "unknown production profile")
         if req.profile and req.model is not None and req.model != req.profile:
             raise HTTPException(400, "conflicting profile identifiers")
+        try:
+            frozen_workflow = workflow_context(selected_profile, req.render_settings.model_dump(exclude_unset=True))
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
         pictures, audio = validate_requested_assets(req)
         created_batches = []
         base_render_seed = req.seed if req.seed is not None else int(time.time_ns() & 0x7FFFFFFF)
-        base_prompt_seed = int((time.time_ns() >> 8) & 0x7FFFFFFF)
-        base_analysis_seed = int((time.time_ns() >> 16) & 0x7FFFFFFF)
+        if not manual:
+            base_prompt_seed = int((time.time_ns() >> 8) & 0x7FFFFFFF)
+            base_analysis_seed = int((time.time_ns() >> 16) & 0x7FFFFFFF)
+        jobs_per_batch = 1 if manual else PROMPTS_PER_BATCH
         next_queue, next_batches = list(queue), list(batches)
         batch_seq_start = max([b.get("seq", 0) for b in batches] or [0]) + 1
 
@@ -3154,15 +3090,16 @@ async def create_batches(req: BatchRequest):
             batch_id = uuid.uuid4().hex
             batch_seq = batch_seq_start + batch_offset
             context = {
-                "prompt": req.prompt,
+                **copy.deepcopy(frozen_prompt),
                 "model": selected_profile,
                 "profile": selected_profile,
                 "profile_identity": profile_identity(selected_profile),
+                **copy.deepcopy(frozen_workflow),
                 "lora_identity": {key: entry["filename"] for key, entry in LORA_REGISTRY.items()},
                 "conditioning_bridge": {"id": CONDITIONING_BRIDGE["id"], "filename": CONDITIONING_BRIDGE["filename"],
                                         **CONDITIONING_BRIDGE["defaults"][selected_profile]},
                 "duration_seconds": req.duration_seconds,
-                **duration_identity(req.duration_seconds),
+                **frozen_duration,
                 "soft_timeout_minutes": req.soft_timeout_minutes,
                 "hard_restart_after_seconds": req.hard_restart_after_seconds,
                 "pictures": pictures,
@@ -3170,27 +3107,30 @@ async def create_batches(req: BatchRequest):
                 "loras": resolve_loras(LORA_REGISTRY, selected_profile, [x.model_dump() for x in req.loras]),
             }
 
-            analysis_seed = base_analysis_seed + batch_offset
+            if not manual:
+                analysis_seed = base_analysis_seed + batch_offset
             batch = {
                 "id": batch_id,
                 "profile": selected_profile,
                 "seq": batch_seq,
                 "created_at": time.time(),
                 "context": context,
-                "prompts_per_batch": PROMPTS_PER_BATCH,
-                "auto_approved": AUTO_APPROVED_PER_BATCH,
-                "review_required": REVIEW_PER_BATCH,
-                "analysis_seed": analysis_seed,
+                "prompt_mode": req.prompt_mode,
+                "prompts_per_batch": jobs_per_batch,
+                "auto_approved": 1 if manual else AUTO_APPROVED_PER_BATCH,
+                "review_required": 0 if manual else REVIEW_PER_BATCH,
+                **({} if manual else {"analysis_seed": analysis_seed}),
             }
             next_batches.append(batch)
             created_batches.append(batch_id)
 
-            for i in range(PROMPTS_PER_BATCH):
+            for i in range(jobs_per_batch):
                 render_seed = (
-                    base_render_seed + (batch_offset * PROMPTS_PER_BATCH) + i
+                    base_render_seed + (batch_offset * jobs_per_batch) + i
                     if req.random_each else base_render_seed
                 )
-                prompt_seed = base_prompt_seed + (batch_offset * PROMPTS_PER_BATCH * 2) + i * 2
+                if not manual:
+                    prompt_seed = base_prompt_seed + (batch_offset * PROMPTS_PER_BATCH * 2) + i * 2
                 next_queue.append({
                     "id": uuid.uuid4().hex,
                     "batch_id": batch_id,
@@ -3198,12 +3138,13 @@ async def create_batches(req: BatchRequest):
                     "batch_seq": batch_seq,
                     "candidate_index": i + 1,
                     "render_seed": render_seed,
-                    "prompt_seed": prompt_seed,
-                    "analysis_seed": analysis_seed,
+                    "prompt_mode": req.prompt_mode,
+                    **({"final_h3_prompt": req.manual_final_prompt, "prompt_ready_at": time.time()} if manual else
+                       {"prompt_seed": prompt_seed, "analysis_seed": analysis_seed}),
                     "seed": render_seed,  # backwards-compatible UI field
                     "created_at": time.time(),
-                    "status": "prompt_queued",
-                    "review_required": i >= AUTO_APPROVED_PER_BATCH,
+                    "status": "render_queued_auto" if manual else "prompt_queued",
+                    "review_required": False if manual else i >= AUTO_APPROVED_PER_BATCH,
                     "render_priority": None,
                     "context": context,
                 })
@@ -3233,12 +3174,22 @@ async def get_job(controller_job_id: str):
 @app.get("/api/jobs/{controller_job_id}/prompts")
 async def prompts(controller_job_id: str):
     job = find_job(controller_job_id)
+    if job.get("reconciliation_required") or not isinstance(job.get("context"), dict):
+        public = public_job(job)
+        return {"status": public["status"], "prompt_mode": public["prompt_mode"],
+                "reconciliation_required": public.get("reconciliation_required"),
+                "manual_final_prompt": None, "user_prompt": None, "final_h3_prompt": None,
+                "approved_final_prompt": None, "visual_facts": None, "expanded_intent": None,
+                "reference_map": None, "creative_plan": None}
+    manual = is_manual_final(job)
     return {
+        "prompt_mode": job["context"].get("prompt_mode", "autoprompt"),
+        "manual_final_prompt": job["context"].get("manual_final_prompt") if manual else None,
         "user_prompt": job["context"]["prompt"],
-        "visual_facts": job.get("visual_facts"),
-        "expanded_intent": job.get("expanded_intent"),
-        "reference_map": job.get("reference_map"),
-        "creative_plan": job.get("creative_plan"),
+        "visual_facts": None if manual else job.get("visual_facts"),
+        "expanded_intent": None if manual else job.get("expanded_intent"),
+        "reference_map": None if manual else job.get("reference_map"),
+        "creative_plan": None if manual else job.get("creative_plan"),
         "final_h3_prompt": job.get("final_h3_prompt"),
         "approved_final_prompt": job.get("approved_final_prompt"),
         "status": job.get("status"),

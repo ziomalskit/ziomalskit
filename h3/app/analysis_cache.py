@@ -5,8 +5,6 @@ import hashlib
 import json
 import uuid
 
-from .v20 import BASELINE_SHA256
-
 ANALYSIS_FIELDS = ("visual_facts", "expanded_intent", "reference_map")
 
 
@@ -14,7 +12,11 @@ def analysis_key(job: dict) -> str:
     context = job["context"]
     # Render profile/writer and LoRAs are intentionally excluded: Step 0–2 is
     # shared. Requested runtime is part of the v20 analysis contract.
-    identity = {"baseline": BASELINE_SHA256, "analysis_seed": job["analysis_seed"],
+    if job.get("profile") and any(not context.get(key) for key in ("workflow_id", "workflow_baseline_sha256", "workflow_adapter_identity")):
+        raise ValueError("persisted workflow analysis identity missing; explicit reconciliation required")
+    identity = {"baseline": context.get("workflow_baseline_sha256"), "workflow_id": context.get("workflow_id"),
+                "workflow_adapter_identity": context.get("workflow_adapter_identity"),
+                "analysis_seed": job["analysis_seed"],
                 **{key: context.get(key) for key in ("prompt", "pictures", "audio", "duration_seconds")}}
     return hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()).hexdigest()
 
