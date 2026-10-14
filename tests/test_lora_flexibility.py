@@ -280,4 +280,3 @@ class LoraFlexibilityTests(unittest.IsolatedAsyncioTestCase):
         self.edit_registry(lambda data: data['conditioning_bridge'].update(filename='unregistered_bridge.safetensors'))
         with self.assertRaisesRegex(ValueError, 'provenance differs'):
             self.cpu_invariants()
-
