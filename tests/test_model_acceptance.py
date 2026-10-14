@@ -184,6 +184,8 @@ class AcceptanceModelTests(unittest.TestCase):
         with patch.object(acceptance,'verify_native_source'):
             result=acceptance.verify_models(self.root,items,approval)
         self.assertEqual(len(result['model_files']),11)
+        for item, verified in zip(items, result['model_files']):
+            self.assertEqual(verified['signature'], acceptance.signature((self.root/'models'/item['destination']).stat()))
         self.assertEqual(result['gpu_acceptance'],'not_run');self.assertIs(result['production_gate_retired'],False)
         self.assertTrue(result['unverified'])
         server=vendor/'llama-server';server.write_text('tampered executable')

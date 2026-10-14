@@ -16,6 +16,8 @@ native model acceptance can now be prepared independently; real replacement
 load/generation evidence is required before reviewed gate retirement.
 GPU/live Vast acceptance remains **pending**.
 
+[Phase 1 operator runbook](GPU_ACCEPTANCE_PHASE1.md) prepares an independently approved, bounded first native-model session. It stops before production services/renders/lifecycle and leaves the DavidAU gate active. No GPU or paid resource is started by this offline preparation. The full Phase 4 gates below remain pending.
+
 ## Product goal
 
 **references + parameters -> job -> final MP4 link**

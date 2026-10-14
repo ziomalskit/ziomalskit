@@ -56,6 +56,8 @@ Kolejność: **zamknięcie brakujących metadata i weryfikacja zamiennika -> pro
 skonsolidowana sesja Vast/GPU**. Szczegóły profili, pamięci, persistent storage,
 LoRA i tokenów jednorazowych: [h3/README.md](h3/README.md).
 
+**GPU Acceptance Phase 1:** [Runbook operatora](docs/GPU_ACCEPTANCE_PHASE1.md) określa osobne etapy A–D, limity kosztu/czasu, rzeczywisty retained mount oraz ręczne native probes. Przygotowania są offline; pierwszy koszt wymaga osobnej decyzji operatora. DavidAU pozostaje bramką produkcji. [Raport przygotowania CPU](docs/GPU_PHASE1_PREPARATION_2026-10-14.md) opisuje zmiany, dowody i pozostałe blokady.
+
 ## Od czego zacząć
 
 1. [Roadmap produktu i aktualny scope](docs/ROADMAP.md) — kanoniczny plan dalszych etapów i rzeczy świadomie odłożonych.

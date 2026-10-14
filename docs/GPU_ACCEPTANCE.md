@@ -22,6 +22,10 @@ oraz 16 HTTP smoke checks. Nowa migracja nie deklaruje GPU acceptance.
 
 Nadal nie wykonano acceptance na realnym GPU dla aktualnego merge commita. Celem tej procedury jest przejście od zweryfikowanego runtime do pierwszego bezpiecznego deploymentu Vast.
 
+## Ograniczona Phase 1 przed pełnym deploymentem
+
+[GPU_ACCEPTANCE_PHASE1.md](GPU_ACCEPTANCE_PHASE1.md) jest osobnym runbookiem pierwszych native model probes na reviewowanym Draft PR #8. Kończy się na review i STOP własnych procesów, przed usługami, renderami i lifecycle tests. Wymaga jawnej decyzji operatora przed pierwszym kosztem. Poniższe pełne gate’y produkcji obowiązują dopiero po osobnej decyzji i rzeczywistym acceptance zamiennika DavidAU.
+
 ## Docelowe środowisko
 
 Planowany target:

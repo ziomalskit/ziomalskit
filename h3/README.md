@@ -245,6 +245,8 @@ accepted. Use the manifest disk plan for known totals, pending files and staging
 older migration totals describe the earlier stack. `provision_models.py --plan` reports disk requirements
 and fails when known required storage exceeds available space.
 
+[Phase 1 operator runbook](../docs/GPU_ACCEPTANCE_PHASE1.md) covers the exact hardware/storage plan, operator-only quote and budget limits, separate A–D approvals, private evidence and manual stop/resume. The diagnostic helper never rents compute, runs inference or retires production gates.
+
 ### Isolated native model acceptance
 
 [Bootstrap/provenance and later GPU probes](../docs/MODEL_ACCEPTANCE_BOOTSTRAP_2026-10-14.md)

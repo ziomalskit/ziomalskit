@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "scope": "gpu_acceptance_phase1",
+  "checkout_sha": null,
+  "root": null,
+  "approvals": {
+    "first_cost": false,
+    "prepare_models": false,
+    "model_probes": false,
+    "services_off": false,
+    "provider_attachment": false
+  },
+  "storage": {
+    "mount": null,
+    "volume_id": null,
+    "machine_id": null,
+    "device": null,
+    "inode": null,
+    "source": null,
+    "fstype": null,
+    "fsroot": null,
+    "build_reserve_bytes": null,
+    "evidence_reserve_bytes": null
+  },
+  "hardware": {
+    "gpu_name": null,
+    "min_vram_mib": null,
+    "min_ram_bytes": null,
+    "min_cpu_cores": null,
+    "cuda": "13.0"
+  },
+  "quote": {
+    "reference": null,
+    "valid_until_utc": null,
+    "gpu_usd_per_hour": null,
+    "instance_disk_usd_per_hour": null,
+    "volume_usd_per_hour": null,
+    "stopped_disk_usd_per_hour": null,
+    "ingress_usd_per_gb": null,
+    "egress_usd_per_gb": null,
+    "external_preparation_usd": null,
+    "download_bytes_cap": null,
+    "upload_bytes_cap": null,
+    "retention_hours": null
+  },
+  "limits": {
+    "max_instance_usd_per_hour": null,
+    "max_total_usd": null,
+    "max_session_seconds": null,
+    "max_preflight_seconds": null,
+    "max_review_seconds": null,
+    "max_download_seconds": null,
+    "max_build_seconds": null,
+    "max_probe_seconds": null,
+    "min_free_bytes": null,
+    "poll_seconds": null,
+    "shutdown_grace_seconds": null,
+    "billing_max_age_seconds": null
+  },
+  "billing": {
+    "session_started_utc": null,
+    "observed_at_utc": null,
+    "observed_total_usd": null
+  }
+}

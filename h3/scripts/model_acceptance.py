@@ -273,7 +273,8 @@ def verify_models(root, items, approval, *, cuda_version='13.0'):
                     raise ValueError('verified acceptance artifact has invalid GGUF framing')
             finally:
                 os.close(descriptor)
-        models.append({'id': item['id'], 'revision': item['revision'], 'sha256': verified['sha256'], 'size_bytes': verified['size_bytes']})
+        models.append({'id': item['id'], 'revision': item['revision'], 'sha256': verified['sha256'],
+                       'size_bytes': verified['size_bytes'], 'signature': verified['signature']})
     node = root / 'native/custom_nodes/ComfyUI-LLM-text-processor'
     verify_native_source(node)
     vendor = node / 'vendor/llama.cpp' / LLAMA_TAG / 'linux-x64-cuda'
