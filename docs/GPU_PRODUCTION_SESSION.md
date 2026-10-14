@@ -87,8 +87,9 @@ SHA/kopie 0.25–1 h, 11 native plików / wszystkie role vision / oba Step 3/4
 1–3 h, review/cutover 0.5–2+ h. Render baseline jest nieznany.
 Samo H3→10Eros→H3 przy 10/30/60 min na render to 0.5/1.5/3 h.
 Gate 5 wymaga ponadto normalnych batchy (5 auto-renderów na profil, review),
-overlap i recovery; planuj **co najmniej 17 renderów**, a lifecycle/LoRA/retry
-mogą zwiększyć tę liczbę. 17×30 min to 8.5 h samych renderów. Gate 6 z
+overlap, sześć dodatkowych wariantów kontroli i recovery; planuj **co najmniej
+23 rendery**, a lifecycle/LoRA/retry mogą zwiększyć tę liczbę. 23×30 min to
+11.5 h samych renderów. Gate 6 z
 ponownym startem/reattach i backupem wymaga osobnej rezerwy 0.5–2+ h.
 Po pierwszym pomiarze przelicz resztę; jeśli nie mieści się w limicie, STOP,
 a nie skracanie obowiązkowych kryteriów ani fałszywy PASS.
@@ -475,7 +476,10 @@ Twórz **manual_final, batches1** z exact `final.txt` odpowiedniego profilu z Ga
 6 rzeczywistymi refs i audio. Scene prompt pozostaje osobno; final w JSON
 generuj odczytem pliku UTF-8, nie shell command substitution (usuwa końcowe LF).
 `request_id` ustal raz i zapisz body na dysku przed POST. Zostaw render_settings
-pominięte, nie zmieniaj defaults. Przykład utworzenia z przygotowanego requestu:
+pominięte, nie zmieniaj defaults. Obecne wartości to **0.4 MPx, 24 kroki,
+latent upscaler OFF, drugi pass OFF**. Nieaktywne wartości to upscaler 1.2 MPx
+i drugi pass 4 kroki, second-pass LoRA puste.
+Przykład utworzenia z przygotowanego requestu:
 
 ```bash
 "$COMFY_PYTHON" - "$AJ_SESSION_DIR" <<'PY'
@@ -522,6 +526,36 @@ Range GET z `Range: bytes=0-1023` daje206/Content-Range, a bez auth401.
 Sprawdź wpływ wszystkich6 refs, audio i LoRA; sam brak błędu loadera nie dowodzi
 zgodności LoRA. Dodatkowe kontrolowane A/B LoRA wymagają oddzielnego slotu w
 budżecie; nie zmieniaj defaults/config w locie ani już zamrożonych jobów.
+
+Po trzech baseline PASS wykonaj dodatkowo trzy warianty **dla każdego profilu**:
+upscaler ON / drugi pass OFF, OFF/ON i ON/ON. OFF/OFF jest już baseline.
+To sześć dodatkowych płatnych renderów. Testujemy ustawienia poszczególnych
+requestów, nie zmieniamy konfiguracji ani defaults. Przy drugim pass ON użyj
+zweryfikowanego `hm-breasts-v2` ze strength 1.0, aby sprawdzić również tę gałąź
+LoRA. Pozostałe opcjonalne LoRA bez własnego GPU testu zachowują status pending.
+
+```bash
+"$COMFY_PYTHON" - "$AJ_SESSION_DIR" <<'PY'
+import json, sys, uuid
+from pathlib import Path
+p = Path(sys.argv[1])
+for profile, baseline in [('h3', 'h3-1'), ('10eros', '10eros-1')]:
+    for upscaler, second in [(True, False), (False, True), (True, True)]:
+        body = json.loads((p / f'render-{baseline}.json').read_text())
+        body['request_id'] = str(uuid.uuid4())
+        body['render_settings'] = dict(latent_upscaler_enabled=upscaler, second_pass_enabled=second,
+            second_pass_loras=[dict(id='hm-breasts-v2', enabled=True, strength=1.0)] if second else [])
+        name = f'render-{profile}-controls-{int(upscaler)}{int(second)}.json'
+        with (p / name).open('x') as f: json.dump(body, f, ensure_ascii=False)
+PY
+```
+
+Wysyłaj pojedynczo według wzorca `AJ_RENDER_CASE`, w kolejności
+`h3-controls-10`, `h3-controls-01`, `h3-controls-11`, potem te same trzy
+`10eros-controls-*`. Każdy musi completed/settled i przejść MP4/VRAM/graph
+checks przed następnym. Sprawdź zapisane frozen controls, rzeczywiste wykonanie
+dekodera właściwego latent, padding, obrazy/audio CreateVideo i output.
+Brak PASS wariantu oznacza nieprzyjętą funkcję; nie ukrywaj tego wynikiem baseline.
 
 ## Gate 5 — kontroler, overlap, recovery i panel
 

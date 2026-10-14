@@ -79,8 +79,9 @@ Kontrolowana kopia 11 oszczędza ponowny transfer 113.4 GB, lecz nie destination
 
 Sam transfer 285 GB przy 100/250/500/1000 Mbit/s trwa co najmniej
 6.33/2.53/1.27/0.63 h. Trzeba dodać instalacje, build, SHA, próby modeli,
-review, co najmniej 17 renderów oraz retry/lifecycle. Przy 17 × 30 min sam
-render zajmuje 8.5 h. Wariant 8–24 h wymaga przeliczenia konkretnej oferty:
+review, co najmniej 23 rendery (w tym warianty upscaler/drugi pass obu profili)
+oraz retry/lifecycle. Przy 23 × 30 min sam render zajmuje 11.5 h.
+Wariant 8–24 h wymaga przeliczenia konkretnej oferty:
 przykładowe compute $2.50/h to $20/$30/$60 za 8/12/24 h, **plus** storage,
 transfer, backup i retencja. To scenariusz planistyczny, nie cena rynkowa ani
 benchmark. **$15/4h nie uzasadnia dziś GO pełnych Gate 1–6.** Szczegółowe
