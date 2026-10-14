@@ -22,7 +22,7 @@ Qwen3.5-27B i jawnie zatwierdzonego follow-upu.
 | Parametr | Wymaganie / co zapisać |
 | --- | --- |
 | GPU | Dokładnie jedna widoczna RTX PRO 6000 Blackwell 96 GB; zapisz edition, UUID, rzeczywiste `memory.total` i compute capability **12.0**. Ada 6000 nie spełnia wymagania. Nie podstawiaj innej karty. |
-| Kernel hosta | Linux **>=6.9**; `uname -r` dotyczy hosta współdzielonego z kontenerem. Obraz Ubuntu sam nie zapewnia tej wersji kernela. |
+| Kernel hosta | Linux **>=6.8 wyłącznie dla izolowanego Phase 1**; `6.8.0-142-generic` spełnia ten próg, 6.7 jest blokowany. Pełny deployment nadal wymaga **>=6.9 i rzeczywistego feature-probe `PIDFD_SIGNAL_PROCESS_GROUP`**. `uname -r` dotyczy hosta współdzielonego z kontenerem; obraz Ubuntu nie zapewnia wersji kernela. |
 | Driver / CUDA | Kanoniczny plan tej fazy: CUDA **13.0 devel**, NVIDIA driver **>=580.65.06** jako konserwatywny baseline 13.0 GA. Zapisać pełne `nvcc --version`, wersję drivera i digest obrazu. Dla późniejszego update toolkitu sprawdzić jego własne wymaganie drivera; helper sprawdza major/minor i baseline, nie poświadcza zgodności wszystkich patch releases. |
 | Runtime | llama.cpp `60eeeb6082c1126bb8bc72902c83123cd056811b`, tag `b10472`; LLM node `65983de33681816f856db7e16767da906084c688`; build **CUDA arch 120**; receipts i SHA obu native binaries. Nie zmieniaj pinów. |
 | Python / narzędzia | Linux x86_64, Python >=3.11; proponowany Python 3.12. Preinstalowane Git, CMake, `nvcc`, compiler, `flock`, `findmnt`, GNU `timeout`, SSH i opcjonalnie `rsync`. Izolowane dwa venv. Installer nie instaluje apt ani Vast CLI. |
@@ -42,6 +42,38 @@ obsługiwaną przez driver; nie zastępuje kontroli zainstalowanego `nvcc`.
 CUDA 12.8 jest obsługiwaną przez istniejący builder alternatywą, ale zmiana
 kanonicznego planu 13.0 wymaga osobnego review, właściwego drivera i spójnych
 receiptów. Nie stosuj automatycznego fallbacku.
+
+### Kernel: audyt izolowanej ścieżki i granica produkcji
+
+Audyt na bazie HEAD `f54cbe359791c4a755ee8c92f7a6d586fdecd11c`
+prześledził cały Phase 1 oraz źródła llama.cpp
+`60eeeb6082c1126bb8bc72902c83123cd056811b` i selektora LLM node
+`65983de33681816f856db7e16767da906084c688`:
+
+| Etap / wywołania | Zależność od kernela |
+| --- | --- |
+| A, D i monitoring B/C: `gpu_acceptance_operator.py` → `model_acceptance`, `observe`, `inspect`, `watch` | Odczyt konfiguracji, `/proc`, cgroups, `findmnt`, `nvidia-smi`, `nvcc`, lokalnych portów i plików. Monitor tylko obserwuje; nie sygnalizuje procesów i nie steruje usługami ani Vast. |
+| B: `INSTALL_MODEL_ACCEPTANCE.sh` → `provision_model_acceptance.sh` | Osobne root/venv, `flock`, source lock i izolowana instalacja. Nie wywołuje instalatora produkcyjnego, `service_ctl`, panelu, ComfyUI ani onstart. |
+| Native build: `prepare_native_node` → `setup_linux_llama.sh` → `python_env`, `runtime_config`, `patch_llama_binary`, CMake, `install_llama`, `llama_runtime` | Pinned Git sources, CUDA arch 120, kontrola receiptów/SHA oraz `--version`. Publikacja używa `renameat2`; ten syscall istnieje od Linux 3.15. Brak wywołań pidfd group-control. Import `sync_directory` z `deployment` nie uruchamia deploymentu. |
+| Download / verify: `model_acceptance` → `model_downloads` → `artifacts`, `file_publication`, HF SDK | `openat`/NOFOLLOW, `flock`, pełne SHA256, `fsync`, `renameat2(RENAME_NOREPLACE)` i bezpieczny reuse. To nie wymaga 6.9; brak wsparcia syscallu/filesystemu nadal blokuje publikację, bez fallbacku. |
+| C: ręczny `llama-cli` lub jeden loopback `llama-server` + `curl`; `check_model_completion` i `temporal` | Przypięty native engine korzysta z normalnych POSIX signals, wątków, plików/socketów i CUDA. Checker ładuje parser `compiler.py` bez ComfyUI i wywołuje wyłącznie walidację receiptów/final/timeline. Nie uruchamia produkcyjnego adaptera procesów, GPU lease, workerów ani restartów. |
+
+Nie znaleziono zależności tej ścieżki od Linux 6.9. Dlatego dopuszczamy
+**6.8 jako konserwatywny floor Phase 1**, przy zachowaniu wszystkich pozostałych
+bramek. Nie rozszerzamy zgody na starsze kernele. Wynik audytu kodu i testy CPU
+nie poświadczają działającego drivera ani modelu na konkretnym hoście:
+rzeczywiste build/load/vision/EOS/VRAM dla 11 zatwierdzonych plików pozostają
+osobnymi GPU gates. CUDA 13.0 i driver 595.91.07 przekraczają obecny baseline,
+ale same wersje nie dowodzą zgodności hosta i jego drivera.
+
+Pełny deployment według [GPU_ACCEPTANCE.md](GPU_ACCEPTANCE.md) i
+[h3/README.md](../h3/README.md) nadal wymaga **Linux >=6.9** oraz działającej
+flagi `PIDFD_SIGNAL_PROCESS_GROUP` (4). Produkcyjne
+`h3/app/main.py::_require_restart_group_control()` i
+`h3/scripts/process_identity.py::require_group_control()` wykonują rzeczywisty
+`pidfd_send_signal(..., 0, ..., 4)`; sama deklaracja wersji nie wystarcza.
+Ich kod, sterowanie lifecycle i bramka DavidAU nie zmieniają się. Akceptacja
+6.8 w Phase 1 nie zezwala na uruchomienie produkcji na tym hoście.
 
 ## 2. Czy można przygotować wagi bez drogiego GPU?
 
@@ -659,6 +691,20 @@ reasoning/final/EOS/context/timeline, następnie H3 writer i oba Mistrale/projec
    Jeżeli własny proces nie kończy się, zachowaj log i wyjaśnij stan przed dalszą pracą.
 3. Sprawdź faktyczne zakończenie własnych native/install dzieci i brak pracy GPU.
    Stop samego monitora nie zatrzymuje próby. Nie zatrzymuj cudzych usług.
+   **Phase 1 nie zapewnia produkcyjnego, atomowego sterowania grupą przez
+   pidfd.** TERM jest prośbą o zakończenie; KILL nie wykonuje cleanup użytkownika
+   i nie gwarantuje natychmiastowego wyjścia procesu z nieprzerywalnego I/O.
+   GNU `timeout --foreground` nadzoruje bezpośrednią komendę; jej dzieci nie są
+   automatycznie objęte timeoutem. Timeout bez `--foreground` może sygnalizować
+   swoją grupę, ale nie obejmuje dzieci, które ją opuściły, i nie daje gwarancji
+   ownership/restart fencing produkcji. RC timeoutu lub koniec rodzica nie są
+   dowodem zakończenia całego buildu, downloadera ani pracy GPU.
+   Operator pozostaje przy sesji, sprawdza własne procesy/dzieci i mapping PID
+   host/container oraz potwierdza zwolnienie GPU przed następnym krokiem.
+   Nie sygnalizuje ponownie zapamiętanego numeric PID/PGID bez aktualnego dowodu
+   własności. Przy niepewności STOP i ręczne wyjaśnienie stanu; bez restartu,
+   kolejnej próby ani automatycznego lifecycle. Lokalny TERM/KILL nie kończy
+   billingu; osobny zatwierdzony provider STOP pozostaje obowiązkiem operatora.
 4. Potwierdź actual mount/attachment, chmod/private logs, zakończenie write/fsync,
    SHA/index receiptów i obecność danych na retained volume. Przy utracie mountu
    **nie twórz na tym samym pathname nowego katalogu ani nie wznawiaj downloadu**.

@@ -237,7 +237,9 @@ def inspect(session, phase='A', *, allowed_pids=(), observer=observe, now=None, 
         (mismatched_mount, 'PERSISTENT_MOUNT_CHANGED_OR_UNPROVEN'),
         (gpu['name'] != hardware['gpu_name'] or gpu['compute_cap'] != '12.0' or gpu['total_mib'] < hardware['min_vram_mib'], 'GPU_MISMATCH'),
         (driver < (580, 65, 6) or observed['cuda'] != hardware['cuda'], 'DRIVER_CUDA_MISMATCH'),
-        (kernel < (6, 9) or observed['python'] < [3, 11, 0], 'KERNEL_PYTHON_MISMATCH'),
+        # Isolated native acceptance has no production service/group restarts.
+        # Full deployment still requires >=6.9 and the actual pidfd group probe.
+        (kernel < (6, 8) or observed['python'] < [3, 11, 0], 'KERNEL_PYTHON_MISMATCH'),
         (observed['ram_available_bytes'] < hardware['min_ram_bytes'] or observed['cpu_cores'] < hardware['min_cpu_cores'], 'RAM_CPU_INSUFFICIENT'),
         (observed['free_bytes'] < max(result['minimum_free_bytes'], session['limits']['min_free_bytes']), 'INSUFFICIENT_DISK'),
         (bool(set(observed['gpu_pids']) - set(allowed_pids)), 'UNEXPECTED_GPU_PROCESS'),

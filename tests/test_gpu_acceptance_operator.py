@@ -2,6 +2,7 @@
 import copy
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import errno
 import hashlib
 import io
 import json
@@ -15,6 +16,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 from h3.scripts import gpu_acceptance_operator as operator, model_acceptance as models
+from h3.scripts import process_identity
+from tests.helpers import load_controller
 
 UTC = timezone.utc
 NOW = datetime(2026, 10, 15, 12, tzinfo=UTC)
@@ -189,12 +192,65 @@ class OperatorTests(unittest.TestCase):
             old=self.observed['mount'][key];self.observed['mount'][key]=value
             self.assertIn('PERSISTENT_MOUNT_CHANGED_OR_UNPROVEN',self.inspect()['blocked']);self.observed['mount'][key]=old
 
+    def test_linux_68_passes_only_isolated_preflight_with_all_other_requirements_met(self):
+        self.synthetic_models()
+        self.observed['kernel']='6.8.0-142-generic'
+        self.observed['gpu']['driver']='595.91.07'
+        with (patch.object(operator,'command',side_effect=AssertionError('no live diagnostic command')),
+              patch.object(os,'pidfd_open',side_effect=AssertionError('no production group control'))):
+            for phase in ('A','B','C','D'):
+                with self.subTest(phase=phase):
+                    result=self.inspect(phase,verify_models=phase=='C')
+                    self.assertEqual(result['status'],'PREFLIGHT_READY')
+                    self.assertFalse(result['submissions'])
+                    self.assertFalse(result['production_gate_retired'])
+                    self.assertEqual(result['gpu_acceptance'],'NOT RUN')
+                    if phase=='C':self.assertEqual(result['model_sha256_verification'],'VERIFIED')
+
+    def test_linux_67_is_blocked_before_model_runtime_verification_in_every_phase(self):
+        self.synthetic_models()
+        self.observed['kernel']='6.7.12-generic'
+        with patch.object(models,'verify_models',side_effect=AssertionError('blocked kernel cannot verify runtime')) as verify:
+            for phase in ('A','B','C','D'):
+                with self.subTest(phase=phase):
+                    result=self.inspect(phase,verify_models=True)
+                    self.assertEqual(result['status'],'BLOCKED')
+                    self.assertIn('KERNEL_PYTHON_MISMATCH',result['blocked'])
+            verify.assert_not_called()
+
+    def test_linux_69_still_passes_every_isolated_phase(self):
+        self.synthetic_models()
+        self.observed['kernel']='6.9.0-generic'
+        for phase in ('A','B','C','D'):
+            with self.subTest(phase=phase):
+                self.assertEqual(self.inspect(phase,verify_models=phase=='C')['status'],'PREFLIGHT_READY')
+
+    def test_linux_68_watch_keeps_real_billing_deadlines_and_observation_only(self):
+        output=self.synthetic_models()
+        self.observed['kernel']='6.8.0-142-generic'
+        with (patch.object(subprocess,'Popen',side_effect=AssertionError('no inference or lifecycle')),
+              patch.object(os,'pidfd_open',side_effect=AssertionError('no production group control')),
+              patch('sys.stdout',new=io.StringIO())):
+            result=self.watch(output,phase='C')
+        self.assertEqual(result['status'],'INTERRUPTED')
+        self.assertTrue(result['billing_continues'])
+        self.assertFalse(result['production_gate_retired'])
+        self.session['billing']['observed_at_utc']='2026-10-15T11:40:00Z'
+        with self.assertRaisesRegex(ValueError,'stale/invalid actual billing'):
+            self.watch(output.with_name('stale.jsonl'),phase='C')
+        self.assertFalse(output.with_name('stale.jsonl').exists())
+        self.session['billing']['observed_at_utc']='2026-10-15T12:00:00Z'
+        for phase,elapsed in (('B',5400),('C',600)):
+            with self.subTest(phase=phase),self.assertRaisesRegex(ValueError,'time/cost ceiling'):
+                operator.live_budget(self.session,phase,NOW,elapsed)
+
     def test_wrong_gpu_driver_cuda_kernel_ram_cpu_and_services_never_authorize_probes(self):
+        self.observed['kernel']='6.8.0-142-generic'
         gpu_cases=[('name','NVIDIA RTX 6000 Ada'),('compute_cap','8.9'),('driver','579.99.99'),('total_mib',90000)]
         for key,value in gpu_cases:
             old=self.observed['gpu'][key];self.observed['gpu'][key]=value
             self.assertEqual(self.inspect()['status'],'BLOCKED');self.observed['gpu'][key]=old
-        for key,value in [('cuda','12.8'),('kernel','6.8.0'),('python',[3,10,0]),('cpu_cores',1),
+        for key,value in [('cuda','12.8'),('kernel','6.7.0'),('python',[3,10,0]),('cpu_cores',1),
                           ('ram_available_bytes',1),('production_ports',[8188]),('free_bytes',1)]:
             old=self.observed[key];self.observed[key]=value
             self.assertEqual(self.inspect()['status'],'BLOCKED');self.observed[key]=old
@@ -366,6 +422,28 @@ class OperatorTests(unittest.TestCase):
                     self.assertEqual(result['gpu_pids'],[])
                     self.assertEqual(result['cuda'],'13.0')
                 self.assertTrue(all(call.args[0][0] in {'findmnt','nvidia-smi','nvcc'} for call in queried.call_args_list))
+
+
+class ProductionKernelBoundaryTests(unittest.TestCase):
+    def test_production_group_feature_probe_still_rejects_unsupported_kernel(self):
+        with load_controller() as controller:
+            for probe in (controller._require_restart_group_control,process_identity.require_group_control):
+                for error in (errno.EINVAL,errno.ENOSYS):
+                    with (self.subTest(probe=probe.__name__,error=error),
+                          patch.object(os,'pidfd_open',return_value=77),patch.object(os,'close'),
+                          patch.object(controller.signal,'pidfd_send_signal',side_effect=OSError(error,'unsupported')) as send):
+                        with self.assertRaisesRegex(RuntimeError,'6.9'):probe()
+                        send.assert_called_once_with(77,0,None,4)
+
+    def test_production_group_feature_probe_remains_required_even_when_supported(self):
+        with load_controller() as controller:
+            for probe in (controller._require_restart_group_control,process_identity.require_group_control):
+                for result in (None,OSError(errno.ESRCH,'not a group leader')):
+                    with (self.subTest(probe=probe.__name__,result=result),
+                          patch.object(os,'pidfd_open',return_value=77),patch.object(os,'close'),
+                          patch.object(controller.signal,'pidfd_send_signal',side_effect=result) as send):
+                        probe()
+                        send.assert_called_once_with(77,0,None,4)
 
 
 if __name__=='__main__':unittest.main()
