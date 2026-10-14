@@ -30,8 +30,10 @@ def generate(native_class, values):
     try:
         messages = []
         if system is not None:
-            messages.append({'role': 'system', 'content': Path(system).read_text()})
-        text = Path(command[command.index('-f') + 1]).read_text()
+            system_text = Path(system).read_bytes().decode('utf-8')
+            if system_text:  # cli_context::add_system_prompt omits an empty preset
+                messages.append({'role': 'system', 'content': system_text})
+        text = Path(command[command.index('-f') + 1]).read_bytes().decode('utf-8')
         content = text
         if '--image' in command:
             # Same as cli_context::stage_media_file/push_user_message at the pin:

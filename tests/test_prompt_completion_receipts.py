@@ -127,19 +127,20 @@ http.server.HTTPServer(('127.0.0.1',int(sys.argv[sys.argv.index('--port')+1])),H
         pictures=[]
         for index in range(6):
             path=self.root/f'image-{index}.png';path.write_bytes(b'CPU IMAGE '+bytes([index]));pictures.append(path)
-        system=self.root/'system.txt';system.write_text('Exact system instruction')
+        system=self.root/'system.txt';system.write_bytes(b'Exact\r\nsystem instruction')
         namespace=self.native.LLMTextProcessor.generate.__globals__
         with patch.dict(namespace,{'mmproj_options':lambda:['projector.gguf'],
                 'full_mmproj_path':lambda _:Path('/exact-projector.gguf'),
                 'system_prompt_options':lambda:['preset'], 'full_system_prompt_path':lambda _:system}), \
              patch.object(self.cli,'tensor_to_temp_pngs',return_value=pictures):
-            self.assertEqual(self.invoke(mmproj='projector.gguf',system_prompt='preset',image=object())[0],receipt()['choices'][0]['message']['content'])
+            self.assertEqual(self.invoke(mmproj='projector.gguf',system_prompt='preset',image=object(),
+                                         prompt='Exact\r\ninput')[0],receipt()['choices'][0]['message']['content'])
         data=self.assert_reaped();messages=data['payload']['messages'];argv=data['argv']
-        self.assertEqual(messages[0],{'role':'system','content':'Exact system instruction'})
+        self.assertEqual(messages[0],{'role':'system','content':'Exact\r\nsystem instruction'})
         parts=messages[1]['content']
         self.assertEqual([base64.b64decode(part['image_url']['url'].split(',',1)[1]) for part in parts[:-1]],
                          [b'CPU IMAGE '+bytes([i]) for i in range(6)])
-        self.assertEqual(parts[-1],{'type':'text','text':'Exact input'+' '*501})
+        self.assertEqual(parts[-1],{'type':'text','text':'Exact\r\ninput'+' '*501})
         self.assertEqual(argv[argv.index('--mmproj')+1],'/exact-projector.gguf')
         self.assertNotIn('--image',argv)
         self.assertTrue(all(not path.exists() for path in pictures),'native image temporaries leaked')
@@ -148,6 +149,16 @@ http.server.HTTPServer(('127.0.0.1',int(sys.argv[sys.argv.index('--port')+1])),H
         for changes in ({'model':'foreign.gguf'},{'image':object()}):
             with self.subTest(changes=changes),self.assertRaises(ValueError):self.invoke(**changes)
         self.assertFalse(self.capture.exists())
+
+    def test_empty_system_preset_matches_pinned_cli_without_an_extra_role(self):
+        system=self.root/'empty.txt';system.write_bytes(b'')
+        namespace=self.native.LLMTextProcessor.generate.__globals__
+        with patch.dict(namespace,{'system_prompt_options':lambda:['empty'],
+                                  'full_system_prompt_path':lambda _:system}):
+            self.invoke(system_prompt='empty')
+        self.assertEqual(json.loads(self.capture.read_text())['payload']['messages'],
+                         [{'role':'user','content':'Exact input'+' '*501}])
+        self.assert_reaped()
 
     def test_text_stage_preserves_both_moe_placement_and_seed_normalization(self):
         self.invoke(memory_mode='gpu_and_cpu_moe_layers',seed=2**32+202)
