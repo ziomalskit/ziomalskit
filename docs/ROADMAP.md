@@ -53,6 +53,11 @@ behavior. No live/GPU acceptance PASS has been recorded.
 - Only `h3_full` / **H3 Full** and `10eros_full` / **10Eros Full** are normal
   production profiles. H3 Full is the runtime default. Each batch/job freezes its
   profile, model route, LoRA selection and bridge settings before publication.
+- Per-job LoRA toggles/strength and supported render controls need no rebuild,
+  provisioning or repeat of unrelated GPU gates. H3 defaults: HM 1.0 ON,
+  MysticXXX 0.6 OFF, Movement 0.5 OFF; 10Eros optional LoRA OFF. Frozen jobs bind
+  used LoRA provenance and ordered selections, so catalog additions do not
+  invalidate unrelated queued jobs. See [configuration operations](LORA_CONFIGURATION.md).
 - The canonical prompt is the exact v20 attachment; no v21/v22 prompt revisions.
 - The production manifest pins 22 verified-source artifacts and retains the
   required DavidAU pending gate. Normal provisioning/preflight fail closed;

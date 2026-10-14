@@ -55,7 +55,7 @@
       },
       "defaults": {
         "h3_full": {
-          "enabled": true,
+          "enabled": false,
           "strength": 0.6
         },
         "10eros_full": {
@@ -86,7 +86,7 @@
       },
       "defaults": {
         "h3_full": {
-          "enabled": true,
+          "enabled": false,
           "strength": 0.5
         },
         "10eros_full": {

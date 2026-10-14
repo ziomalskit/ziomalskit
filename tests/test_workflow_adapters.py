@@ -121,6 +121,13 @@ class CompositionParityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         with load_controller() as m:
+            # The independent PR #5 golden fixture used all three H3 defaults.
+            # Exercise that historical selection explicitly; do not normalize
+            # away LoRA changes or regenerate its received graph hashes.
+            registry = m.registry_json(m.LORA_REGISTRY)
+            for identifier in ("mysticxxx-v4", "movement-v1"):
+                registry[identifier]["defaults"]["h3_full"]["enabled"] = True
+            m.LORA_REGISTRY = m.immutable_registry(registry)
             cls.graphs = parity_graphs(m)
         cls.fixture = json.loads((ROOT / "tests/fixtures/v20_pr5_parity.json").read_text())
 

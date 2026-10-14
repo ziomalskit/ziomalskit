@@ -26,7 +26,7 @@ MASTER = WORKFLOWS / "VAST_H3_MASTER_NATIVE_INT8_96GB.json"
 PROMPT_ONLY = WORKFLOWS / "VAST_H3_PROMPT_ONLY_STAGE2.json"
 MAP = json.loads((CONFIG / "VAST_H3_API_MAP.json").read_text(encoding="utf-8"))
 from .production import (read_profiles, read_loras, read_bridge, resolve_loras, PROFILE_LABELS, functional_policy,
-                         immutable_registry, registry_json, registry_identity)
+                         immutable_registry, registry_json, lora_execution_identity)
 from .analysis_cache import AnalysisCache, prompt_admission, model_identity
 from .workflow_adapters import get_adapter as _get_adapter, IDENTITY_FIELDS
 from .request_identity import request_fingerprints
@@ -73,17 +73,18 @@ def job_profile(job: dict) -> str:
     validate_duration(job["context"])
     if job["context"]["duration_seconds"] != job["context"]["requested_duration_seconds"]:
         raise ValueError("persisted requested duration differs from job context")
-    if job["context"].get("lora_registry_identity") != registry_identity(LORA_REGISTRY, CONDITIONING_BRIDGE):
-        raise ValueError("persisted functional LoRA registry identity changed or missing; explicit reconciliation is required")
+    get_adapter(job["context"].get("workflow_id"), root=ROOT).validate_job(job["context"], PRODUCTION["profiles"][profile])
     lora_identity = job["context"].get("lora_identity")
     if lora_identity is not None and not isinstance(lora_identity, dict):
         raise ValueError("persisted LoRA filename identity is malformed; reconciliation required")
-    if lora_identity is not None and any(key not in LORA_REGISTRY or LORA_REGISTRY[key]["filename"] != value for key, value in lora_identity.items()):
+    active_loras = [row for row in job["context"].get("loras", []) if isinstance(row, dict) and row.get("enabled") is True]
+    if lora_identity is not None and any(row["id"] not in LORA_REGISTRY or
+            lora_identity.get(row["id"]) != LORA_REGISTRY[row["id"]]["filename"] for row in active_loras):
         raise ValueError("persisted LoRA routing changed; explicit reconciliation is required")
     bridge = job["context"].get("conditioning_bridge")
-    if bridge is not None and (not isinstance(bridge, dict) or bridge.get("id") != CONDITIONING_BRIDGE["id"] or bridge.get("filename") != CONDITIONING_BRIDGE["filename"]):
+    if bridge is not None and (not isinstance(bridge, dict) or bridge.get("enabled") and
+            (bridge.get("id") != CONDITIONING_BRIDGE["id"] or bridge.get("filename") != CONDITIONING_BRIDGE["filename"])):
         raise ValueError("persisted conditioning bridge routing changed")
-    get_adapter(job["context"].get("workflow_id"), root=ROOT).validate_job(job["context"], PRODUCTION["profiles"][profile])
     validate_job_prompt_source(job)
     return profile
 
@@ -128,11 +129,17 @@ def job_workflow_adapter(job: dict):
     return get_adapter(job["context"]["workflow_id"], root=ROOT)
 
 
-def workflow_context(profile: str, render_settings=None) -> dict:
+def workflow_context(profile: str, render_settings=None, loras=None) -> dict:
     adapter = get_adapter(PRODUCTION["profiles"][profile]["workflow_id"], root=ROOT)
     adapter.render_capabilities()  # Verify anchors and canonical defaults before freezing.
     context = {**adapter.identity(), "render_settings": adapter.resolve_render_settings(render_settings, profile=profile),
-               "lora_registry_identity": registry_identity(LORA_REGISTRY, CONDITIONING_BRIDGE)}
+               "loras": resolve_loras(LORA_REGISTRY, profile, loras),
+               "conditioning_bridge": {"id": CONDITIONING_BRIDGE["id"], "filename": CONDITIONING_BRIDGE["filename"],
+                                       **CONDITIONING_BRIDGE["defaults"][profile]}}
+    if sum(row["enabled"] for row in context["loras"]) > adapter.descriptor["lora_slots"]:
+        raise ValueError("LoRA slot capacity exceeded")
+    context["lora_registry_identity"] = lora_execution_identity(LORA_REGISTRY, CONDITIONING_BRIDGE, profile,
+        context["loras"], context["render_settings"], context["conditioning_bridge"])
     context["workflow_render_identity"] = adapter.render_identity(context, context["render_settings"])
     return context
 
@@ -3214,7 +3221,8 @@ async def create_batches(req: BatchRequest):
         if req.profile and req.model is not None and req.model != req.profile:
             raise HTTPException(400, "conflicting profile identifiers")
         try:
-            frozen_workflow = workflow_context(selected_profile, req.render_settings.model_dump(exclude_unset=True))
+            frozen_workflow = workflow_context(selected_profile, req.render_settings.model_dump(exclude_unset=True),
+                                               [row.model_dump() for row in req.loras])
         except ValueError as error:
             raise HTTPException(400, str(error)) from error
         pictures, audio = validate_requested_assets(req)

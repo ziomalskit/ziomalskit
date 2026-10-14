@@ -341,16 +341,14 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         path = self.m.patch_workflow(job, self.m.production_workflow(job))
         nodes = {node["id"]: node for node in json.loads(path.read_text())["nodes"]}
         rows = [row for row in nodes[6164]["widgets_values"] if isinstance(row, dict) and row.get("on")]
-        self.assertEqual({row["lora"]: row["strength"] for row in rows}, {
-            "HMBreastsV2.safetensors": 1, "MysticXXX_MMH3-V4-ref2va.safetensors": .6,
-            "movement_h3_lora_v1_500.safetensors": .5})
+        self.assertEqual({row["lora"]: row["strength"] for row in rows}, {"HMBreastsV2.safetensors": 1})
         self.assertTrue(nodes[7362]["widgets_values_named"]["enabled"])
         self.assertEqual(nodes[7362]["widgets_values_named"]["alpha"], .1)
         # A new generation may resolve new defaults, but queued selections do
         # not change. Functional filename drift instead fences the old job.
         with load_controller(source=self.m.ROOT, production_probes=True) as restarted:
             self.assertEqual(restarted.job_profile(job), "h3_full")
-        next(row for row in registry["loras"] if row["id"] == "movement-v1")["filename"] = "other.safetensors"
+        next(row for row in registry["loras"] if row["id"] == "hm-breasts-v2")["filename"] = "other.safetensors"
         registry_path.write_text(json.dumps(registry))
         with load_controller(source=self.m.ROOT, production_probes=True) as restarted:
             with self.assertRaisesRegex(ValueError, "functional LoRA registry identity changed"):

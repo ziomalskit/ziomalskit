@@ -224,7 +224,11 @@ Obejrzyj wynik i zbadaj klatki, jasność oraz rzeczywisty ruch; zachowaj dowody
 Nie zastępuj Full modelem INT8 ani innym checkpointem w celu ukrycia niepowodzenia.
 
 LoRA compatibility i optymalne strength wymagają osobnego porównania w tej samej
-sesji. H3 zachowuje defaults 1.0/0.6/0.5; 10Eros zaczyna z opcjonalnymi LoRA OFF.
+sesji. H3 domyślnie HM 1.0 ON, MysticXXX 0.6 OFF i Movement 0.5 OFF;
+10Eros zaczyna z opcjonalnymi LoRA OFF. Nieużywane LoRA nie wymagają instalacji.
+Zwykłe ustawienia nowych jobów nie wymagają powtórzenia niepowiązanych gate
+acceptance; nowy adapter wymaga własnej kontroli zgodności/VRAM. Patrz
+[zasady konfiguracji](LORA_CONFIGURATION.md).
 Samo znalezienie lub załadowanie pliku nie oznacza GPU validation.
 
 Zapisz: GPU, sterownik, CUDA, torch, peak VRAM, czas renderu, resolution, duration, seed i SHA checkoutu.

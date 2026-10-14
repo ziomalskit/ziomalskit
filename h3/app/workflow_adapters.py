@@ -12,7 +12,7 @@ import math
 from pathlib import Path
 
 from .workflow_graph import all_nodes, instruction_snapshot, set_widget
-from .production import immutable_registry, registry_identity
+from .production import immutable_registry, registry_identity, lora_execution_identity
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = {"h3_v20": "h3_v20.json"}
@@ -96,9 +96,10 @@ class WorkflowAdapter:
         validate_prompt_source(context)
         if profile.get("workflow_id") != self.id or any(context.get(key) != value for key, value in self.identity().items()):
             self.fail("persisted workflow/adapter identity changed or missing; explicit reconciliation required")
-        if context.get("lora_registry_identity") != registry_identity(self.trusted_registry(), self.bridge):
-            self.fail("persisted functional LoRA registry identity changed or missing; explicit reconciliation required")
         settings = self.resolve_render_settings(context.get("render_settings"), frozen=True, profile=context.get("profile"))
+        if context.get("lora_registry_identity") != lora_execution_identity(self.trusted_registry(), self.bridge,
+                context.get("profile"), context.get("loras"), settings, context.get("conditioning_bridge")):
+            self.fail("persisted functional LoRA registry identity changed or missing; explicit reconciliation required")
         if context.get("workflow_render_identity") != self.render_identity(context, settings):
             self.fail("persisted render settings identity differs; explicit reconciliation required")
 
@@ -222,7 +223,8 @@ class WorkflowAdapter:
                     raise ValueError("invalid or incomplete second-pass LoRA settings")
                 rows = [SecondPassLora.model_validate(row).model_dump() for row in value]
                 result[key] = resolve_loras(self.trusted_registry(), profile,
-                    rows, frozen=frozen, ids_only=True, supplied_only=True) if rows else []
+                    rows, frozen=frozen, ids_only=True, supplied_only=True,
+                    active=not frozen or values.get(control["enabled_when"], controls[control["enabled_when"]]["default"])) if rows else []
                 if sum(row["enabled"] for row in result[key]) > self.descriptor["lora_slots"]:
                     raise ValueError("LoRA slot capacity exceeded")
                 continue
@@ -342,7 +344,7 @@ class WorkflowAdapter:
             registry = self.registry
         patch_lora_slots(self.node(workflow, "lora_stack"), registry, settings, slots=self.descriptor["lora_slots"])
 
-    def compose(self, template: Path, profiles: dict, registry: dict, *, writer_stages=None) -> dict:
+    def compose(self, template: Path, profiles: dict, registry: dict, *, writer_stages=None, frozen_loras=None) -> dict:
         descriptor = json.loads(template.read_text())
         profile_id = descriptor.get("profile")
         profile = profiles["profiles"].get(profile_id)
@@ -357,7 +359,8 @@ class WorkflowAdapter:
         runtime_profile = dict(profile, writer_stages=writer_stages) if writer_stages is not None else profile
         self.apply_profile(workflow, runtime_profile)
         from .production import resolve_loras
-        self.apply_loras(workflow, registry, resolve_loras(registry, profile_id, None))
+        self.apply_loras(workflow, registry, resolve_loras(registry, profile_id, frozen_loras,
+                                                         frozen=frozen_loras is not None))
         self.hook.normalize_baseline(workflow)
         if instruction_snapshot(workflow) != instructions:
             self.fail("production composition modified immutable instructions")
@@ -375,7 +378,8 @@ class WorkflowAdapter:
             if phase != "render":
                 self.fail("manual final jobs cannot use Prompt Worker")
             validate_render_prompt(job, approved_prompt)
-        workflow = self.compose(template, profiles, registry, writer_stages=context["profile_identity"]["writer_stages"])
+        workflow = self.compose(template, profiles, registry, writer_stages=context["profile_identity"]["writer_stages"],
+                                frozen_loras=context["loras"])
         self.set(workflow, "user_prompt", "positive", context["prompt"])
         self.set(workflow, "prompt_override", "positive", approved_prompt or "")
         self.apply_references(workflow, context["pictures"])

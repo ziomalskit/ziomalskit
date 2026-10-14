@@ -9,7 +9,7 @@ ani archiwum jako kompletnego wdrożenia. Aktualnym celem jest pełne Gate 1–6
 
 **Decyzja: NO-GO dla rozpoczęcia dziś pełnej, nieprzerwanej sesji produkcyjnej.**
 Możliwy jest warunkowy start odizolowanego Gate 1A. Brakuje konkretnej oferty,
-danych hosta i billingu, zaufanych dwóch LoRA, zatwierdzonego kosztorysu oraz
+danych hosta i billingu, zatwierdzonego kosztorysu oraz
 rzeczywistych dowodów 27B i wynikającego z nich zatwierdzonego SHA produkcji.
 CPU nie może zastąpić tych dowodów. Bramka DavidAU jest celowa i pozostała aktywna.
 
@@ -42,10 +42,11 @@ na wynajem ani zapisu wykonanego GPU acceptance.
    Dopiero dowody Gate 1A pozwalają na osobny reviewowany follow-up. Checkout G1
    i jego store pozostają do weryfikacji; G2 ma osobny zatwierdzony SHA. Manual
    render filtering nie zastępuje acceptance pełnego Autoprompt.
-2. **Zewnętrzne LoRA:** `mysticxxx-v4` i `movement-v1` są domyślnie włączone w H3,
-   poza manifestem 22 i bez zaufanego upstream SHA. Potrzebne są pliki, rozmiary,
-   hashe i explicit enrollment. Enrollment nie dowodzi pochodzenia ani zgodności
-   GPU. Nie zmieniono defaults i nie zgadywano źródeł.
+2. **Opcjonalne zewnętrzne LoRA:** po audycie elastyczności rozpoczętym na
+   `ce1fc3f04e53840e07e5b58240226abb4c986604` MysticXXX i Movement są OFF w H3
+   (strength 0.6/0.5 zachowane). Ich brak nie blokuje domyślnych renderów.
+   Jawne włączenie wymaga plików i explicit enrollment; nie dowodzi on upstream
+   provenance ani zgodności GPU. [Konfiguracja LoRA](LORA_CONFIGURATION.md).
 3. **Host i finansowanie:** brak konkretnego zgodnego hosta, attachment,
    efektywnych cgroups, ceny, throughput, billingu, deadlines i uzgodnionego
    cleanup. Linux 6.8 z poprzedniej próby nie spełnia pełnej produkcji.

@@ -42,7 +42,8 @@ async def prepare(module, body, directory: Path, execution_id: str, analysis_see
     context = {
         **module.freeze_prompt_source("autoprompt", req.prompt, None, duration["effective_duration_seconds"]),
         "profile": profile, "model": profile, "profile_identity": module.profile_identity(profile),
-        **module.workflow_context(profile, req.render_settings.model_dump(exclude_unset=True)),
+        **module.workflow_context(profile, req.render_settings.model_dump(exclude_unset=True),
+                                  [item.model_dump() for item in req.loras]),
         "lora_identity": {key: item["filename"] for key, item in module.LORA_REGISTRY.items()},
         "conditioning_bridge": {"id": module.CONDITIONING_BRIDGE["id"], "filename": module.CONDITIONING_BRIDGE["filename"],
                                 **module.CONDITIONING_BRIDGE["defaults"][profile]},

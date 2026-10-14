@@ -22,7 +22,7 @@ elementu oznacza STOP przed wynajmem:
 | Host | Jedna RTX PRO 6000 **Blackwell** 96 GB, CC 12.0; CUDA **13.0 devel**, driver >=580.65.06 i zgodny z dokładnym patchem toolkitu; Linux **>=6.9 oraz rzeczywisty probe flagi 4**. Host 6.8, nawet poprawny dla izolowanego Phase 1, NIE nadaje się do tej pełnej sesji. |
 | RAM/CPU | Rzeczywiste affinity i cgroup limits, nie specyfikacja całego hosta. Planować 256 GiB efektywnie dostępnego RAM i >=16 vCPU; to rezerwa planistyczna, nie zmierzone minimum BF16. Operator zatwierdza progi i zapisuje ich wartości. `H3_BUILD_JOBS` <=8, <=efektywny CPU i <=dostępny RAM/3 GiB. |
 | Storage | Z góry dobrany retained Local Volume na tej samej fizycznej machine co GPU, Docker instance; exact machine/volume/instance IDs, capacity, attachment i stawki. Planować **768 GiB + L** dla dwóch oddzielnych store, środowisk, buildów i wyników; L to dostarczone external LoRA. Sprawdzić zapas, nie polegać tylko na tej propozycji. |
-| Wejścia | Sześć prywatnych obrazów z prawami użycia, jedno audio, scena i seedy; zaufane `MysticXXX_MMH3-V4-ref2va.safetensors` oraz `movement_h3_lora_v1_500.safetensors`, ich rozmiary/SHA i zgoda na enrollment. Brak tych LoRA blokuje test domyślnych H3, nie zmieniamy defaults dla obejścia. |
+| Wejścia | Sześć prywatnych obrazów z prawami użycia, jedno audio, scena i seedy. MysticXXX i Movement są domyślnie OFF; wymagaj ich zaufanych plików/SHA i enrollment tylko dla testu z ich jawnym włączeniem. Patrz [konfiguracja LoRA](LORA_CONFIGURATION.md). |
 | Koszt/czas | Aktualna oferta, rzeczywisty billing i jego maksymalny wiek, saldo/top-up, compute/disk/volume/ingress/egress/retention, rezerwa retry, deadline każdego etapu i całej sesji. Zatwierdzony maksymalny USD i plan ręcznego provider STOP. Nie zakładać, że zatrzymanie procesu zatrzymuje billing. |
 | Review 27B | Dostępny reviewer i ścieżka dostarczenia prywatnych dowodów; czas na review/testy/CI follow-upu. Jeśli review nie będzie gotowe w limicie, **STOP compute**, review offline; nie obiecujemy wtedy jednej nieprzerwanej płatnej sesji. |
 | Dostęp | SSH tunnel/Basic Auth, brak publicznych 8188/8189; sekrety poza repo/logami. Potwierdzony dostęp/licencje wszystkich upstream repo. Zaufany operator może wykonać ręczne próby i późniejsze lifecycle; ta dokumentacja nie jest zgodą na wydatek. |
@@ -293,9 +293,10 @@ llama/node pins jak Gate1A, CUDA arch120. Pozostałe registry nodes rozwiązuje
 `pip freeze` po instalacji. CPU nie dowodzi zgodności tych upstream zależności.
 Nie stosuj `latest`/auto-upgrade po rozpoczęciu acceptance.
 
-Umieść zaufane external LoRA bez overwrite, porównaj dostarczone pełne SHA i
-rozmiary, następnie enroll dokładnie te dwa ID (nie poświadczy to upstream
-provenance ani GPU compatibility):
+Opcjonalnie, tylko jeśli sesja obejmuje jawnie włączone MysticXXX i Movement:
+umieść zaufane external LoRA bez overwrite, porównaj dostarczone pełne SHA i
+rozmiary, następnie enroll te ID (nie poświadczy to upstream provenance ani GPU
+compatibility). Pomiń ten krok przy domyślnych ustawieniach:
 
 ```bash
 "$COMFY_PYTHON" "$PANEL_ROOT/scripts/enroll_external_loras.py" \
@@ -305,7 +306,8 @@ provenance ani GPU compatibility):
 
 Nie uruchamiaj enrollment ponownie dla zmienionych bytes. Bunny bundled shadow
 także musi pasować do manifestu; błędny lub obcy plik = STOP, nie zaakceptowanie
-zastępstwa. H3 defaults pozostają 1.0/0.6/0.5, 10Eros LoRA domyślnie OFF.
+zastępstwa. H3: HM 1.0 ON, MysticXXX 0.6 OFF, Movement 0.5 OFF; 10Eros LoRA
+domyślnie OFF. Pliki wyłączonych adapterów nie są warunkiem wykonania.
 
 ## Gate 2 — infrastruktura i brak submissions
 
@@ -648,7 +650,7 @@ DavidAU i nie merguj PR w ramach tego audytu. Zmiana źródła/identity/modelu w
 nowego review, testów i właściwego powtórzenia zależnych gate'ów.
 
 Aktualnie gotowe są CPU mechanizmy i plan. Brakuje rzeczywistych dowodów GPU,
-retirement follow-upu, zaufanych external LoRA i konkretnej oferty/budżetu/proof
+retirement follow-upu i konkretnej oferty/budżetu/proof
 hosta. **Pełne Gate1–6: NO-GO**.
 Ograniczony Gate1A można rozpocząć dopiero po osobnym zatwierdzeniu jego
 rzeczywistych kosztów i wszystkich warunków wejściowych; nie jest to PASS produkcji.

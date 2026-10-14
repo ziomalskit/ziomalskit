@@ -169,7 +169,7 @@ class ProductionArchitectureTests(unittest.TestCase):
     def test_lora_registry_defaults_are_profile_specific(self):
         h3 = {setting["id"]: setting for setting in resolve_loras(self.loras, "h3_full", None)}
         eros = resolve_loras(self.loras, "10eros_full", None)
-        self.assertEqual({key for key, value in h3.items() if value["enabled"]}, {"hm-breasts-v2", "mysticxxx-v4", "movement-v1"})
+        self.assertEqual({key for key, value in h3.items() if value["enabled"]}, {"hm-breasts-v2"})
         self.assertEqual([h3[key]["strength"] for key in ("hm-breasts-v2", "mysticxxx-v4", "movement-v1")], [1.0, .6, .5])
         self.assertFalse(any(setting["enabled"] for setting in eros))
 
