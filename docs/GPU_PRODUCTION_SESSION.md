@@ -112,15 +112,15 @@ osobno zatwierdzonego Gate 1A i jawnie pozostaw resztę NOT RUN.
 ## Gate 1A — ten sam docelowy host, izolowane 11 GGUF
 
 Przygotuj source checkout i prywatny katalog receipts na retained mount;
-`AJ_SESSION` i wszystkie SHA/limity są wpisane wcześniej do arkusza.
+`AJ_SESSION_DIR` i wszystkie SHA/limity są wpisane wcześniej do arkusza.
 Poniższe polecenia dotyczą **przyszłej, osobno autoryzowanej sesji**.
 
 ```bash
 set -euo pipefail
 umask 077
-: "${AJ_NATIVE_SHA:?}" "${AJ_NATIVE_CHECKOUT:?}" "${AJ_SESSION:?}"
+: "${AJ_NATIVE_SHA:?}" "${AJ_NATIVE_CHECKOUT:?}" "${AJ_SESSION_DIR:?}"
 : "${H3_PERSISTENT_ROOT:?}" "${PREFLIGHT_S:?}" "${AJ_ACCEPTANCE_ROOT:?}"
-install -d -m 700 "$AJ_SESSION"
+install -d -m 700 "$AJ_SESSION_DIR"
 export H3_MODEL_ACCEPTANCE_ROOT="$AJ_ACCEPTANCE_ROOT"
 export HF_HOME="$AJ_ACCEPTANCE_ROOT/.hf-home"
 export HF_XET_CACHE="$AJ_ACCEPTANCE_ROOT/.hf-xet"
@@ -136,14 +136,14 @@ match = re.match(r'(\d+)\.(\d+)', platform.release())
 assert platform.system() == 'Linux' and match and tuple(map(int, match.groups())) >= (6, 9)
 PY
 python3 h3/scripts/process_identity.py support
-uname -a > "$AJ_SESSION/kernel.txt"
-nvidia-smi --query-gpu=uuid,name,driver_version,memory.total,compute_cap --format=csv > "$AJ_SESSION/gpu.csv"
-nvcc --version > "$AJ_SESSION/nvcc.txt"
-findmnt -T "$H3_PERSISTENT_ROOT" -J -o SOURCE,TARGET,FSTYPE,FSROOT,UUID,MAJ:MIN > "$AJ_SESSION/mount.json"
-df -B1 "$H3_PERSISTENT_ROOT" > "$AJ_SESSION/disk.txt"
-cat /proc/self/cgroup > "$AJ_SESSION/cgroup-membership.txt"
-cat /proc/self/mountinfo > "$AJ_SESSION/mountinfo.txt"
-python3 - <<'PY' > "$AJ_SESSION/cgroup-limits.json"
+uname -a > "$AJ_SESSION_DIR/kernel.txt"
+nvidia-smi --query-gpu=uuid,name,driver_version,memory.total,compute_cap --format=csv > "$AJ_SESSION_DIR/gpu.csv"
+nvcc --version > "$AJ_SESSION_DIR/nvcc.txt"
+findmnt -T "$H3_PERSISTENT_ROOT" -J -o SOURCE,TARGET,FSTYPE,FSROOT,UUID,MAJ:MIN > "$AJ_SESSION_DIR/mount.json"
+df -B1 "$H3_PERSISTENT_ROOT" > "$AJ_SESSION_DIR/disk.txt"
+cat /proc/self/cgroup > "$AJ_SESSION_DIR/cgroup-membership.txt"
+cat /proc/self/mountinfo > "$AJ_SESSION_DIR/mountinfo.txt"
+python3 - <<'PY' > "$AJ_SESSION_DIR/cgroup-limits.json"
 import json, os
 from pathlib import Path
 root = Path('/sys/fs/cgroup')
@@ -172,7 +172,7 @@ while True:
 print(json.dumps({'affinity_cpus': sorted(os.sched_getaffinity(0)), 'visible_ancestry': rows}, indent=2))
 PY
 timeout --signal=TERM --kill-after=15s "$PREFLIGHT_S" python3 h3/scripts/gpu_acceptance_operator.py \
-  --session "$AJ_SESSION/operator-session.json" --phase A --inspect
+  --session "$AJ_SESSION_DIR/operator-session.json" --phase A --inspect
 ```
 
 GO dopiero gdy GPU/driver/nvcc/mount z dwóch źródeł zgadzają się z formularzem,
@@ -183,9 +183,12 @@ oraz affinity. Namespace może ukrywać wyższe limity: wymagaj także dowodu od
 providera; samo `memory.max=max` nie jest poświadczeniem całego hosta.
 Helper Phase 1 nie zastępuje kontroli produkcyjnego kernela ani cgroup ancestry.
 
-Wykonaj dokładnie B/C/D z [Phase 1](GPU_ACCEPTANCE_PHASE1.md), z jego source lock,
+Wykonaj B/C/D z [Phase 1](GPU_ACCEPTANCE_PHASE1.md) w osobnym terminalu, z jego source lock,
 izolacją root/venv, pełnym SHA, rzeczywistym billingiem, monitorowaniem i deadline
-każdej próby. `INSTALL_MODEL_ACCEPTANCE.sh --install` buduje i pobiera, ale nie
+każdej próby. W tamtym dokumencie `AJ_SESSION` oznacza plik JSON, a tutaj
+`AJ_SESSION_DIR` katalog całej sesji; nie przenoś zmienionych zmiennych shell
+między terminalami. Formularz Phase 1 to `$AJ_SESSION_DIR/operator-session.json`.
+`INSTALL_MODEL_ACCEPTANCE.sh --install` buduje i pobiera, ale nie
 wykonuje model probes. Ręczne komendy C obejmują wszystkie role 11 plików,
 load/vision/minimal generation i oba writery w pełnych zatwierdzonych kontekstach.
 Nie uznawaj `llama-cli` exit 0 za naturalne EOS. Dla 27B wymagaj raw native JSON,
@@ -241,14 +244,14 @@ Przed kopią wygeneruj listę **wyłącznie 11 destination** przez
 
 ```bash
 : "${AJ_ACCEPTANCE_ROOT:?}"
-AJ_NATIVE_CHECKOUT="$AJ_NATIVE_CHECKOUT" python3 - <<'PY' > "$AJ_SESSION/gguf-files.txt"
+AJ_NATIVE_CHECKOUT="$AJ_NATIVE_CHECKOUT" python3 - <<'PY' > "$AJ_SESSION_DIR/gguf-files.txt"
 import os, sys
 sys.path.insert(0, os.environ['AJ_NATIVE_CHECKOUT'])
 from h3.scripts.model_acceptance import load_selection
 for item in load_selection()[0]: print(item['destination'])
 PY
 mkdir -p "$COMFY_MODELS_DIR"
-rsync --ignore-existing --partial-dir=.transfer --files-from="$AJ_SESSION/gguf-files.txt" \
+rsync --ignore-existing --partial-dir=.transfer --files-from="$AJ_SESSION_DIR/gguf-files.txt" \
   "$AJ_ACCEPTANCE_ROOT/models/" "$COMFY_MODELS_DIR/"
 ```
 
@@ -266,7 +269,7 @@ Teraz, dopiero po zatwierdzonym cutover, pojedynczy installer:
 
 ```bash
 timeout --signal=TERM --kill-after="$TERM_GRACE_S" "$((BUILD_S + DOWNLOAD_S))" \
-  bash h3/INSTALL_ON_VAST.sh > "$AJ_SESSION/provision.log" 2>&1
+  bash h3/INSTALL_ON_VAST.sh > "$AJ_SESSION_DIR/provision.log" 2>&1
 unset HF_TOKEN HF_HUB_TOKEN HUGGING_FACE_HUB_TOKEN
 set -a
 source "$PANEL_ROOT/runtime.env"
@@ -306,12 +309,12 @@ zastępstwa. H3 defaults pozostają 1.0/0.6/0.5, 10Eros LoRA domyślnie OFF.
 ## Gate 2 — infrastruktura i brak submissions
 
 ```bash
-bash "$PANEL_ROOT/scripts/preflight.sh" > "$AJ_SESSION/preflight.log" 2>&1
-bash "$PANEL_ROOT/scripts/smoke_test.sh" > "$AJ_SESSION/smoke.log" 2>&1
-curl --fail --silent --show-error http://127.0.0.1:8188/object_info > "$AJ_SESSION/render-object-info.json"
-curl --fail --silent --show-error http://127.0.0.1:8189/object_info > "$AJ_SESSION/prompt-object-info.json"
-ss -ltnp > "$AJ_SESSION/listeners.txt"
-"$COMFY_PYTHON" -m pip freeze > "$AJ_SESSION/pip-freeze.txt"
+bash "$PANEL_ROOT/scripts/preflight.sh" > "$AJ_SESSION_DIR/preflight.log" 2>&1
+bash "$PANEL_ROOT/scripts/smoke_test.sh" > "$AJ_SESSION_DIR/smoke.log" 2>&1
+curl --fail --silent --show-error http://127.0.0.1:8188/object_info > "$AJ_SESSION_DIR/render-object-info.json"
+curl --fail --silent --show-error http://127.0.0.1:8189/object_info > "$AJ_SESSION_DIR/prompt-object-info.json"
+ss -ltnp > "$AJ_SESSION_DIR/listeners.txt"
+"$COMFY_PYTHON" -m pip freeze > "$AJ_SESSION_DIR/pip-freeze.txt"
 ```
 
 GO: oba PASS; wszystkie native/fallback/LLM/loader/video classes obecne; cztery
@@ -350,10 +353,10 @@ for AJ_I in 1 2 3 4 5 6; do
   AJ_REF_VAR="AJ_REFERENCE_$AJ_I"
   test -f "${!AJ_REF_VAR}"
   curl --config "$AJ_CURL_CONFIG" --fail --silent --show-error \
-    -F "file=@${!AJ_REF_VAR}" http://127.0.0.1:7860/api/upload > "$AJ_SESSION/upload-$AJ_I.json"
+    -F "file=@${!AJ_REF_VAR}" http://127.0.0.1:7860/api/upload > "$AJ_SESSION_DIR/upload-$AJ_I.json"
 done
 curl --config "$AJ_CURL_CONFIG" --fail --silent --show-error \
-  -F "file=@$AJ_AUDIO" http://127.0.0.1:7860/api/upload > "$AJ_SESSION/upload-audio.json"
+  -F "file=@$AJ_AUDIO" http://127.0.0.1:7860/api/upload > "$AJ_SESSION_DIR/upload-audio.json"
 ```
 
 Przygotuj prywatne `prompt-h3.json` i `prompt-10eros.json`: `request_id` (różny
@@ -364,7 +367,7 @@ settings, aby użyć niezmienionych defaults. Te pliki **nie trafiają do /api/b
 
 ```bash
 : "${AJ_SCENE_FILE:?prywatny plik UTF-8 ze sceną}"
-python3 - "$AJ_SESSION" "$AJ_SCENE_FILE" <<'PY'
+python3 - "$AJ_SESSION_DIR" "$AJ_SCENE_FILE" <<'PY'
 import json, sys, uuid
 from pathlib import Path
 p = Path(sys.argv[1])
@@ -382,10 +385,10 @@ PY
 ```bash
 export H3_ALLOW_SUBMISSIONS=0 H3_ALLOW_DIAGNOSTIC_SUBMISSIONS=0
 AJ_CASE=h3  # Po settled PASS powtórz blok z AJ_CASE=10eros, nie wcześniej.
-AJ_PROMPT_OUTPUT="$AJ_SESSION/probe-$AJ_CASE"
-AJ_PROMPT_UUID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["request_id"])' "$AJ_SESSION/prompt-$AJ_CASE.json")"
+AJ_PROMPT_OUTPUT="$AJ_SESSION_DIR/probe-$AJ_CASE"
+AJ_PROMPT_UUID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["request_id"])' "$AJ_SESSION_DIR/prompt-$AJ_CASE.json")"
 "$COMFY_PYTHON" "$PANEL_ROOT/scripts/prepare_prompt_acceptance.py" \
-  --request "$AJ_SESSION/prompt-$AJ_CASE.json" --output "$AJ_PROMPT_OUTPUT" \
+  --request "$AJ_SESSION_DIR/prompt-$AJ_CASE.json" --output "$AJ_PROMPT_OUTPUT" \
   --execution-id "$AJ_PROMPT_UUID" --analysis-seed 24680 --prompt-seed 67890
 sha256sum "$AJ_PROMPT_OUTPUT/request.json" > "$AJ_PROMPT_OUTPUT/request.sha256"
 ```
@@ -475,7 +478,7 @@ generuj odczytem pliku UTF-8, nie shell command substitution (usuwa końcowe LF)
 pominięte, nie zmieniaj defaults. Przykład utworzenia z przygotowanego requestu:
 
 ```bash
-"$COMFY_PYTHON" - "$AJ_SESSION" <<'PY'
+"$COMFY_PYTHON" - "$AJ_SESSION_DIR" <<'PY'
 import json, sys, uuid
 from pathlib import Path
 p = Path(sys.argv[1])
@@ -487,8 +490,8 @@ for case, source in [('h3-1', 'h3'), ('10eros-1', '10eros'), ('h3-2', 'h3')]:
 PY
 AJ_RENDER_CASE=h3-1  # Dopiero po completed/settled: 10eros-1, następnie h3-2.
 curl --config "$AJ_CURL_CONFIG" --fail --silent --show-error -H 'Content-Type: application/json' \
-  --data-binary "@$AJ_SESSION/render-$AJ_RENDER_CASE.json" http://127.0.0.1:7860/api/batches > "$AJ_SESSION/render-$AJ_RENDER_CASE-ack.json"
-curl --config "$AJ_CURL_CONFIG" --fail --silent --show-error http://127.0.0.1:7860/api/jobs > "$AJ_SESSION/jobs.json"
+  --data-binary "@$AJ_SESSION_DIR/render-$AJ_RENDER_CASE.json" http://127.0.0.1:7860/api/batches > "$AJ_SESSION_DIR/render-$AJ_RENDER_CASE-ack.json"
+curl --config "$AJ_CURL_CONFIG" --fail --silent --show-error http://127.0.0.1:7860/api/jobs > "$AJ_SESSION_DIR/jobs.json"
 ```
 
 Na timeout API batches można ponowić **identyczne zapisane body/request_id**,
@@ -508,9 +511,9 @@ FPS, duration, audio, rozdzielczość, seed, checkout/model identities i wall ti
 
 ```bash
 ffprobe -v error -count_frames -show_entries stream=index,codec_type,width,height,r_frame_rate,nb_read_frames,duration \
-  -show_entries format=duration -of json "$AJ_MP4" > "$AJ_SESSION/ffprobe.json"
+  -show_entries format=duration -of json "$AJ_MP4" > "$AJ_SESSION_DIR/ffprobe.json"
 ffmpeg -v error -i "$AJ_MP4" -f null -
-sha256sum "$AJ_MP4" > "$AJ_SESSION/mp4.sha256"
+sha256sum "$AJ_MP4" > "$AJ_SESSION_DIR/mp4.sha256"
 ```
 
 20srequest→481frames; timeline20.040s, 481/24≈20.041667s — nie zaokrąglaj
@@ -570,8 +573,8 @@ i odpowiednie `confirm` / `idle_minutes` / `cost_guard_usd`; nie zawiera tokena.
 
 ```bash
 curl --config "$AJ_CURL_CONFIG" --fail --silent --show-error \
-  http://127.0.0.1:7860/api/vast/status > "$AJ_SESSION/lifecycle-status.json"
-python3 - "$AJ_SESSION/lifecycle-status.json" "$AJ_ACTION_PARAMETERS" "$AJ_ACTION_REQUEST" <<'PY'
+  http://127.0.0.1:7860/api/vast/status > "$AJ_SESSION_DIR/lifecycle-status.json"
+python3 - "$AJ_SESSION_DIR/lifecycle-status.json" "$AJ_ACTION_PARAMETERS" "$AJ_ACTION_REQUEST" <<'PY'
 import json, sys
 status = json.load(open(sys.argv[1]))
 body = json.load(open(sys.argv[2]))
