@@ -16,7 +16,12 @@ native model acceptance can now be prepared independently; real replacement
 load/generation evidence is required before reviewed gate retirement.
 GPU/live Vast acceptance remains **pending**.
 
-[Phase 1 operator runbook](GPU_ACCEPTANCE_PHASE1.md) prepares an independently approved, bounded first native-model session. It stops before production services/renders/lifecycle and leaves the DavidAU gate active. No GPU or paid resource is started by this offline preparation. The full Phase 4 gates below remain pending.
+[Full production session runbook](GPU_PRODUCTION_SESSION.md) is the current goal:
+H3 Full + 10Eros Full with real Gate 1–6, cost/storage planning and an explicit
+reviewed DavidAU cutover. The [Phase 1 procedure](GPU_ACCEPTANCE_PHASE1.md) remains
+its isolated native-model first substage, not the endpoint. Full production
+requires Linux >=6.9 and the actual PIDFD process-group probe, even if isolated
+Phase 1 admits 6.8. No GPU or paid resource is started by this offline preparation.
 
 ## Product goal
 
@@ -205,9 +210,9 @@ Resolve that blocker before freezing the recipe or running provisioning; never
 substitute the public IQ4_XS/Q4 build. External LoRAs require explicit local
 checksum enrollment when trustworthy upstream provenance is unavailable.
 
-H3 cold Step 0–2 waits while Full H3 samples. Cached/durable analysis permits
-the small writer with measured headroom. 10Eros permits analysis overlap only
-with measured headroom. Conditioning/decoding/recovery close the overlap window;
+Both current profiles keep cold Step 0–2 out of sampling. Cached/durable analysis
+permits the profile writer only with measured headroom; larger Step 4 contexts
+remain GPU acceptance hypotheses. Conditioning/decoding/recovery close the overlap window;
 one heavy render owns the renderer. Limits remain GPU benchmark hypotheses.
 
 ## Phase 4 — one consolidated Vast/GPU acceptance session (pending)
@@ -230,8 +235,7 @@ Order inside the single rented session:
    using evidence; scheduling remains Parallel only.
 7. Exercise the full ten-candidate flow, automatic/review priority, queue draining,
    worker/controller restart, cancellation, watchdog and uncertain submission.
-8. Check diagnostics/logs on the real layout and optional terminal over the chosen
-   private connection if deliberately enabled.
+8. Check diagnostics/logs on the real layout; production Terminal stays disabled.
 9. Verify STOP AFTER CURRENT, STOP AFTER QUEUE, guards and live lifecycle behavior.
    Keep-data destroy requires the exact provider attachment proof and protected
    paths. Verify retention and compatible reattachment/bootstrap after compute

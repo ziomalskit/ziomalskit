@@ -16,6 +16,11 @@ bramka wycofania DavidAU. Produkcja pozostaje fail-closed do rzeczywistego
 acceptance zamiennika. Osobny bootstrap przygotowuje zatwierdzone modele i native
 runtime bez otwierania bramek produkcyjnych, usług ComfyUI/panelu, inferencji ani lifecycle.
 
+Aktualny cel to **pełne H3 Full + 10Eros Full, Gate 1–6**, a nie zakończenie na
+Phase 1. [Runbook jednej sesji](GPU_PRODUCTION_SESSION.md) podaje komendy,
+GO/STOP, przejście przez review DavidAU, storage i kosztorys. Ograniczony Phase 1
+pozostaje wyłącznie pierwszym podetapem; nie oznacza gotowości produkcji.
+
 Bazą migracji jest merged PR #4, commit
 `bfcc2bb22ff9691fda924fe17bd060a7e131c2e2`, CPU accepted: **358 testów**
 oraz 16 HTTP smoke checks. Nowa migracja nie deklaruje GPU acceptance.
@@ -30,8 +35,9 @@ Nadal nie wykonano acceptance na realnym GPU dla aktualnego merge commita. Celem
 
 Planowany target:
 - RTX PRO 6000 Blackwell 96 GB;
-- Linux >=6.9;
-- CUDA >=12.8, preferowane środowisko CUDA 13 zgodne z aktualnym installerem;
+- Linux >=6.9 **i rzeczywisty feature-probe `PIDFD_SIGNAL_PROCESS_GROUP`**;
+- CUDA **13.0 devel** i zgodny driver; historyczny floor buildera >=12.8
+  nie zmienia celu tej sesji;
 - jeden wybrany interpreter Python >=3.11;
 - ComfyUI 0.38.0 i comfy-cli 1.21.0 zgodnie z runtime;
 - publicznie tylko panel 7860;
@@ -45,7 +51,9 @@ Przed startem płatnej instancji:
 0. Zakończ feature set, pełne `make setup`, `make test`, `make audit` na finalnym
    commicie oraz osobną decyzję o finalnym stosie modeli i ich zaufanych źródłach.
 
-1. Upewnij się, że deployment pochodzi z aktualnego `main`, nie z `migration/`.
+1. Upewnij się, że deployment pochodzi z dokładnego reviewowanego SHA całego
+   stosu PR #5/#6/#8, z aktualnymi wynikami CPU/CI, nie z `migration/`.
+   PR-y pozostają Draft; nie zakładaj, że `main` zawiera ich kod.
 2. Zarezerwuj RTX PRO 6000 Blackwell 96 GB z wystarczającym dyskiem/RAM i Linuxem obsługującym wymagane pidfd process-group signalling.
 3. Przygotuj osobny persistent volume i zanotuj faktyczną ścieżkę mountu. Sam katalog `/workspace` nie jest dowodem retencji.
 4. Potwierdź niezmienne rewizje oraz exact sizes/SHA wszystkich finalnych modeli
@@ -91,7 +99,8 @@ reviewowanym follow-up. Żaden tryb acceptance nie robi tego automatycznie.
 
 ### Gate 1B — normalna produkcja po zatwierdzeniu zamiennika
 
-Na świeżej instancji checkout aktualnego `main`, następnie:
+Na docelowej instancji checkout dokładnego reviewowanego produkcyjnego SHA po
+udokumentowanym retirement (nie automatycznie `main`), następnie:
 
 ```bash
 cd h3
@@ -144,8 +153,10 @@ transformer load; nie może powstać cykl model → conditioning → model.
 To ma być **oddzielny prompt-only test**, nie zwykłe utworzenie panelowego batcha.
 
 Użyj oddzielnej prompt-only ścieżki v20 dla każdego profilu i sześciu obrazów;
-audio może być pominięte. Włącz submissions dopiero świadomie dla tej kontrolowanej
-sesji; normalny batch sam planuje pięć płatnych renderów.
+audio może być pominięte. `prepare_prompt_acceptance.py` eksportuje zweryfikowany
+request bez POST i bez batcha, z produkcyjnymi submissions OFF. Operator wykonuje
+jeden świadomy prompt POST dopiero według runbooka, z własnym deadline/billingiem;
+normalny batch sam planuje pięć płatnych renderów.
 
 Kryteria PASS:
 - prompt worker kończy Step 0–4;
@@ -177,8 +188,6 @@ Kryteria PASS:
 - Step 3 Timeline kończy się dokładnie na effective duration, bez luk/overlap;
   również raw plan 90 s musi zostać deterministycznie retimed przed Step 4;
 - Step 4 cuts odpowiadają canonical Step 3 starts; Shot 1 nie ma timestamp;
-- rzeczywisty MP4 frame count/FPS/duration potwierdza legal frames. Nie oceniaj
-  quantization delta jako błędu; odróżnij request, timeline i frame duration;
 - zmiana profilu współdzieli Step 0, ale rozdziela Step 1/2 według modelu,
   kwantyzacji i instrukcji; kandydaci #2–10 odzyskują tę samą analizę swojego profilu;
 - restart Prompt Worker zmienia epoch, zachowując zweryfikowane teksty;
@@ -205,6 +214,8 @@ Potwierdź najpierw H3 Full, następnie pojedynczy 10Eros Full, potem H3 ponowni
 - jeden remote submission;
 - sukces widoczny w `/history`;
 - rzeczywisty MP4 istnieje i odtwarza się przez proxy/panel;
+- MP4 frame count/FPS/duration potwierdza legal frames; odróżnij request,
+  timeline i frame duration oraz normalną quantization delta;
 - VRAM, czas renderu i logi nie wskazują na OOM/restart loop.
 
 **Historyczny risk:** Full/BF16 H3 był zgłaszany jako źródło czarnych klatek na
@@ -237,8 +248,7 @@ Dopiero po pojedynczym renderze:
    render H3, Prompt Worker może działać równolegle, bufor przyszłych renderów jest
    ograniczony, #1–5 mają pierwszeństwo, #6–10 ostatecznie trafiają do Review Pool.
 8. Sprawdź Diagnostics, Live Logs i OPEN MP4/timing na realnym layoucie. Terminal
-   jest opcjonalny, domyślnie wyłączony; jeśli świadomie włączony, sprawdź go tylko
-   przez zaufane/prywatne połączenie, wraz z disconnect/cleanup.
+   pozostaje niedostępny w produkcji, także przy `H3_ENABLE_TERMINAL=1`.
 9. Zmierz rzeczywiste peak VRAM i cache zachowanie pod presją GPU, cold/warm batch,
    OOM/restart i render speed. Dopiero te dowody pozwalają dostroić progi pamięci.
 

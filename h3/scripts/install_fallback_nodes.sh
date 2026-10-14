@@ -25,7 +25,19 @@ ensure_git_node(){
        [[ -z "$(find "$target" -mindepth 1 -maxdepth 1 ! -name .git -print -quit 8>&-)" ]]; then
       legacy=1
     elif [[ -n "$(git -C "$target" status --porcelain --untracked-files=all 8>&-)" ]]; then
-      echo "Local changes preserved; reconcile them before installing pinned node: $target" >&2; exit 1
+      # setup_linux_llama.sh owns exactly one deterministic, unstaged Linux
+      # selector patch. A normal production reinstall must preserve that patch.
+      # No other node, revision, local edit or staged/untracked file is exempt.
+      if [[ "$folder" != "ComfyUI-LLM-text-processor" ]] || ! "$COMFY_PYTHON" - "$PANEL_ROOT/scripts" "$target" "$revision" <<'PYOWNED' 8>&-
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from patch_llama_binary import verify_owned_patch
+verify_owned_patch(Path(sys.argv[2]), sys.argv[3])
+PYOWNED
+      then
+        echo "Local changes preserved; reconcile them before installing pinned node: $target" >&2; exit 1
+      fi
     fi
   fi
   if [[ ! -e "$target" || "$legacy" == 1 ]]; then

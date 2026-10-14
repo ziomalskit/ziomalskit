@@ -10,7 +10,8 @@ import sys
 import tempfile
 import unittest
 
-from tests.test_deployment import executable
+from tests.test_deployment import LLAMA_SOURCE, executable
+from h3.scripts.patch_llama_binary import patch_source
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,7 +25,7 @@ class FallbackNodeTests(unittest.TestCase):
         self.panel = self.base / "panel"
         (self.panel / "scripts").mkdir(parents=True)
         (self.panel / "config").mkdir()
-        for name in ("install_fallback_nodes.sh", "python_env.sh", "runtime_config.py", "deployment.py"):
+        for name in ("install_fallback_nodes.sh", "python_env.sh", "runtime_config.py", "deployment.py", "patch_llama_binary.py"):
             shutil.copy2(ROOT / "h3/scripts" / name, self.panel / "scripts" / name)
         self.git_env = dict(os.environ, GIT_AUTHOR_NAME="AJ test", GIT_COMMITTER_NAME="AJ test",
                             GIT_AUTHOR_EMAIL="test@example.invalid", GIT_COMMITTER_EMAIL="test@example.invalid")
@@ -48,7 +49,8 @@ class FallbackNodeTests(unittest.TestCase):
         llm.mkdir()
         self.git(llm, "init", "-q")
         (llm / "marker").write_text("LLM fixture")
-        self.git(llm, "add", "marker")
+        (llm / "llama_binary.py").write_text(LLAMA_SOURCE)
+        self.git(llm, "add", ".")
         self.git(llm, "commit", "-qm", "LLM fixture")
         llm_commit = self.git(llm, "rev-parse", "HEAD").strip()
         config = self.panel / "scripts/runtime_config.py"
@@ -139,3 +141,40 @@ os.execv({sys.executable!r},[{sys.executable!r},*a])
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Unexpected node origin", result.stderr)
         self.assertEqual(self.git(target, "rev-parse", "HEAD").strip(), self.specs[0]["revision"])
+
+    def test_rerun_accepts_only_the_exact_installer_owned_linux_patch(self):
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        selector = self.comfy / "custom_nodes/ComfyUI-LLM-text-processor/llama_binary.py"
+        selector.write_text(patch_source(LLAMA_SOURCE))
+        before = selector.read_bytes()
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(selector.read_bytes(), before)
+
+    def test_owned_patch_does_not_allow_other_edits_staging_or_links(self):
+        self.assertEqual(self.install().returncode, 0)
+        node = self.comfy / "custom_nodes/ComfyUI-LLM-text-processor"
+        selector = node / "llama_binary.py"
+        for kind in ("extra_tracked", "extra_untracked", "selector_edit", "staged", "symlink", "hardlink"):
+            with self.subTest(kind=kind):
+                selector.write_text(patch_source(LLAMA_SOURCE))
+                other = node / ("marker" if kind == "extra_tracked" else "extra")
+                if kind in {"symlink", "hardlink"}: other = self.base / "linked-selector"
+                if kind.startswith("extra_"):
+                    other.write_text("preserve me")
+                elif kind == "selector_edit":
+                    selector.write_text(selector.read_text() + "\n# unrelated edit\n")
+                elif kind == "staged":
+                    self.git(node, "add", "llama_binary.py")
+                elif kind in {"symlink", "hardlink"}:
+                    selector.rename(other)
+                    if kind == "symlink": selector.symlink_to(other)
+                    else: os.link(other, selector)
+                before = self.git(node, "status", "--porcelain", "--untracked-files=all")
+                result = self.install()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.git(node, "status", "--porcelain", "--untracked-files=all"), before)
+                selector.unlink()
+                if other.name in {"extra", "linked-selector"} and other.exists(): other.unlink()
+                self.git(node, "restore", "--staged", "--worktree", ".")
