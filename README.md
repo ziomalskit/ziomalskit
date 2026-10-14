@@ -60,6 +60,10 @@ LoRA i tokenów jednorazowych: [h3/README.md](h3/README.md).
 
 ## Od czego zacząć
 
+[Poprawki F1–F4 w PR #8](docs/BUGFIX_F1_F4_2026-10-14.md) dodają trwałą bramkę
+kosztową, natywne potwierdzenie EOS dla Step 0–3 oraz atomową publikację uploadów
+i GGUF. Modele, v20 i bramka DavidAU pozostają zachowane; GPU acceptance nadal pending.
+
 1. [Roadmap produktu i aktualny scope](docs/ROADMAP.md) — kanoniczny plan dalszych etapów i rzeczy świadomie odłożonych.
 2. [CPU feature acceptance i self-review](docs/CPU_PRODUCT_ACCEPTANCE_2026-10-09.md) — stan finalnego feature set na gałęzi PR; [baseline z 8 października](docs/FINAL_CPU_ACCEPTANCE_2026-10-08.md) opisuje wcześniejszy stan po merge.
 3. [Przygotowanie i acceptance na Vast GPU](docs/GPU_ACCEPTANCE.md) — końcowa sesja po pełnym zamrożeniu provenance modeli.

@@ -43,11 +43,9 @@ class LeaseSubprocess:
 
 
 def generate_native(native_class, values, descriptor):
-    namespace = native_class.generate.__globals__["run_llama_cli"].__globals__
-    if not isinstance(namespace["subprocess"], LeaseSubprocess):
-        namespace["subprocess"] = LeaseSubprocess(namespace["subprocess"])
+    from .prompt_completion import generate
     with native_lease(descriptor):
-        return native_class().generate(**values)
+        return generate(native_class, values)
 
 
 def gate():

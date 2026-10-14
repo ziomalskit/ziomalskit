@@ -37,6 +37,7 @@ from .prompt_modes import (PROMPT_MODES, freeze_prompt_source, validate_prompt_f
                            validate_job_prompt_source, final_prompt_for_render, validate_render_prompt,
                            manual_recovery_service)
 from .redaction import redact
+from .uploads import store_upload
 
 PRODUCTION = read_profiles(CONFIG / "production_profiles.json")
 _registry_document = json.loads((CONFIG / "lora_registry.json").read_text())
@@ -322,6 +323,8 @@ service_restart_locks = {service: asyncio.Lock() for service in ("prompt", "rend
 service_maintenance: dict[str, str] = {}
 service_maintenance_epochs = {service: 0 for service in ("prompt", "render")}
 LIFECYCLE_CONTROL_EPOCH = uuid.uuid4().hex
+COST_TELEMETRY_MAX_AGE = 15.0
+cost_observation: dict | None = None
 state_load_error: str | None = None
 queue_persistence_error: str | None = None
 queue_persistence_epoch = 0
@@ -426,6 +429,7 @@ def state_diagnostics() -> dict[str, Any]:
     if vast_control.get("plan") in {"action_failed", "action_interrupted", "blocked_unsafe_persistence"}:
         lifecycle_error = lifecycle_error or vast_control.get("reason") or "Lifecycle requires manual reconciliation"
     workers, worker_error = _worker_health()
+    cost_error = cost_guard_error()
     return redact({
         "ready": not (state_load_error or queue_persistence_error or lifecycle_error or worker_error or quarantined_execution_ids()),
         "reconciliation_jobs": quarantined_execution_ids(),
@@ -434,6 +438,8 @@ def state_diagnostics() -> dict[str, Any]:
         "worker_error": worker_error,
         "workers": workers,
         "lifecycle_error": lifecycle_error,
+        "cost_guard_error": cost_error,
+        "dispatch_ready": not (cost_error or state_load_error or queue_persistence_error or lifecycle_error or worker_error or quarantined_execution_ids()),
         "service_maintenance": dict(service_maintenance),
     })
 
@@ -445,6 +451,8 @@ def load_vast_control() -> dict[str, Any]:
         "plan": "none",
         "idle_minutes": 0,
         "cost_guard_usd": 0.0,
+        "cost_hold": False,
+        "cost_hold_reason": None,
         "armed_at": None,
         "reason": None,
         "last_action": None,
@@ -469,6 +477,11 @@ def load_vast_control() -> dict[str, Any]:
             if key in data and (not isinstance(data[key], (int, float)) or isinstance(data[key], bool) or not math.isfinite(data[key]) or data[key] < 0):
                 raise ValueError(f"invalid lifecycle field: {key}")
         default.update(redact(data))
+        if type(default['cost_hold']) is not bool or (default['cost_hold_reason'] is not None and not isinstance(default['cost_hold_reason'], str)):
+            raise ValueError('invalid durable cost hold')
+        if default['cost_guard_usd'] > 0:
+            default.update(cost_hold=True, cost_hold_reason=default['cost_hold_reason'] or
+                           'Controller restarted; verify session cost and explicitly resume dispatches')
         if type(default["control_generation"]) is not int or default["control_generation"] < 0:
             raise ValueError("invalid lifecycle control generation")
         if "armed_generation" in data and data["armed_generation"] is not None and (
@@ -539,6 +552,78 @@ def save_vast_control() -> None:
         vast_control.update({"plan": "action_failed", "reason": "Lifecycle state write failed; manual reconciliation required",
                              "persistence_error": repr(error)})
         raise
+
+
+def _persist_cost_control() -> None:
+    """A cost fence must never replace a more important lifecycle plan."""
+    if vast_control_load_error:
+        raise RuntimeError(vast_control_load_error)
+    try:
+        vast_control.pop('cost_hold_persistence_error', None)
+        _atomic_json_write(VAST_CONTROL_FILE, vast_control)
+    except Exception as error:
+        vast_control.update(cost_hold=True, cost_hold_reason='Cost control write failed; verify storage and explicitly resume',
+                            cost_hold_persistence_error=redact(repr(error)))
+        raise
+
+
+def _hold_cost(reason: str) -> None:
+    if vast_control.get('cost_hold') and vast_control.get('cost_hold_reason') == reason:
+        return
+    vast_control.update(cost_hold=True, cost_hold_reason=reason)
+    try:
+        _persist_cost_control()
+    except Exception:
+        # The in-memory hold is authoritative even during ENOSPC/EIO.
+        pass
+
+
+def _current_cost() -> float | None:
+    if cost_observation is None or not 0 <= time.monotonic() - cost_observation['at'] <= COST_TELEMETRY_MAX_AGE:
+        return None
+    if cost_observation['limit'] != vast_control.get('cost_guard_usd'):
+        return None
+    estimate = cost_observation['estimate']
+    price = cost_observation.get('hourly_usd')
+    if price is not None:
+        estimate = max(estimate, price * max(0, time.time() - SESSION_STARTED_AT) / 3600)
+    return estimate if math.isfinite(estimate) and estimate >= 0 else None
+
+
+def cost_guard_error() -> str | None:
+    if float(vast_control.get('cost_guard_usd') or 0) <= 0:
+        return None
+    estimate = _current_cost()
+    if estimate is None:
+        _hold_cost('Session cost unavailable or stale; new dispatches blocked. Verify telemetry and explicitly resume')
+    elif estimate >= vast_control['cost_guard_usd']:
+        _hold_cost('Session cost limit reached; new dispatches blocked')
+    return vast_control.get('cost_hold_reason') if vast_control.get('cost_hold') else None
+
+
+async def refresh_cost_observation() -> bool:
+    global cost_observation
+    limit = float(vast_control.get('cost_guard_usd') or 0)
+    generation = vast_control['control_generation']
+    started = time.monotonic()
+    try:
+        status = await vast_instance_status()
+        estimate, price = status.get('estimated_session_compute_usd'), status.get('hourly_usd')
+        valid = (type(estimate) in (int, float) and math.isfinite(estimate) and estimate >= 0
+                 and (price is None or type(price) in (int, float) and math.isfinite(price) and price >= 0))
+    except Exception:
+        valid, estimate, price = False, None, None
+    if generation != vast_control['control_generation'] or limit != vast_control.get('cost_guard_usd'):
+        return False  # delayed telemetry cannot override a newer user decision
+    cost_observation = {'at': started, 'limit': limit, 'estimate': estimate, 'hourly_usd': price} if valid else None
+    cost_guard_error()
+    return _current_cost() is not None and _current_cost() < limit
+
+
+def assert_cost_guard() -> None:
+    error = cost_guard_error()
+    if error:
+        raise SubmissionDeferred(error)
 
 
 def _record_queue_persistence_failure(error: Exception) -> None:
@@ -1741,6 +1826,7 @@ def assert_manual_render_phase(job: dict, service: str) -> None:
 
 async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
     assert_manual_render_phase(job, service)
+    assert_cost_guard()
     if state_load_error or queue_persistence_error or vast_control_load_error or (controller_started and _worker_health()[1]):
         raise RuntimeError("Stored controller state is unavailable; submission is blocked")
     if not submissions_allowed():
@@ -1793,6 +1879,7 @@ async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
         raise SubmissionCancelled("job cancelled during preparation")
     if lifecycle_dispatch_blocked() or vast_control.get("plan") == "stop_after_current":
         raise SubmissionDeferred("shutdown armed during preparation")
+    assert_cost_guard()
     if service == "prompt" and job.get("review_required") and vast_control.get("plan") in {"stop_after_queue", "destroy_after_queue_keep_data"}:
         raise SubmissionSkippedForShutdown("unsubmitted review prompt skipped while draining queue")
     if service == "prompt" and prompt_prefetch_status()["ready"] >= H3_PROMPT_PREFETCH:
@@ -2149,6 +2236,7 @@ async def vast_instance_status() -> dict[str, Any]:
         "gpu": gpu,
         "state": state_diagnostics(),
     }
+    base['plan'] = dict(vast_control)  # diagnostics may have durably closed a stale-cost fence
     if not iid:
         base["error"] = "No CONTAINER_ID/VAST_CONTAINERLABEL found"
         return base
@@ -2173,8 +2261,8 @@ async def vast_instance_status() -> dict[str, Any]:
         }
         dph = next((data[key] for key in ("dph_total", "dph_base", "price") if data.get(key) is not None), None)
         try:
-            dph = float(dph) if dph is not None else None
-            if dph is not None and not math.isfinite(dph):
+            dph = float(dph) if dph is not None and not isinstance(dph, bool) else None
+            if dph is not None and (not math.isfinite(dph) or dph < 0):
                 dph = None
         except Exception:
             dph = None
@@ -2326,9 +2414,9 @@ async def vast_guard_worker() -> None:
                     _schedule_instance_action("stop")
 
             guard = float(vast_control.get("cost_guard_usd") or 0)
-            if guard > 0 and vast_control.get("plan") in ("none", None):
-                st = await vast_instance_status()
-                est = st.get("estimated_session_compute_usd")
+            if guard > 0:
+                await refresh_cost_observation()
+                est = _current_cost()
                 if est is not None and est >= guard and vast_control.get("plan") in ("none", None) and not lifecycle_dispatch_blocked():
                     vast_control["plan"] = "stop_after_current"
                     vast_control["armed_generation"] = queue_persistence_epoch
@@ -2479,6 +2567,8 @@ def assert_phase_admission(job: dict, service: str) -> None:
 
 
 def pick_next_prompt_job() -> dict | None:
+    if cost_guard_error():
+        return None
     if "prompt" in service_maintenance or lifecycle_dispatch_blocked() or service_recovering("prompt"):
         return None
     if service_work_active("prompt") or prompt_prefetch_status()["buffer"] >= H3_PROMPT_PREFETCH:
@@ -2512,6 +2602,8 @@ def pick_next_prompt_job() -> dict | None:
 
 
 def pick_next_render_job() -> dict | None:
+    if cost_guard_error():
+        return None
     if "render" in service_maintenance or lifecycle_dispatch_blocked() or service_recovering("render") or vast_control.get("plan") == "stop_after_current":
         return None
     if service_work_active("render"):
@@ -2968,8 +3060,9 @@ async def api_terminal_websocket(websocket: WebSocket):
 
 @app.post("/api/vast/action")
 async def api_vast_action(req: VastActionRequest, request: Request = None):
+    global cost_observation
     action = req.action
-    if action not in {"cancel_plan", "set_idle_timer", "set_cost_guard", "stop_after_current", "stop_after_queue", "destroy_after_queue_keep_data", "stop_now", "destroy_now"}:
+    if action not in {"cancel_plan", "set_idle_timer", "set_cost_guard", "resume_cost_guard", "stop_after_current", "stop_after_queue", "destroy_after_queue_keep_data", "stop_now", "destroy_now"}:
         raise HTTPException(400, f"Unknown Vast action: {action}")
 
     if action == "stop_now" and req.confirm != "STOP":
@@ -3005,7 +3098,25 @@ async def api_vast_action(req: VastActionRequest, request: Request = None):
 
     if action == "set_cost_guard":
         vast_control["cost_guard_usd"] = float(req.cost_guard_usd or 0)
-        save_lifecycle_decision()
+        cost_observation = None
+        vast_control.update(cost_hold=vast_control['cost_guard_usd'] > 0, cost_hold_reason=
+                            'Cost guard enabled or changed; verify telemetry and explicitly resume' if vast_control['cost_guard_usd'] > 0 else None)
+        vast_control['control_generation'] += 1
+        _persist_cost_control()
+        return lifecycle_decision_response(plan=dict(vast_control))
+
+    if action == 'resume_cost_guard':
+        if vast_control.get('cost_guard_usd', 0) <= 0:
+            raise HTTPException(409, 'Session cost guard is disabled')
+        generation = vast_control['control_generation']
+        valid = await refresh_cost_observation()
+        if generation != vast_control['control_generation'] or lifecycle_dispatch_blocked():
+            raise HTTPException(409, 'Controls changed during verification; refresh and make a new decision')
+        if not valid:
+            raise HTTPException(409, 'Reliable, fresh session cost below the active limit is required')
+        vast_control.update(cost_hold=False, cost_hold_reason=None)
+        vast_control['control_generation'] += 1
+        _persist_cost_control()
         return lifecycle_decision_response(plan=dict(vast_control))
 
     if action == "stop_after_current":
@@ -3066,14 +3177,8 @@ async def api_restart_service(service: str):
 
 @app.post("/api/upload")
 async def upload(file: UploadFile = File(...)):
-    COMFY_INPUT_DIR.mkdir(parents=True, exist_ok=True)
-    safe = Path(file.filename or "upload.bin").name
-    target = COMFY_INPUT_DIR / safe
-    if target.exists():
-        target = COMFY_INPUT_DIR / f"{target.stem}_{uuid.uuid4().hex[:8]}{target.suffix}"
-    with target.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
-    return {"filename": target.name}
+    name = store_upload(COMFY_INPUT_DIR, file.filename, file.file)
+    return {"filename": name}
 
 
 @app.post("/api/batches")

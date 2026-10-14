@@ -20,6 +20,7 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.artifacts import atomic_json, parent_directory, signature, validate_artifact, verify_file
+from app.file_publication import publish_noreplace
 
 
 @contextmanager
@@ -112,10 +113,12 @@ def install_verified(root: Path, item: dict, staging: Path, source: Path) -> dic
         temporary = "." + name + "." + uuid.uuid4().hex + ".partial"
         source_fd = os.open(source_name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=source_directory)
         target_fd = None
+        temporary_created = False
         try:
             if signature(os.fstat(source_fd)) != verified["signature"]:
                 raise ValueError("download changed before installation")
             target_fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=directory)
+            temporary_created = True
             digest, size = hashlib.sha256(), 0
             while block := os.read(source_fd, 8 * 1024 * 1024):
                 digest.update(block)
@@ -128,18 +131,16 @@ def install_verified(root: Path, item: dict, staging: Path, source: Path) -> dic
             os.fsync(target_fd)
             os.close(target_fd)
             target_fd = None
-            # linkat provides no-overwrite publication, even against races.
-            os.link(temporary, name, src_dir_fd=directory, dst_dir_fd=directory, follow_symlinks=False)
-            os.unlink(temporary, dir_fd=directory)
-            os.fsync(directory)
+            publish_noreplace(directory, temporary, name)
         finally:
             os.close(source_fd)
             if target_fd is not None:
                 os.close(target_fd)
-            try:
-                os.unlink(temporary, dir_fd=directory)
-            except FileNotFoundError:
-                pass
+            if temporary_created:
+                try:
+                    os.unlink(temporary, dir_fd=directory)
+                except FileNotFoundError:
+                    pass
     return verify_file(root, item["destination"], item)
 
 
@@ -168,6 +169,10 @@ def ensure_download(root: Path, item: dict, *, downloader=download_sdk) -> dict:
             reused = False
         else:
             reused = True
+            # Finish durability if a prior process died after rename but before
+            # syncing the destination directory. No download or overwrite.
+            with parent_directory(root, item['destination']) as (directory, _):
+                os.fsync(directory)
         receipt = {"schema_version": 1, "artifact_id": item["id"], "repository": item["repository"],
                    "revision": item["revision"], "repository_path": item["repository_path"],
                    "destination": item["destination"], **result, "gpu_validation": "pending"}

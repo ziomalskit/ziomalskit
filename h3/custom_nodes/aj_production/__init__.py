@@ -94,7 +94,7 @@ def compiler_file_response(body, completion=None):
 
 
 class AJPromptTextProcessor:
-    """Retain the pinned llama-cli path; pause before allocating each model."""
+    """Pinned text/vision generation requires native EOS inside a GPU lease."""
     @classmethod
     def INPUT_TYPES(cls):
         import copy

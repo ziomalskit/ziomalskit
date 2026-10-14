@@ -501,8 +501,10 @@ jest osobną częścią rzeczywistych dowodów, nie wnioskiem z CPU tests.
 
 Step 3, dla każdego właściwego writera, reasoning **OFF**, budget **0**,
 max **8192**, context **24576**. Do controlled receipt probe można użyć
-przypiętego sibling servera z jednym requestem; produkcyjny Step 3 nadal
-używa `llama-cli`. To nie migracja runtime ani współdzielony server.
+przypiętego sibling servera z jednym requestem. Produkcyjne Step 0–3 wymagają
+teraz tego samego native receipt przez prywatny one-shot adapter, z zachowaniem
+obrazów/projektorów, parametrów i GPU leases; [poprawka F2](BUGFIX_F1_F4_2026-10-14.md).
+To ten sam pinned engine, bez migracji runtime ani współdzielonego servera.
 
 Operator wybiera nieużywany prywatny port `AJ_PORT` poza 7860/8188/8189 i zatwierdza
 seed. W osobnym terminalu uruchamia **jeden foreground** server pod własnym timeout:

@@ -149,6 +149,9 @@ sesji; normalny batch sam planuje pięć płatnych renderów.
 
 Kryteria PASS:
 - prompt worker kończy Step 0–4;
+- Step 0–3 wymagają natywnych EOS/no-truncation receipts, również dla vision;
+  plain CLI output/exit0 nie jest dowodem ukończenia. Prywatny one-shot adapter
+  używa tego samego przypiętego silnika i zachowuje parametry oraz GPU lease;
 - wynikowy final H3 prompt jest poprawnie przechwycony;
 - brak render POST do render workera;
 - cache Step 0–2 działa przy kolejnych kandydatach tam, gdzie powinien;
@@ -180,6 +183,8 @@ Kryteria PASS:
   kwantyzacji i instrukcji; kandydaci #2–10 odzyskują tę samą analizę swojego profilu;
 - restart Prompt Worker zmienia epoch, zachowując zweryfikowane teksty;
 - durable tekst po restarcie nie wymaga założenia, że modele/cache GPU przetrwały;
+- cache sprzed poprawki F2 pozostaje zapisany, ale nie jest źródłem zweryfikowanej
+  analizy; nowe native/controller identity podlega dotychczasowej reconciliation;
 - writer → Gemma compiler można porównać jako osobny acceptance benchmark,
   zachowując v20 instructions i bez dodatkowego selektora w normalnym UI.
 

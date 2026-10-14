@@ -36,7 +36,7 @@ def step0_key(job: dict) -> str:
     if job.get("profile") and not profile.get("step0_identity"):
         raise ValueError("persisted Step 0 model identity missing; explicit reconciliation required")
     identity = {"baseline": context.get("workflow_baseline_sha256"), "workflow_id": context.get("workflow_id"),
-                "step0_identity": profile.get("step0_identity"), "cache_contract": "v20_split_analysis_v1",
+                "step0_identity": profile.get("step0_identity"), "cache_contract": "v20_split_analysis_native_eos_v2",
                 **{key: context.get(key) for key in ("prompt", "pictures", "audio", "duration_seconds")}}
     return _digest(identity)
 

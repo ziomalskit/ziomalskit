@@ -21,7 +21,8 @@ REVISION = '60eeeb6082c1126bb8bc72902c83123cd056811b'
 MAX_RESPONSE = 16 * 1024 * 1024
 
 
-def completion_response(body):
+def natural_response(body):
+    """Engine receipt, shared by all stages; never infer EOS from text."""
     if not isinstance(body, dict) or body.get('error'):
         raise ValueError('native compiler completion failed')
     detail = body.get('__verbose', {})
@@ -38,8 +39,15 @@ def completion_response(body):
     content, reasoning = message.get('content'), message.get('reasoning_content', '')
     if not isinstance(reasoning, str):
         raise ValueError('invalid native compiler reasoning channel')
-    final_answer(content)
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError('native completion final channel is empty')
     return content, reasoning, ''
+
+
+def completion_response(body):
+    result = natural_response(body)
+    final_answer(result[0])
+    return result
 
 
 def verified_server(cli):
@@ -76,14 +84,14 @@ def post_completion(url, payload, timeout):
     return json.loads(body)
 
 
-def run_completion(command, messages, values):
+def run_completion(command, messages, values, *, response_parser=completion_response):
     server = verified_server(command[0])
     arguments, index = [], 1
     while index < len(command):
         flag = command[index]
         if flag == '--single-turn':
             index += 1
-        elif flag in {'-f', '-sysf'}:
+        elif flag in {'-f', '-sysf', '--image'}:
             index += 2
         else:
             arguments.append(flag)
@@ -95,6 +103,8 @@ def run_completion(command, messages, values):
     payload = {'messages': messages, 'stream': False, 'verbose': True, 'max_tokens': values['max_tokens'],
                'temperature': values['temperature'], 'top_p': values['top_p'], 'top_k': values['top_k'],
                'repeat_penalty': values['repeat_penalty']}
+    if 'native_seed' in values:
+        payload['seed'] = values['native_seed']
     import comfy.model_management as memory
     deadline = time.monotonic() + values['timeout_seconds']
     process, thread = None, None
@@ -137,7 +147,7 @@ def run_completion(command, messages, values):
             check()
             time.sleep(.05)
         check()
-        return completion_response(future.result())
+        return response_parser(future.result())
     finally:
         if process is not None:
             if process.poll() is None:
