@@ -119,7 +119,12 @@ Poniższe polecenia dotyczą **przyszłej, osobno autoryzowanej sesji**.
 set -euo pipefail
 umask 077
 : "${AJ_NATIVE_SHA:?}" "${AJ_NATIVE_CHECKOUT:?}" "${AJ_SESSION:?}"
-: "${H3_PERSISTENT_ROOT:?}" "${PREFLIGHT_S:?}"
+: "${H3_PERSISTENT_ROOT:?}" "${PREFLIGHT_S:?}" "${AJ_ACCEPTANCE_ROOT:?}"
+install -d -m 700 "$AJ_SESSION"
+export H3_MODEL_ACCEPTANCE_ROOT="$AJ_ACCEPTANCE_ROOT"
+export HF_HOME="$AJ_ACCEPTANCE_ROOT/.hf-home"
+export HF_XET_CACHE="$AJ_ACCEPTANCE_ROOT/.hf-xet"
+export PIP_CACHE_DIR="$H3_PERSISTENT_ROOT/.private-pip-cache"
 cd "$AJ_NATIVE_CHECKOUT"
 test "$(git rev-parse HEAD)" = "$AJ_NATIVE_SHA"
 test -z "$(git status --porcelain)"
@@ -154,7 +159,8 @@ elif fsroot == '/': current = root / membership.lstrip('/')
 else:
     assert membership == fsroot or membership.startswith(fsroot.rstrip('/') + '/')
     current = root / membership[len(fsroot):].lstrip('/')
-assert current.is_dir(), 'STOP: unresolved current cgroup'
+assert current.is_dir() and current.resolve().is_relative_to(root.resolve()), 'STOP: unresolved current cgroup'
+current = current.resolve()
 while True:
     row = {'path': str(current)}
     for name in ('cpu.max', 'cpuset.cpus.effective', 'memory.max', 'memory.high', 'memory.current', 'memory.swap.max', 'pids.max'):
@@ -222,6 +228,7 @@ export H3_PERSISTENCE_MODE=volume H3_CUDA_VERSION=13.0
 export WORKSPACE="$H3_PERSISTENT_ROOT"
 export COMFY_ROOT="$WORKSPACE/ComfyUI" PANEL_ROOT="$WORKSPACE/H3_VAST_MOBILE"
 export COMFY_INPUT_DIR="$COMFY_ROOT/input" COMFY_OUTPUT_DIR="$COMFY_ROOT/output" COMFY_MODELS_DIR="$COMFY_ROOT/models"
+export HF_HOME="$WORKSPACE/.production-hf-home" HF_XET_CACHE="$WORKSPACE/.production-hf-xet"
 export H3_ALLOW_SUBMISSIONS=0 H3_ALLOW_DIAGNOSTIC_SUBMISSIONS=0 H3_ENABLE_TERMINAL=0
 export H3_INSTALL_VAST_CLI=0
 python3 h3/scripts/process_identity.py support
@@ -249,6 +256,11 @@ Nie używaj hardlinków, `--inplace`, `--copy-links` ani kopiowania markerów/ca
 z isolated store. Źródła 11 destination muszą być zwykłymi plikami bez symlinków;
 `rsync` bez `-l` ich nie dereferencjuje. Błędny destination = STOP/reconciliation,
 nie nadpisanie w miejscu. Installer rehashuje destination i pobierze resztę.
+Lokalne `HF_HOME` i `HF_XET_CACHE` są rozdzielone między acceptance i produkcję,
+na retained volume; nie pozostawiamy nieoszacowanego Xet cache na małym root
+disk kontenera. Cache pip też ma jawną ścieżkę. Te katalogi nie zastępują wag
+ani SHA receiptów. Ich rzeczywisty rozmiar i ewentualne zatrzymane partials
+wchodzą w rezerwę storage; nie kasuj aktywnych cache/staging podczas instalacji.
 
 Teraz, dopiero po zatwierdzonym cutover, pojedynczy installer:
 
