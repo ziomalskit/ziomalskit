@@ -135,6 +135,9 @@ def cpu_invariants(panel: Path, *, allow_pending=False) -> dict:
             # The validated registry is sufficient provenance for an added
             # optional LoRA. If the stack manifest also owns this destination,
             # the two authorities must agree before default activation.
+            # The pinned Bunny bridge is not an extensible PowerLoRA slot.
+            if item is bridge and len(matches) != 1:
+                raise ValueError("registered LoRA provenance differs from production manifest")
             if matches and (len(matches) != 1 or any(matches[0][key] != item[key] for key in ("revision", "repository_path", "size_bytes", "sha256")) or matches[0]["repository"] != item["source"]["repository"]):
                 raise ValueError("registered LoRA provenance differs from production manifest")
     runtime = panel / "runtime.env"

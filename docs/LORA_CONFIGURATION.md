@@ -35,6 +35,9 @@ LoRA ani starego opcjonalnego writera 4B. Jawne `provision_models.py
 wybór operatora. Manifest 22 źródeł pozostaje niezmieniony. Jego pełny inwentarz
 i wcześniejsze wyliczenia transferu są górnym wariantem, a bieżący `--plan`
 pokazuje rzeczywiście wybrany zestaw. DavidAU nadal blokuje pełny provisioning.
+Wyjątek dla nowej LoRA spoza globalnego manifestu nie dotyczy aktywnego
+conditioning bridge: jego przypięta implementacja nadal wymaga zgodnego wpisu
+w manifeście. Bridge nie jest dowolnym dodatkowym slotem PowerLoRA.
 
 1. Przygotuj nowy, unikalny ID oraz basename `.safetensors`. W
    `$PANEL_ROOT/config/lora_registry.json` dodaj wpis ze schematem takim jak

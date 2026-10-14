@@ -3,6 +3,7 @@ import copy
 import hashlib
 import importlib
 import json
+import sys
 import unittest
 import uuid
 from unittest.mock import patch
@@ -22,6 +23,16 @@ class LoraFlexibilityTests(unittest.IsolatedAsyncioTestCase):
     graph = render.ManualRenderAdapterTests.graph
     cli = render.ManualRenderAdapterTests.cli
     transport = production.ProductionControllerTests.transport
+
+    def cpu_invariants(self):
+        from h3.scripts.preflight import cpu_invariants
+        # The CLI imports `app` relative to its panel root. Keep those modules
+        # and sys.path confined to this temporary controller generation.
+        with patch.dict(sys.modules), patch.object(sys, 'path', list(sys.path)):
+            for name in list(sys.modules):
+                if name == 'app' or name.startswith('app.'):
+                    del sys.modules[name]
+            return cpu_invariants(self.m.ROOT, allow_pending=True)
 
     def edit_registry(self, edit):
         path = self.m.CONFIG / 'lora_registry.json'
@@ -250,7 +261,6 @@ class LoraFlexibilityTests(unittest.IsolatedAsyncioTestCase):
                 approved_prompt=restarted.final_prompt_for_render(recovered))
 
     async def test_new_pinned_optional_registry_resource_needs_no_global_manifest_entry(self):
-        from h3.scripts.preflight import cpu_invariants
         def add(data):
             row = copy.deepcopy(next(r for r in data['loras'] if r['id'] == 'hm-breasts-v2'))
             row.update(id='additional-trusted', filename='additional_trusted.safetensors')
@@ -259,10 +269,15 @@ class LoraFlexibilityTests(unittest.IsolatedAsyncioTestCase):
             data['loras'].append(row)
         self.edit_registry(add)
         with patch('urllib.request.urlopen', side_effect=AssertionError('network forbidden')):
-            result = cpu_invariants(self.m.ROOT, allow_pending=True)
+            result = self.cpu_invariants()
         self.assertEqual(result['baseline'], 'verified_v20')
         # An active existing destination cannot acquire conflicting provenance.
         self.edit_registry(lambda data: next(r for r in data['loras'] if r['id'] == 'hm-breasts-v2').update(sha256='b' * 64))
         with self.assertRaisesRegex(ValueError, 'provenance differs'):
-            cpu_invariants(self.m.ROOT, allow_pending=True)
+            self.cpu_invariants()
+
+    async def test_fixed_conditioning_bridge_still_requires_manifest_provenance(self):
+        self.edit_registry(lambda data: data['conditioning_bridge'].update(filename='unregistered_bridge.safetensors'))
+        with self.assertRaisesRegex(ValueError, 'provenance differs'):
+            self.cpu_invariants()
 
