@@ -36,6 +36,26 @@ class GPUPhaseGateTests(unittest.TestCase):
                     with self.prompt.prompt(40960,True,.08):self.fail('admitted unsafe LLM')
         with patch.object(self.prompt,'measure',return_value=40960):
             with self.prompt.prompt(40960,True,1):pass
+
+    def test_larger_reasoning_profiles_keep_conservative_measured_vram_admission(self):
+        profiles=json.loads((ROOT/'h3/config/production_profiles.json').read_text())['profiles']
+        for name,analysis_mb,writer_mb in (('h3_full',49152,24576),('10eros_full',57344,40960)):
+            with self.subTest(profile=name):
+                policy=profiles[name]['overlap_policy']
+                self.assertEqual((policy['analysis_headroom_mb'],policy['writer_headroom_mb']),
+                                 (analysis_mb,writer_mb))
+                self.assertIs(policy['cold_analysis_during_sampling'],False)
+                self.render.transition('sampling')
+                for free in (writer_mb-1,None,True):
+                    with patch.object(self.prompt,'measure',return_value=free):
+                        with self.assertRaises(TimeoutError):
+                            with self.prompt.prompt(writer_mb,True,.06):self.fail('unsafe writer admitted')
+                with patch.object(self.prompt,'measure',return_value=writer_mb):
+                    with self.prompt.prompt(writer_mb,True,1):pass
+                for phase in ('conditioning','decoding','recovery','unknown'):
+                    self.render.transition(phase)
+                    with self.assertRaises(TimeoutError):
+                        with self.prompt.prompt(writer_mb,True,.06):self.fail('closed phase admitted writer')
         for headroom,allow in ((0,True),(True,True),(1,1)):
             with self.assertRaises(ValueError):
                 with self.prompt.prompt(headroom,allow,1):pass

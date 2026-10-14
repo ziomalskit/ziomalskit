@@ -140,28 +140,41 @@ Duration remains synchronized through v20's Generation Settings and both duratio
 locks. Seeds remain Step 0 stable, Step 1 analysis seed, Step 2 +1, Step 3 candidate
 seed and Step 4 +1. Writer/temperature/output separation remains intact.
 
-[Current dual-profile evidence and pending gates](../docs/DUAL_LLM_PROFILES_2026-10-13.md):
+[Current dual-profile evidence and pending gates](../docs/DUAL_LLM_PROFILES_2026-10-14.md):
 
 | Profile | Step 1/2 | Step 3/4 |
 | --- | --- | --- |
-| H3 Full | Mistral Small 3.2 24B Heretic Q4_K_M | Qwen3-14B Heretic Q4_K_M |
-| 10Eros Full | Mistral Small 3.2 24B Heretic Q6_K | Qwen3.5-27B Heretic Q5_K_M |
+| H3 Full | llmfan46 Mistral Small 3.2 24B Instruct 2506 Ultra Uncensored Heretic Q4_K_M | Qwen3-14B Heretic Q4_K_M |
+| 10Eros Full | llmfan46 Mistral Small 3.2 24B Instruct 2506 Ultra Uncensored Heretic Q6_K | Qwen3.5-27B Heretic Q5_K_M |
 
 Step 0A JoyCaption F16, 0B Qwen3-VL Caption V4.5 F16 and 0C Gemma Philadelphia
 F16 remain unchanged. Step 1/2 retain their images and require the matching
-Mistral GGUF F16 vision projector. Both profile quantizations use the same projector.
+Mistral GGUF **BF16** vision projector, `Mistral-Small-3.2-24B-Instruct-2506-mmproj-BF16.gguf`,
+from the same llmfan46 GGUF repository/immutable upload as both quantizations.
+The publisher explicitly pairs it with both variants. Exact-file load/vision
+inference remains pending; the previous Heretic-v1.2-2 F16 projector is not used.
 
 Normal compilation uses each profile's writer for both Step 3 and Step 4, without
-a vision projector. Step 3 thinking is OFF; Step 4 thinking is ON with the pinned
-CLI's native 4,096-token reasoning budget. Step 4 allows 12,352 generated tokens
-(8,192 final + 4,096 reasoning + 64 framing) and 29,184 context tokens, retaining
-the previous input allowance. These settings and runtime pins are frozen in each
+a vision projector. Step 3 thinking is OFF, 8,192 generation / 24,576 context.
+Step 4 thinking is ON with native `--reasoning-format deepseek --reasoning-budget`:
+
+| Step 4 setting | H3 Full | 10Eros Full |
+| --- | ---: | ---: |
+| reasoning_budget | 6144 | 8192 |
+| final_answer_tokens | 8192 | 8192 |
+| framing_tokens | 64 | 64 |
+| max_tokens | 14400 | 16448 |
+| ctx_size | 32768 | 36864 |
+
+The input allowance remains at least 16,384 tokens. These settings and runtime pins are frozen in each
 job; restart/default changes cannot change queued settings. The Step 4 adapter
 uses a private one-shot sibling `llama-server` from the same pinned revision
 and requires machine-readable natural EOS, no truncation and a validated final
 channel. Step 0–3 retain `llama-cli`; a persistent server remains a separate
 future optimization, not part of this change.
 Actual writer quality and truncation remain model acceptance benchmarks.
+Jobs bound to the previous Mistral/provenance or native implementation require
+explicit reconciliation; their saved parameters/analysis are never rewritten.
 `compiler: shared_gemma` is a server-configured
 acceptance benchmark only; it retains v20 instructions and raises overlap headroom.
 It is not a third production profile or a normal UI choice.
@@ -216,12 +229,13 @@ no cache epoch claims that model weights stay resident on the GPU.
 
 Weights, LoRAs, GGUF source/build files, receipts and generated provenance live
 under `$COMFY_ROOT/models` on the retained volume. Controller state/input/output
-retain the existing persistent deployment layout. Code updates do not change
-artifact identities or force verified weights to download again.
+retain the existing persistent deployment layout. Unchanged artifact identities
+reuse verified weights. A model change never renames or enrolls old weights under
+a new identity; it requires the new exact file and explicit job reconciliation.
 
 `config/models_manifest.json` has shared/profile artifacts and a link to the
 canonical LoRA registry. Each downloaded file has a pinned commit, exact bytes
-and SHA256. The known stack now also includes both Mistral quantizations, their F16 projector
+and SHA256. The known stack now also includes both llmfan46 Mistral quantizations, their BF16 projector
 and the Qwen3.5-27B Q5_K_M writer. Qwen3-14B immutable metadata is pending. The
 required DavidAU gate is retained until the replacement is load/generation
 accepted. Use the manifest disk plan for known totals, pending files and staging;

@@ -1,7 +1,7 @@
 # Uruchomienie na GPU — acceptance po CPU/runtime PASS
 
 Aktualne źródła, pending i dodatkowe kryteria dwóch profili LLM są w
-[raporcie z 13 października](DUAL_LLM_PROFILES_2026-10-13.md). Te kryteria zastępują
+[raporcie z 14 października](DUAL_LLM_PROFILES_2026-10-14.md). Te kryteria zastępują
 starszy wybór 4B/9B opisany w raportach migracyjnych. Niczego nie uruchomiono na GPU.
 
 Ten dokument opisuje **końcową, skonsolidowaną sesję GPU/Vast**. Zgodnie z
@@ -9,9 +9,11 @@ Ten dokument opisuje **końcową, skonsolidowaną sesję GPU/Vast**. Zgodnie z
 regresję/audyt CPU i zamrażamy kompletne provenance finalnych modeli.
 Dopiero po tych etapach wynajmujemy GPU i przechodzimy wszystkie poniższe gate'y
 w jednej sesji. Profile to **H3 Full** i **10Eros Full**, z dokładną logiką
-**v20 Heretic**. Manifest ma 17 pinned artefaktów; pełne metadata źródłowego
-9B BF16 writera nadal blokuje gotowość. [Raport migracji](MODEL_MIGRATION_2026-10-09.md)
-opisuje ten bloker. Nie wynajmuj GPU, dopóki nie zostanie zamknięty.
+**v20 Heretic**. Aktualny manifest zawiera 21 artefaktów ze zweryfikowanymi
+metadata źródeł; wymagane wpisy pending to Qwen3-14B oraz bramka wycofania DavidAU.
+Produkcja pozostaje fail-closed. Metadata Qwen3-14B musi zostać potwierdzone,
+a rzeczywisty acceptance zamiennika musi poprzedzać wycofanie bramki DavidAU.
+Szczegóły i granice osobnej sesji acceptance opisuje raport z 14 października.
 
 Bazą migracji jest merged PR #4, commit
 `bfcc2bb22ff9691fda924fe17bd060a7e131c2e2`, CPU accepted: **358 testów**
@@ -41,10 +43,14 @@ Przed startem płatnej instancji:
 1. Upewnij się, że deployment pochodzi z aktualnego `main`, nie z `migration/`.
 2. Zarezerwuj RTX PRO 6000 Blackwell 96 GB z wystarczającym dyskiem/RAM i Linuxem obsługującym wymagane pidfd process-group signalling.
 3. Przygotuj osobny persistent volume i zanotuj faktyczną ścieżkę mountu. Sam katalog `/workspace` nie jest dowodem retencji.
-4. Manifest musi być kompletny: źródłowe shardy/config/tokenizer 9B, dokładna
-   rewizja i hash konwertera, BF16 recipe oraz exact sizes/SHA wszystkich
-   pobieranych wag. Sprawdź dostęp i wymagane miejsce przed wynajmem; podstawowy
-   stos zajmuje 219.55 GB, plus 9B source/output, LoRA i staging.
+4. Potwierdź niezmienne rewizje oraz exact sizes/SHA wszystkich finalnych modeli
+   i pasującego projektora. Qwen3-14B nadal wymaga immutable metadata.
+   Bramka DavidAU pozostaje wymagana do czasu rzeczywistego acceptance zamiennika;
+   nie zmieniaj jej tylko po to, by uruchomić installer. Ewentualna zachowana
+   ścieżka 9B wymaga pełnych shard/config/tokenizer hashes, przypiętego konwertera
+   i BF16 recipe. Produkcyjne provisioning/preflight pozostają zamknięte podczas
+   osobnego acceptance modeli. Użyj aktualnego manifest disk plan dla znanych
+   rozmiarów, pending i staging; historyczne 219.55 GB nie opisuje nowego stosu.
 5. Przygotuj panel password i ewentualne dane Vast/Hugging Face poza repozytorium i logami.
 6. Nie konfiguruj automatycznego DESTROY jako zabezpieczenia kosztowego przed przejściem live acceptance.
 
@@ -115,11 +121,16 @@ Kryteria PASS:
 - brak podwójnego autopromptera na render workerze;
 - kolejka/persistence pozostają zdrowe.
 - full/F16 JoyCaption + mmproj, verifier V4.5 F16 + mmproj oraz Gemma F16 + mmproj;
-- Step 1/2: Mistral Small 3.2 24B Heretic Q4_K_M dla H3 i Q6_K dla 10Eros,
-  oba z pasującym Mistral mmproj F16 i zachowanymi wejściami obrazów;
+- Step 1/2: llmfan46 Mistral Small 3.2 24B Instruct 2506 Ultra Uncensored Heretic
+  Q4_K_M dla H3 i Q6_K dla 10Eros, oba z projektorem
+  `Mistral-Small-3.2-24B-Instruct-2506-mmproj-BF16.gguf` z tego samego immutable
+  uploadu, zgodnym według wydawcy; potwierdź rzeczywisty load/vision;
 - Step 3/4: Qwen3-14B Heretic Q4_K_M dla H3 i Qwen3.5-27B Heretic Q5_K_M dla 10Eros;
 - osobne Step 3/4 prompts, seeds, temperatury i outputs, bez vision mmproj;
-- Step 3 thinking OFF; Step 4 ON, natywny budget 4096, total 12352/context 29184;
+- Step 3 thinking OFF, total 8192/context 24576; Step 4 ON, natywny budget
+  **H3 6144 / 10Eros 8192**, final 8192 + framing 64, total **14400 / 16448**,
+  context **32768 / 36864**; zapisz native EOS/no truncation receipts i zmierz
+  KV/workspace przy tych kontekstach bez obniżania progów VRAM na podstawie GGUF;
 - reasoning nie dociera do final prompt; natywny output file i guarded final channel;
 - sześć sekcji i pełne pokrycie requested runtime, szczególnie 20 sekund;
 - requested duration, legal frames i effective duration muszą odpowiadać v20:
@@ -215,4 +226,4 @@ GPU acceptance można uznać za PASS dopiero po udokumentowanym przejściu Gate 
 
 Do tego momentu status projektu brzmi:
 
-**GPU/live acceptance pending; complete 9B source provenance blocks readiness.**
+**GPU/live acceptance pending; Qwen3-14B immutable metadata and DavidAU replacement acceptance block production readiness.**

@@ -1,7 +1,8 @@
 # AJ / H3 Ref2Video — product roadmap
 
 Current dual-LLM draft selection, split cache and replacement blockers are
-documented in [13 October report](DUAL_LLM_PROFILES_2026-10-13.md). This supersedes
+documented in [14 October report](DUAL_LLM_PROFILES_2026-10-14.md), including the
+correct llmfan46 Mistral/BF16 projector and larger profile-specific Step 4 budgets. This supersedes
 the older 4B/9B model choice below; GPU acceptance remains pending.
 
 Status: PR #4 is merged at `bfcc2bb22ff9691fda924fe17bd060a7e131c2e2`.

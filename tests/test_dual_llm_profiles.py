@@ -36,8 +36,8 @@ class DualProfileTests(unittest.TestCase):
             nodes = {n['id']:n for n in all_nodes(workflow)}
             self.assertEqual(policy['writer'], writer)
             for key in (2441,2447):
-                self.assertEqual(nodes[key]['widgets_values_named']['model'], f'Mistral-Small-3.2-24B-Instruct-2506-Heretic-v1.2-2.{quant}.gguf')
-                self.assertEqual(nodes[key]['widgets_values_named']['mmproj'], policy['analysis_mmproj'])
+                self.assertEqual(nodes[key]['widgets_values_named']['model'], f'Mistral-Small-3.2-24B-Instruct-2506-ultra-uncensored-heretic-{quant}.gguf')
+                self.assertEqual(nodes[key]['widgets_values_named']['mmproj'], 'Mistral-Small-3.2-24B-Instruct-2506-mmproj-BF16.gguf')
                 self.assertTrue(any(i['name']=='image' and i['link'] is not None for i in nodes[key]['inputs']))
             self.assertEqual(instruction_snapshot(workflow), instruction_snapshot(self.fixture.baseline))
             self.assertIn('F16',nodes[7386]['widgets_values_named']['model'])
@@ -56,16 +56,61 @@ class DualProfileTests(unittest.TestCase):
 
     def test_cache_binds_source_revision_hash_projector_runtime_and_instructions(self):
         original = self.job()
-        for field in ('revision','sha256','repository','repository_path','destination'):
-            other=copy.deepcopy(original)
-            other['context']['profile_identity']['analysis_identity']['models'][0][field]='changed'
-            self.assertNotEqual(analysis_key(original),analysis_key(other))
-            self.assertEqual(step0_key(original),step0_key(other))
+        for model in range(2):
+            for field in ('revision','sha256','repository','repository_path','destination','size_bytes'):
+                with self.subTest(model=model,field=field):
+                    other=copy.deepcopy(original)
+                    other['context']['profile_identity']['analysis_identity']['models'][model][field]='changed'
+                    self.assertNotEqual(analysis_key(original),analysis_key(other))
+                    self.assertEqual(step0_key(original),step0_key(other))
         other=copy.deepcopy(original);other['context']['profile_identity']['analysis_identity']['runtime']['llama_cpp_revision']='changed'
         self.assertNotEqual(analysis_key(original),analysis_key(other))
         other=copy.deepcopy(original);other['context']['workflow_baseline_sha256']='different instructions'
         self.assertNotEqual(analysis_key(original),analysis_key(other))
         self.assertNotEqual(step0_key(original),step0_key(other))
+
+    def test_llmfan46_quantizations_and_bf16_projector_have_exact_immutable_provenance(self):
+        from h3.app.artifacts import validate_manifest
+        manifest=json.loads((ROOT/'config/models_manifest.json').read_text())
+        entries=validate_manifest(manifest,allow_pending=True)
+        repository='llmfan46/Mistral-Small-3.2-24B-Instruct-2506-ultra-uncensored-heretic-GGUF'
+        revision='701e8e336a199135e36aef8ed15a0be2954753f0'
+        for identifier,filename,size,digest,ownership in (
+            ('h3-analysis','Mistral-Small-3.2-24B-Instruct-2506-ultra-uncensored-heretic-Q4_K_M.gguf',14333922464,'5b0e27f5e3c2e5ef1809115c26efe247d72b46c218025acf1673ccd0e6045c20',['h3_full']),
+            ('10eros-analysis','Mistral-Small-3.2-24B-Instruct-2506-ultra-uncensored-heretic-Q6_K.gguf',19345951904,'125805cfbf0af1d8ee1070e49dda670d16b7d2ecc706f9ee1ddbe3fc5de5e996',['10eros_full']),
+            ('analysis-mmproj','Mistral-Small-3.2-24B-Instruct-2506-mmproj-BF16.gguf',887646304,'0a3a2dbf3b97d38d839a036b2abe0cac0f28bc66cf91ce0f43cea8affa68f937',['shared']),
+        ):
+            with self.subTest(artifact=identifier):
+                item=entries[identifier]
+                self.assertEqual((item['repository'],item['revision'],item['repository_path'],item['destination']),
+                                 (repository,revision,filename,'LLM/'+filename))
+                self.assertEqual((item['size_bytes'],item['sha256'],item['profiles']),(size,digest,ownership))
+                self.assertIs(item['required'],True)
+                self.assertEqual(item['gpu_validation'],'pending')
+                self.assertEqual(item['metadata_evidence']['commit_url'],f'https://huggingface.co/{repository}/commit/{revision}')
+        self.assertFalse(any('Heretic-v1.2-2' in json.dumps(item) for item in manifest['artifacts']))
+
+    def test_previous_mistral_analysis_reuses_only_unchanged_step_zero(self):
+        current=self.job();previous=copy.deepcopy(current)
+        previous['context']['profile_identity']['analysis_model']='Mistral-Small-3.2-24B-Instruct-2506-Heretic-v1.2-2.Q4_K_M.gguf'
+        for item in previous['context']['profile_identity']['analysis_identity']['models']:
+            item.update(repository='mradermacher/Mistral-Small-3.2-24B-Instruct-2506-Heretic-v1.2-2-GGUF',
+                        revision='04c6f30963effffcc99c91ca35cc21386c924fde',sha256='previous-artifact')
+        cache,batch=AnalysisCache(),{}
+        cache.record(previous,batch,TEXTS,execution_epoch=cache.epoch)
+        saved=json.loads(json.dumps(batch))
+        self.assertEqual(AnalysisCache().texts(current,{},records=[saved]),{'visual_facts':TEXTS['visual_facts']})
+        self.assertNotEqual(analysis_key(previous),analysis_key(current))
+        self.assertEqual(batch,saved)
+
+    def test_reasoning_budget_changes_do_not_invalidate_saved_analysis(self):
+        cache,batch,current=AnalysisCache(),{},self.job()
+        current['context']['profile_identity']['writer_stages']=copy.deepcopy(self.profiles['profiles']['h3_full']['writer_stages'])
+        previous=copy.deepcopy(current)
+        previous['context']['profile_identity']['writer_stages']['step4'].update(reasoning_budget=4096,max_tokens=12352,ctx_size=29184)
+        cache.record(previous,batch,TEXTS,execution_epoch=cache.epoch)
+        self.assertEqual(analysis_key(previous),analysis_key(current))
+        self.assertEqual(AnalysisCache().texts(current,json.loads(json.dumps(batch))),TEXTS)
 
     def test_writer_candidate_seed_lora_changes_do_not_invalidate_analysis(self):
         original=self.job();other=copy.deepcopy(original)
@@ -124,6 +169,18 @@ class DualProfileTests(unittest.TestCase):
                 damaged=copy.deepcopy(graph);damaged[adapter.descriptor['api']['writer_stages']['step3']]['inputs']['aj_headroom_mb']=1
                 with self.assertRaisesRegex(ValueError,'stage policy'):adapter.validate_final_graph(damaged,context,phase='prompt')
 
+    def test_previous_or_foreign_projector_cannot_enter_either_analysis_stage(self):
+        fixture=api.ProductionAPITests();adapter=get_adapter('h3_v20')
+        for name,policy in self.profiles['profiles'].items():
+            context={**duration_identity(20),'profile_identity':policy}
+            graph,_=adapter.install_runtime_guards(fixture.convert(name,'prompt'),fixture.catalog,context,phase='prompt')
+            for identifier in adapter.descriptor['api']['analysis_stages'].values():
+                for change in ({'mmproj':'Mistral-Small-3.2-24B-Instruct-2506-Heretic-v1.2-2.mmproj-f16.gguf'},
+                               {'mmproj':'none'},{'model':'Mistral-Small-3.2-24B-Instruct-2506-Heretic-v1.2-2.Q4_K_M.gguf'}):
+                    with self.subTest(profile=name,stage=identifier,change=change):
+                        other=copy.deepcopy(graph);other[identifier]['inputs'].update(change)
+                        with self.assertRaises(ValueError):adapter.validate_final_graph(other,context,phase='prompt')
+
     def test_pending_writer_and_davidau_retirement_remain_fail_closed(self):
         from h3.app.artifacts import validate_manifest
         manifest=json.loads((ROOT/'config/models_manifest.json').read_text())
@@ -142,6 +199,44 @@ class DualProfileControllerTests(unittest.IsolatedAsyncioTestCase):
     batch=controller.ProductionControllerTests.batch
     warm=controller.ProductionControllerTests.warm
     transport=controller.ProductionControllerTests.transport
+
+    async def test_previous_reasoning_budgets_survive_restart_and_new_jobs_get_new_defaults(self):
+        for name,budget,total,context in (('h3_full',6144,14400,32768),('10eros_full',8192,16448,36864)):
+            with self.subTest(profile=name):
+                policy=self.m.PRODUCTION['profiles'][name]
+                defaults=copy.deepcopy(policy['writer_stages'])
+                policy['writer_stages']['step4'].update(reasoning_budget=4096,max_tokens=12352,ctx_size=29184)
+                self.req=self.req.model_copy(update={'request_id':__import__('uuid').uuid4()})
+                offset=len(self.m.queue);await self.batch(name);job=self.m.queue[offset]
+                frozen=copy.deepcopy(job['context']['profile_identity'])
+                self.warm(job);job['status']='prompt_running';self.m.save_state()
+                policy['writer_stages']=defaults
+                self.m.queue.clear();self.m.batches.clear();self.m.load_state()
+                recovered=self.m.find_job(job['id'])
+                self.assertEqual(recovered['status'],'recovery_prompt')
+                self.assertEqual(recovered['context']['profile_identity'],frozen)
+                self.assertEqual(self.m.analysis_cache.texts(recovered,self.m.batch_for_job(recovered)),TEXTS)
+                prepared=await controller.ProductionControllerTests.prepared_prompt(self,recovered)
+                inputs=prepared['2551:2640:4275']['inputs']
+                self.assertEqual((inputs['max_tokens'],inputs['ctx_size'],inputs['extra_args']),
+                    (12352,29184,'--reasoning-format deepseek --reasoning-budget 4096'))
+                self.req=self.req.model_copy(update={'request_id':__import__('uuid').uuid4()})
+                offset=len(self.m.queue);await self.batch(name);new=self.m.queue[offset]
+                stage=new['context']['profile_identity']['writer_stages']['step4']
+                self.assertEqual((stage['reasoning_budget'],stage['max_tokens'],stage['ctx_size']),(budget,total,context))
+
+    async def test_previous_mistral_job_is_quarantined_without_relabeling_saved_analysis(self):
+        job=await self.batch();self.warm(job)
+        for item in self.m.queue:
+            item['context']['profile_identity']['analysis_model']='Mistral-Small-3.2-24B-Instruct-2506-Heretic-v1.2-2.Q4_K_M.gguf'
+        frozen=copy.deepcopy(job['context']);saved=copy.deepcopy(self.m.batch_for_job(job)['analysis'])
+        self.m.save_state();self.m.queue.clear();self.m.batches.clear();self.m.load_state()
+        recovered=self.m.find_job(job['id'])
+        self.assertEqual(recovered['status'],'reconciliation_required')
+        self.assertEqual(recovered['context'],frozen)
+        self.assertEqual(self.m.batch_for_job(recovered)['analysis'],saved)
+        self.assertIsNone(self.m.pick_next_prompt_job())
+        with self.assertRaisesRegex(ValueError,'model routing changed'):self.m.job_profile(recovered)
 
     async def test_ready_render_has_priority_before_any_new_prompt_boundary(self):
         job=await self.batch();self.warm(job)

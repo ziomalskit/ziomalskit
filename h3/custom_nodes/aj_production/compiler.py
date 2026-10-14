@@ -163,6 +163,9 @@ def generate(native_class, values):
     extra = namespace['split_extra_args'](values.get('extra_args', ''))
     if (len(extra) != 4 or extra[:3] != ['--reasoning-format', 'deepseek', '--reasoning-budget']
             or not extra[3].isdigit() or not 0 < int(extra[3]) <= 16384
+            or type(values['max_tokens']) is not int or type(values['ctx_size']) is not int
+            or not 0 < values['max_tokens'] <= 32768
+            or not values['max_tokens'] + 16384 <= values['ctx_size'] <= 1048576
             or values['max_tokens'] < int(extra[3]) + 8192 + 64):
         raise ValueError('compiler requires the frozen reasoning/final-answer budget')
     arguments = {key: values[key] for key in ('prompt', 'max_tokens', 'temperature', 'top_p', 'top_k', 'repeat_penalty',

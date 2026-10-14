@@ -1,5 +1,10 @@
 # AJ Cloud: dual LLM profiles — 13 October 2026
 
+**Historical report for `cf6591789af1665e1bda48e830a2617047fb9a3f`.**
+The selected Mistral fine-tune/projector and Step 4 budgets below are superseded
+by the [14 October follow-up in the existing Draft PR #8](DUAL_LLM_PROFILES_2026-10-14.md).
+The old source table remains evidence of that earlier head, not current routing.
+
 Draft implementation on PR #6 head `84af26e26c0ec85a40efe712e5e32506c5a9af3f`,
 stacked on `feat/workflow-adapters-render-controls` (PR #6), which depends on
 `feat/v20-full-production-models` (PR #5). No merge, Vast operation, GPU rental,

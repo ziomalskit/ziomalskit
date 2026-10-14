@@ -110,8 +110,8 @@ class ProductionArchitectureTests(unittest.TestCase):
         self.assertEqual(instruction_snapshot(workflow), instruction_snapshot(self.baseline))
         self.assertFalse(prompt_admission(prompt_kind="cached_text", prompt_profile="h3_full", profiles=profiles,
             active_render={"profile": "h3_full", "phase": "sampling"}, free_vram_mb=16000)[0])
-        self.assertEqual(nodes[4275]["widgets_values_named"]["max_tokens"], 12352)
-        self.assertEqual(nodes[4275]["widgets_values_named"]["ctx_size"], 29184)
+        self.assertEqual(nodes[4275]["widgets_values_named"]["max_tokens"], 14400)
+        self.assertEqual(nodes[4275]["widgets_values_named"]["ctx_size"], 32768)
 
     def test_shared_analysis_identity_excludes_profile_and_candidate_seed(self):
         first, second = self.job(), self.job("10eros_full")
