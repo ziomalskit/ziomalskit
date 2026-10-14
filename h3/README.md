@@ -54,9 +54,11 @@ Run:
 bash INSTALL_ON_VAST.sh
 ```
 
-The installer downloads/verifies the pinned stack and builds the 9B BF16 GGUF
-when its complete recipe is frozen. It currently stops before model downloads
-because 9B source metadata is incomplete. After that blocker is closed:
+The production installer currently stops before environment installation/model
+downloads on the retained required DavidAU gate. First use the separate
+[native model acceptance bootstrap](../docs/MODEL_ACCEPTANCE_BOOTSTRAP_2026-10-14.md)
+with submissions OFF. After actual Qwen3.5-27B acceptance, a reviewed retirement
+and a complete production manifest, use normal provisioning and then:
 ```bash
 bash <PANEL_ROOT>/scripts/preflight.sh
 bash <PANEL_ROOT>/scripts/smoke_test.sh
@@ -140,7 +142,8 @@ Duration remains synchronized through v20's Generation Settings and both duratio
 locks. Seeds remain Step 0 stable, Step 1 analysis seed, Step 2 +1, Step 3 candidate
 seed and Step 4 +1. Writer/temperature/output separation remains intact.
 
-[Current dual-profile evidence and pending gates](../docs/DUAL_LLM_PROFILES_2026-10-14.md):
+[Current metadata/bootstrap gates](../docs/MODEL_ACCEPTANCE_BOOTSTRAP_2026-10-14.md)
+and [dual-profile configuration evidence](../docs/DUAL_LLM_PROFILES_2026-10-14.md):
 
 | Profile | Step 1/2 | Step 3/4 |
 | --- | --- | --- |
@@ -236,11 +239,31 @@ a new identity; it requires the new exact file and explicit job reconciliation.
 `config/models_manifest.json` has shared/profile artifacts and a link to the
 canonical LoRA registry. Each downloaded file has a pinned commit, exact bytes
 and SHA256. The known stack now also includes both llmfan46 Mistral quantizations, their BF16 projector
-and the Qwen3.5-27B Q5_K_M writer. Qwen3-14B immutable metadata is pending. The
+and both Qwen writers. Qwen3-14B immutable Git LFS metadata is now verified. The
 required DavidAU gate is retained until the replacement is load/generation
 accepted. Use the manifest disk plan for known totals, pending files and staging;
 older migration totals describe the earlier stack. `provision_models.py --plan` reports disk requirements
 and fails when known required storage exceeds available space.
+
+### Isolated native model acceptance
+
+[Bootstrap/provenance and later GPU probes](../docs/MODEL_ACCEPTANCE_BOOTSTRAP_2026-10-14.md)
+break the DavidAU provisioning/acceptance dependency without opening production.
+`INSTALL_MODEL_ACCEPTANCE.sh` defaults to a read-only plan. An explicit future
+`--install` prepares private native CLI/server/download virtualenvs and only the
+11 GGUF artifacts locked by `config/model_acceptance.json`. It installs no
+ComfyUI service/panel, changes no production runtime.env/onstart and starts no
+inference/render/lifecycle. Submissions are always OFF. Scope/root/pin/hash
+drift, linked/shared stores and unknown pending artifacts fail closed.
+
+```bash
+H3_MODEL_ACCEPTANCE_ROOT=/persistent/aj-native-model-acceptance \
+  bash INSTALL_MODEL_ACCEPTANCE.sh --plan
+```
+
+Normal provisioning/preflight remains strict on DavidAU until reviewed real
+replacement acceptance. Source/file/runtime checks and the offline native
+completion/timeline checker never attest GPU acceptance or retire that gate.
 
 Existing correct bytes are rehashed and reused. Wrong size/hash, symlinks and
 untrusted same-name generated files fail closed. HF/Xet downloads resume in

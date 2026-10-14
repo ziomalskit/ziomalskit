@@ -1,7 +1,8 @@
 # Uruchomienie na GPU — acceptance po CPU/runtime PASS
 
-Aktualne źródła, pending i dodatkowe kryteria dwóch profili LLM są w
-[raporcie z 14 października](DUAL_LLM_PROFILES_2026-10-14.md). Te kryteria zastępują
+Aktualne źródła, przygotowanie native acceptance i pozostałe bramki są w
+[raporcie bootstrap acceptance](MODEL_ACCEPTANCE_BOOTSTRAP_2026-10-14.md).
+Profile i budżety opisuje [raport wcześniejszego HEAD](DUAL_LLM_PROFILES_2026-10-14.md). Te kryteria zastępują
 starszy wybór 4B/9B opisany w raportach migracyjnych. Niczego nie uruchomiono na GPU.
 
 Ten dokument opisuje **końcową, skonsolidowaną sesję GPU/Vast**. Zgodnie z
@@ -9,11 +10,11 @@ Ten dokument opisuje **końcową, skonsolidowaną sesję GPU/Vast**. Zgodnie z
 regresję/audyt CPU i zamrażamy kompletne provenance finalnych modeli.
 Dopiero po tych etapach wynajmujemy GPU i przechodzimy wszystkie poniższe gate'y
 w jednej sesji. Profile to **H3 Full** i **10Eros Full**, z dokładną logiką
-**v20 Heretic**. Aktualny manifest zawiera 21 artefaktów ze zweryfikowanymi
-metadata źródeł; wymagane wpisy pending to Qwen3-14B oraz bramka wycofania DavidAU.
-Produkcja pozostaje fail-closed. Metadata Qwen3-14B musi zostać potwierdzone,
-a rzeczywisty acceptance zamiennika musi poprzedzać wycofanie bramki DavidAU.
-Szczegóły i granice osobnej sesji acceptance opisuje raport z 14 października.
+**v20 Heretic**. Aktualny manifest zawiera 22 artefakty ze zweryfikowanymi
+metadata źródeł, w tym immutable Git LFS Qwen3-14B. Jedyny wymagany pending to
+bramka wycofania DavidAU. Produkcja pozostaje fail-closed do rzeczywistego
+acceptance zamiennika. Osobny bootstrap przygotowuje zatwierdzone modele i native
+runtime bez otwierania bramek produkcyjnych, usług ComfyUI/panelu, inferencji ani lifecycle.
 
 Bazą migracji jest merged PR #4, commit
 `bfcc2bb22ff9691fda924fe17bd060a7e131c2e2`, CPU accepted: **358 testów**
@@ -44,7 +45,7 @@ Przed startem płatnej instancji:
 2. Zarezerwuj RTX PRO 6000 Blackwell 96 GB z wystarczającym dyskiem/RAM i Linuxem obsługującym wymagane pidfd process-group signalling.
 3. Przygotuj osobny persistent volume i zanotuj faktyczną ścieżkę mountu. Sam katalog `/workspace` nie jest dowodem retencji.
 4. Potwierdź niezmienne rewizje oraz exact sizes/SHA wszystkich finalnych modeli
-   i pasującego projektora. Qwen3-14B nadal wymaga immutable metadata.
+   i pasującego projektora. Metadane Qwen3-14B zostały potwierdzone.
    Bramka DavidAU pozostaje wymagana do czasu rzeczywistego acceptance zamiennika;
    nie zmieniaj jej tylko po to, by uruchomić installer. Ewentualna zachowana
    ścieżka 9B wymaga pełnych shard/config/tokenizer hashes, przypiętego konwertera
@@ -55,6 +56,36 @@ Przed startem płatnej instancji:
 6. Nie konfiguruj automatycznego DESTROY jako zabezpieczenia kosztowego przed przejściem live acceptance.
 
 ## Gate 1 — provisioning bez renderowania
+
+### Gate 1A — native acceptance przed wycofaniem bramki DavidAU
+
+Normalny `provision.sh` pozostaje zablokowany na wymaganym pending już przy
+`provision_models.py --plan`, przed instalacją. Pierwsze testy zamiennika
+przygotuj osobno; nie zmieniaj manifestu ani flag produkcji, aby przejść tę bramkę.
+
+```bash
+H3_MODEL_ACCEPTANCE_ROOT=/persistent/aj-native-model-acceptance \
+  bash h3/INSTALL_MODEL_ACCEPTANCE.sh --plan
+```
+
+Plan jest tylko do odczytu. Dopiero w osobno autoryzowanej sesji CUDA/GPU
+wywołanie `--install` przygotowuje prywatne środowisko, te same przypięte CLI/server
+oraz 11 jawnie zatwierdzonych GGUF obu stacków LLM. Nie instaluje rendererów,
+nie uruchamia usług ani inferencji, nie zapisuje produkcyjnego runtime.env/onstart
+i zawsze zachowuje submissions OFF. Native source/build/file/version oraz pełne
+rozmiary/SHA są sprawdzane; GPU load/generation nadal pozostaje pending.
+
+[Dokładne polecenia, limity dysku, granice izolacji i ręczne próby native](MODEL_ACCEPTANCE_BOOTSTRAP_2026-10-14.md)
+obejmują load/vision/minimal generation, Step 3 OFF, większe budżety Step 4,
+natural EOS/no truncation, final channel, sześć sekcji i timeline. Lokalny checker
+completion receipt używa istniejącego parsera i nie poświadcza GPU acceptance.
+Przed ręcznymi próbami potwierdź, że produkcyjne workery są zatrzymane/settled;
+bootstrap nie zatrzymuje cudzych procesów i nie służy do benchmarku overlap.
+
+Po zebraniu i review rzeczywistych dowodów Qwen3.5-27B wycofaj DavidAU w osobnym
+reviewowanym follow-up. Żaden tryb acceptance nie robi tego automatycznie.
+
+### Gate 1B — normalna produkcja po zatwierdzeniu zamiennika
 
 Na świeżej instancji checkout aktualnego `main`, następnie:
 
@@ -226,4 +257,4 @@ GPU acceptance można uznać za PASS dopiero po udokumentowanym przejściu Gate 
 
 Do tego momentu status projektu brzmi:
 
-**GPU/live acceptance pending; Qwen3-14B immutable metadata and DavidAU replacement acceptance block production readiness.**
+**GPU/live acceptance pending; DavidAU replacement acceptance blocks normal production. Isolated native preparation is available with submissions OFF.**

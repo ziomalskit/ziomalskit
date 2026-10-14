@@ -1,0 +1,240 @@
+{
+  "schema_version": 1,
+  "scope": "native_llm_acceptance_only",
+  "submissions": false,
+  "automatic_inference": false,
+  "runtime": {
+    "llama_cpp_revision": "60eeeb6082c1126bb8bc72902c83123cd056811b",
+    "llm_node_revision": "65983de33681816f856db7e16767da906084c688"
+  },
+  "profiles": {
+    "h3_full": {
+      "analysis": "h3-analysis",
+      "writer": "h3-writer-replacement",
+      "projector": "analysis-mmproj",
+      "writer_stages": {
+        "step3": {
+          "reasoning": "off",
+          "reasoning_budget": 0,
+          "max_tokens": 8192,
+          "ctx_size": 24576,
+          "final_answer_tokens": 8192,
+          "framing_tokens": 0
+        },
+        "step4": {
+          "reasoning": "on",
+          "reasoning_budget": 6144,
+          "max_tokens": 14400,
+          "ctx_size": 32768,
+          "final_answer_tokens": 8192,
+          "framing_tokens": 64
+        }
+      }
+    },
+    "10eros_full": {
+      "analysis": "10eros-analysis",
+      "writer": "10eros-writer-replacement",
+      "projector": "analysis-mmproj",
+      "writer_stages": {
+        "step3": {
+          "reasoning": "off",
+          "reasoning_budget": 0,
+          "max_tokens": 8192,
+          "ctx_size": 24576,
+          "final_answer_tokens": 8192,
+          "framing_tokens": 0
+        },
+        "step4": {
+          "reasoning": "on",
+          "reasoning_budget": 8192,
+          "max_tokens": 16448,
+          "ctx_size": 36864,
+          "final_answer_tokens": 8192,
+          "framing_tokens": 64
+        }
+      }
+    }
+  },
+  "approved_artifacts": [
+    {
+      "id": "joycaption",
+      "provider": "huggingface",
+      "repository": "concedo/llama-joycaption-beta-one-hf-llava-mmproj-gguf",
+      "revision": "acfe6bf78ae4e411cd5c7c8f4a71ba01f26a5b97",
+      "repository_path": "Llama-Joycaption-Beta-One-Hf-Llava-F16.gguf",
+      "destination": "LLM/Llama-Joycaption-Beta-One-Hf-Llava-F16.gguf",
+      "size_bytes": 16068892864,
+      "sha256": "4f6701b0853d1913004bee86ee91e094b6d4cc709e1a1a1850c455cba252baf6",
+      "required": true,
+      "profiles": [
+        "shared"
+      ],
+      "provenance_status": "verified_source_metadata"
+    },
+    {
+      "id": "joycaption-mmproj",
+      "provider": "huggingface",
+      "repository": "concedo/llama-joycaption-beta-one-hf-llava-mmproj-gguf",
+      "revision": "acfe6bf78ae4e411cd5c7c8f4a71ba01f26a5b97",
+      "repository_path": "llama-joycaption-beta-one-llava-mmproj-model-f16.gguf",
+      "destination": "LLM/llama-joycaption-beta-one-llava-mmproj-model-f16.gguf",
+      "size_bytes": 877771808,
+      "sha256": "94002cb5c354c7c9e538e64f37d593db9eceeca2e94573bae6cd3b2bd8bb1952",
+      "required": true,
+      "profiles": [
+        "shared"
+      ],
+      "provenance_status": "verified_source_metadata"
+    },
+    {
+      "id": "verifier",
+      "provider": "huggingface",
+      "repository": "mradermacher/Qwen3-VL-8B-NSFW-Caption-V4.5-GGUF",
+      "revision": "6738dcb8bb1f43b480393ba1ce36e50c6f1399d8",
+      "repository_path": "Qwen3-VL-8B-NSFW-Caption-V4.5.f16.gguf",
+      "destination": "LLM/Qwen3-VL-8B-NSFW-Caption-V4.5.f16.gguf",
+      "size_bytes": 16388045920,
+      "sha256": "96d661a5979f6cb6052ed69737b1fd7cd8b51bbabcad7d25beb6e1c0850a4cbb",
+      "required": true,
+      "profiles": [
+        "shared"
+      ],
+      "provenance_status": "verified_source_metadata"
+    },
+    {
+      "id": "verifier-mmproj",
+      "provider": "huggingface",
+      "repository": "mradermacher/Qwen3-VL-8B-NSFW-Caption-V4.5-GGUF",
+      "revision": "f8bff167ffe6f49f3a0afa5e01e242e1ee7a7a00",
+      "repository_path": "Qwen3-VL-8B-NSFW-Caption-V4.5.mmproj-f16.gguf",
+      "destination": "LLM/Qwen3-VL-8B-NSFW-Caption-V4.5.mmproj-f16.gguf",
+      "size_bytes": 1159030368,
+      "sha256": "ceb8b4f0ed3669bc0bc85450109f014d835225e1702be676308f1c10892a1f7d",
+      "required": true,
+      "profiles": [
+        "shared"
+      ],
+      "provenance_status": "verified_source_metadata"
+    },
+    {
+      "id": "gemma",
+      "provider": "huggingface",
+      "repository": "mradermacher/Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS-GGUF",
+      "revision": "26a17cc867ed43a8e9636bbfedb874d3b4e773b5",
+      "repository_path": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.f16.gguf",
+      "destination": "LLM/Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.f16.gguf",
+      "size_bytes": 14942972992,
+      "sha256": "24f0d29b2836473ff2406450f0867345c0902712ed953f45de3d98a12de9c4ea",
+      "required": true,
+      "profiles": [
+        "shared"
+      ],
+      "provenance_status": "verified_source_metadata"
+    },
+    {
+      "id": "gemma-mmproj",
+      "provider": "huggingface",
+      "repository": "mradermacher/Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS-GGUF",
+      "revision": "94b51494c2f9650d4d9456f054d1ccade9d8fb22",
+      "repository_path": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.mmproj-f16.gguf",
+      "destination": "LLM/Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.mmproj-f16.gguf",
+      "size_bytes": 990372832,
+      "sha256": "f84a44828afc71ed2f083a20680122f29d1044184572f090a8838db37aee016a",
+      "required": true,
+      "profiles": [
+        "shared"
+      ],
+      "provenance_status": "verified_source_metadata"
+    },
+    {
+      "id": "h3-analysis",
+      "provider": "huggingface",
+      "repository": "llmfan46/Mistral-Small-3.2-24B-Instruct-2506-ultra-uncensored-heretic-GGUF",
+      "revision": "701e8e336a199135e36aef8ed15a0be2954753f0",
+      "repository_path": "Mistral-Small-3.2-24B-Instruct-2506-ultra-uncensored-heretic-Q4_K_M.gguf",
+      "destination": "LLM/Mistral-Small-3.2-24B-Instruct-2506-ultra-uncensored-heretic-Q4_K_M.gguf",
+      "size_bytes": 14333922464,
+      "sha256": "5b0e27f5e3c2e5ef1809115c26efe247d72b46c218025acf1673ccd0e6045c20",
+      "required": true,
+      "profiles": [
+        "h3_full"
+      ],
+      "provenance_status": "verified_source_metadata"
+    },
+    {
+      "id": "10eros-analysis",
+      "provider": "huggingface",
+      "repository": "llmfan46/Mistral-Small-3.2-24B-Instruct-2506-ultra-uncensored-heretic-GGUF",
+      "revision": "701e8e336a199135e36aef8ed15a0be2954753f0",
+      "repository_path": "Mistral-Small-3.2-24B-Instruct-2506-ultra-uncensored-heretic-Q6_K.gguf",
+      "destination": "LLM/Mistral-Small-3.2-24B-Instruct-2506-ultra-uncensored-heretic-Q6_K.gguf",
+      "size_bytes": 19345951904,
+      "sha256": "125805cfbf0af1d8ee1070e49dda670d16b7d2ecc706f9ee1ddbe3fc5de5e996",
+      "required": true,
+      "profiles": [
+        "10eros_full"
+      ],
+      "provenance_status": "verified_source_metadata"
+    },
+    {
+      "id": "analysis-mmproj",
+      "provider": "huggingface",
+      "repository": "llmfan46/Mistral-Small-3.2-24B-Instruct-2506-ultra-uncensored-heretic-GGUF",
+      "revision": "701e8e336a199135e36aef8ed15a0be2954753f0",
+      "repository_path": "Mistral-Small-3.2-24B-Instruct-2506-mmproj-BF16.gguf",
+      "destination": "LLM/Mistral-Small-3.2-24B-Instruct-2506-mmproj-BF16.gguf",
+      "size_bytes": 887646304,
+      "sha256": "0a3a2dbf3b97d38d839a036b2abe0cac0f28bc66cf91ce0f43cea8affa68f937",
+      "required": true,
+      "profiles": [
+        "shared"
+      ],
+      "provenance_status": "verified_source_metadata"
+    },
+    {
+      "id": "h3-writer-replacement",
+      "provider": "huggingface",
+      "repository": "mradermacher/Qwen3-14B-heretic-GGUF",
+      "revision": "88cac1a5c19ac015402ec94884fabad4e3cfeaf2",
+      "repository_path": "Qwen3-14B-heretic.Q4_K_M.gguf",
+      "destination": "LLM/Qwen3-14B-heretic.Q4_K_M.gguf",
+      "size_bytes": 9001753952,
+      "sha256": "4d529e77f0f1755de42e6f81d7c62309d5f39a4968049d817862d8a9263c317f",
+      "required": true,
+      "profiles": [
+        "h3_full"
+      ],
+      "provenance_status": "verified_source_metadata"
+    },
+    {
+      "id": "10eros-writer-replacement",
+      "provider": "huggingface",
+      "repository": "mradermacher/Qwen3.5-27B-heretic-GGUF",
+      "revision": "81ceaf141911d6ad2e0fbd008e5c043ebdd33fc5",
+      "repository_path": "Qwen3.5-27B-heretic.Q5_K_M.gguf",
+      "destination": "LLM/Qwen3.5-27B-heretic.Q5_K_M.gguf",
+      "size_bytes": 19399608384,
+      "sha256": "66787dfbf5462ac355457efaf24e503d244f1083945243ba029080a8e6276322",
+      "required": true,
+      "profiles": [
+        "10eros_full"
+      ],
+      "provenance_status": "verified_source_metadata"
+    }
+  ],
+  "retained_production_gate": {
+    "id": "10eros-writer",
+    "provider": "generated",
+    "profiles": [
+      "10eros_full"
+    ],
+    "required": true,
+    "destination": "LLM/Qwen3.5-9B-F451-AND-TRI-Polar-Ultra-Pro-Writer-Uncensored-Heretic-BF16.gguf",
+    "source_repository": "DavidAU/Qwen3.5-9B-F451-AND-TRI-Polar-Ultra-Pro-Writer-Uncensored-Heretic",
+    "observed_source_revision": "72f2d803ae63499fc463607d997fe48abd38f093",
+    "llama_cpp_revision": "60eeeb6082c1126bb8bc72902c83123cd056811b",
+    "converter_revision": "60eeeb6082c1126bb8bc72902c83123cd056811b",
+    "converter_sha256": "e38975e1c68d98ac1664dfd530616eb35c72294382a4dd873d4746b23f27779f",
+    "gpu_validation": "pending"
+  }
+}

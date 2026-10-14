@@ -2,7 +2,7 @@
 
 Projekt przyjmuje **6 obrazów i opcjonalnie 1 plik audio**, analizuje referencje, przygotowuje 10 wariantów promptu i generuje wideo przez ComfyUI na GPU Vast.ai. Produkcyjne profile to wyłącznie **H3 Full** i **10Eros Full**, ze wspólną, dokładnie zachowaną logiką promptów **v20 Heretic**. Legacy INT8 pozostaje tylko jawną ścieżką diagnostyczną.
 
-**Draft PR #8: dwa profile LLM (14 października 2026).** Step 1/2 używa **llmfan46 Mistral Small 3.2 24B Instruct 2506 Ultra Uncensored Heretic**: Q4_K_M dla H3 Full, Q6_K dla 10Eros Full, z opublikowanym dla tego wariantu projektorem BF16. Writery to nadal Qwen3-14B Heretic Q4_K_M i Qwen3.5-27B Heretic Q5_K_M. Step 4 ma reasoning ON i budget odpowiednio **6144 / 8192**, z 8192 tokenami na final; Step 3 pozostaje OFF. Step 0 i jego cache są wspólne, cache Step 1/2 wiąże model, kwantyzację, projektor i instrukcje. [Aktualny raport źródeł, walidacji i acceptance GPU](docs/DUAL_LLM_PROFILES_2026-10-14.md). Immutable metadata Qwen3-14B oraz rzeczywisty acceptance zamiennika DavidAU pozostają pending; produkcja nadal fail-closed.
+**Draft PR #8: dwa profile LLM (14 października 2026).** Step 1/2 używa **llmfan46 Mistral Small 3.2 24B Instruct 2506 Ultra Uncensored Heretic**: Q4_K_M dla H3 Full, Q6_K dla 10Eros Full, z opublikowanym dla tego wariantu projektorem BF16. Writery to nadal Qwen3-14B Heretic Q4_K_M i Qwen3.5-27B Heretic Q5_K_M. Step 4 ma reasoning ON i budget odpowiednio **6144 / 8192**, z 8192 tokenami na final; Step 3 pozostaje OFF. Step 0 i jego cache są wspólne, cache Step 1/2 wiąże model, kwantyzację, projektor i instrukcje. Metadane Qwen3-14B zostały potwierdzone z immutable Git LFS commita. [Aktualny raport i izolowany bootstrap acceptance](docs/MODEL_ACCEPTANCE_BOOTSTRAP_2026-10-14.md) pozwala przygotować 11 zatwierdzonych modeli oraz native runtime bez uruchamiania usług/inferencji. Produkcja pozostaje fail-closed na wymaganej bramce DavidAU do rzeczywistego acceptance zamiennika.
 
 Draft PR #6 dodaje wybór **Autoprompt / Own final H3 prompt**. Autoprompt zachowuje
 10 kandydatów (5 auto + 5 review). Własny finalny prompt przechodzi lokalną
@@ -21,7 +21,7 @@ renderów, osobne ścieżki obrazu/audio oraz wąskie zakresy LoRA.
 
 **Poprawki Ultra w Draft PR #5:** [raport i dowody testowe](docs/PR5_ULTRA_FIXES_2026-10-09.md).
 Terminal pozostaje niedostępny w produkcji, również przy `H3_ENABLE_TERMINAL=1`.
-Rzeczywista walidacja pochodzenia/build/load modelu DavidAU 9B nadal blokuje produkcję; GPU/live acceptance pozostaje pending.
+Wymagana bramka DavidAU nadal blokuje produkcję do rzeczywistego acceptance zamiennika Qwen3.5-27B; GPU/live acceptance pozostaje pending.
 
 **Stan po audycie CPU/runtime, 8 października 2026:** wszystkie znane merge-blocking problemy wykryte w STEP 1–3 i cross-step zostały naprawione, niezależnie zweryfikowane i scalone do `main` w PR #1. Końcowy merge commit to `4ea3fdd1b9d41e2475c52ed5f705b52af35df5b0`.
 
@@ -96,8 +96,10 @@ bash INSTALL_ON_VAST.sh
 ```
 
 Installer pobiera i weryfikuje zamrożone artefakty na persistent volume oraz
-pozostawia `H3_ALLOW_SUBMISSIONS=0`. Dopóki provenance 9B jest niekompletne,
-instalacja zatrzymuje się przed pobieraniem wag. Po zamknięciu tego blokera:
+pozostawia `H3_ALLOW_SUBMISSIONS=0`. Wymagany pending DavidAU zatrzymuje normalną
+instalację przed pobieraniem wag. Pierwszy acceptance zamiennika przygotuj
+[osobnym native bootstrapem](docs/MODEL_ACCEPTANCE_BOOTSTRAP_2026-10-14.md),
+bez otwierania produkcji. Po rzeczywistym acceptance i review wycofania bramki:
 
 ```bash
 bash <PANEL_ROOT>/scripts/preflight.sh

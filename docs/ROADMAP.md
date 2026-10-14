@@ -3,14 +3,17 @@
 Current dual-LLM draft selection, split cache and replacement blockers are
 documented in [14 October report](DUAL_LLM_PROFILES_2026-10-14.md), including the
 correct llmfan46 Mistral/BF16 projector and larger profile-specific Step 4 budgets. This supersedes
-the older 4B/9B model choice below; GPU acceptance remains pending.
+the older 4B/9B model choice below. [Native acceptance bootstrap](MODEL_ACCEPTANCE_BOOTSTRAP_2026-10-14.md)
+now resolves Qwen3-14B immutable metadata and isolates first model preparation
+from the retained DavidAU production gate; GPU acceptance remains pending.
 
 Status: PR #4 is merged at `bfcc2bb22ff9691fda924fe17bd060a7e131c2e2`.
 Its offline feature set and full CPU regression/audit are **PASS**:
 [9 October evidence and safety review](CPU_PRODUCT_ACCEPTANCE_2026-10-09.md).
 Production selection is **H3 Full + 10Eros Full with exact v20 Heretic**.
-Complete 9B writer source provenance remains blocked, so the migration is not
-ready for GPU acceptance. See [model migration evidence](MODEL_MIGRATION_2026-10-09.md).
+The required DavidAU retirement gate still blocks normal production. Curated
+native model acceptance can now be prepared independently; real replacement
+load/generation evidence is required before reviewed gate retirement.
 GPU/live Vast acceptance remains **pending**.
 
 ## Product goal
@@ -44,8 +47,10 @@ behavior. No live/GPU acceptance PASS has been recorded.
   production profiles. H3 Full is the runtime default. Each batch/job freezes its
   profile, model route, LoRA selection and bridge settings before publication.
 - The canonical prompt is the exact v20 attachment; no v21/v22 prompt revisions.
-- The production manifest pins 17 artifacts; complete 9B source metadata is
-  still missing. Provisioning/preflight fail closed rather than substitute a quant.
+- The production manifest pins 22 verified-source artifacts and retains the
+  required DavidAU pending gate. Normal provisioning/preflight fail closed;
+  a separate native acceptance entry point admits only 11 explicitly approved
+  LLM GGUFs, never arbitrary pending or substitute artifacts.
 - Terminal is unavailable in supported production deployments. `H3_ENABLE_TERMINAL=1`
   cannot enable it: supervisor death does not guarantee detached-child cleanup.
   The default remains `0`; containment stays in place until ownership is reliable.
@@ -188,7 +193,9 @@ bound to that schedule, and controller/recovery/render checks fail closed. The
 90-second-plan → 20.040-second-timeline regression is covered offline. See
 [finalization evidence](PR5_FINALIZATION_2026-10-09.md) for limits and validation.
 
-H3 uses the 4B Heretic Q8_0 writer. 10Eros requires deterministic BF16 GGUF
+The following model choice records PR #5 before PR #8. Current dual-profile
+routes and the separate acceptance path are specified at the top of this roadmap.
+At that earlier stage, H3 uses the 4B Heretic Q8_0 writer. 10Eros requires deterministic BF16 GGUF
 conversion from the canonical DavidAU 9B source using the unchanged pinned
 llama.cpp. The converter contains Qwen3.5 support, but full source shard/config/
 tokenizer metadata and exact source compatibility have not been verified.

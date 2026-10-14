@@ -1,5 +1,10 @@
 # AJ Cloud: PR #8 completion — 14 October 2026
 
+**Historical report for `6185b0e5c63ffb6b2f583502beb780b0a629f1be`.**
+The Qwen3-14B metadata blocker and bootstrap circular dependency below are
+superseded by the [native model acceptance follow-up](MODEL_ACCEPTANCE_BOOTSTRAP_2026-10-14.md).
+The metadata/validation below remain evidence of that earlier head.
+
 This updates the existing Draft [PR #8](https://github.com/ziomalskit/ziomalskit/pull/8),
 branch `feat/dual-llm-profiles`, starting at
 `cf6591789af1665e1bda48e830a2617047fb9a3f`. At the initial and pre-push checks,

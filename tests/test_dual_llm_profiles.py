@@ -185,12 +185,16 @@ class DualProfileTests(unittest.TestCase):
         from h3.app.artifacts import validate_manifest
         manifest=json.loads((ROOT/'config/models_manifest.json').read_text())
         self.assertTrue(next(a for a in manifest['pending_artifacts'] if a['id']=='10eros-writer')['required'])
-        pending=next(a for a in manifest['pending_artifacts'] if a['id']=='h3-writer-replacement')
-        self.assertNotIn('revision',pending)
-        self.assertNotIn('sha256',pending)
-        self.assertNotIn('size_bytes',pending)
+        self.assertEqual([a['id'] for a in manifest['pending_artifacts']],['10eros-writer'])
+        verified=next(a for a in manifest['artifacts'] if a['id']=='h3-writer-replacement')
+        self.assertEqual(verified['revision'],'88cac1a5c19ac015402ec94884fabad4e3cfeaf2')
+        self.assertEqual(verified['sha256'],'4d529e77f0f1755de42e6f81d7c62309d5f39a4968049d817862d8a9263c317f')
+        self.assertEqual(verified['size_bytes'],9001753952)
+        self.assertEqual(verified['gpu_validation'],'pending')
+        self.assertEqual(verified['provenance_status'],'verified_source_metadata')
+        self.assertFalse(any(key.startswith('observed_') for key in verified))
         with self.assertRaises(ValueError):validate_manifest(manifest)
-        for id in ('h3-analysis','10eros-analysis','analysis-mmproj','10eros-writer-replacement'):
+        for id in ('h3-analysis','10eros-analysis','analysis-mmproj','10eros-writer-replacement','h3-writer-replacement'):
             self.assertIn(id,validate_manifest(manifest,allow_pending=True))
 
 

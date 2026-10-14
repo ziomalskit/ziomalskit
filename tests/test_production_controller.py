@@ -242,13 +242,18 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         job=await self.batch()
         manifest=self.m.CONFIG/"models_manifest.json"
         data=json.loads(manifest.read_text())
-        writer=next(item for item in data["pending_artifacts"] if item["destination"].endswith(self.m.PRODUCTION["profiles"]["h3_full"]["writer"]))
-        writer["observed_sha256"]="a"*64
+        writer=next(item for item in data["artifacts"] if item["id"]=="h3-writer-replacement")
+        self.assertEqual(writer["destination"],"LLM/"+self.m.PRODUCTION["profiles"]["h3_full"]["writer"])
+        self.assertEqual(writer["provenance_status"],"verified_source_metadata")
+        # A verified source changes the authoritative checksum, not a pending
+        # observation. Keep checking that an already saved job is fenced.
+        writer["sha256"]="a"*64
         manifest.write_text(json.dumps(data))
         with self.assertRaisesRegex(ValueError,"model provenance changed"):self.m.production_workflow(job)
         self.req=self.req.model_copy(update={"request_id":__import__("uuid").uuid4()})
         first=len(self.m.queue);await self.batch("10eros_full");eros=self.m.queue[first]
-        data["pending_artifacts"][0]["converter_sha256"]="b"*64
+        retired=next(item for item in data["pending_artifacts"] if item["id"]=="10eros-writer")
+        retired["converter_sha256"]="b"*64
         manifest.write_text(json.dumps(data))
         with self.assertRaisesRegex(ValueError,"model provenance changed"):self.m.production_workflow(eros)
 

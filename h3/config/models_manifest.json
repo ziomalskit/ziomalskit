@@ -462,6 +462,27 @@
         "provider": "Hugging Face Git/LFS commit diff",
         "commit_url": "https://huggingface.co/mradermacher/Qwen3.5-27B-heretic-GGUF/commit/81ceaf141911d6ad2e0fbd008e5c043ebdd33fc5"
       }
+    },
+    {
+      "id": "h3-writer-replacement",
+      "role": "Step 3/4 Qwen3-14B Heretic Q4_K_M",
+      "provider": "huggingface",
+      "profiles": [
+        "h3_full"
+      ],
+      "required": true,
+      "destination": "LLM/Qwen3-14B-heretic.Q4_K_M.gguf",
+      "repository": "mradermacher/Qwen3-14B-heretic-GGUF",
+      "revision": "88cac1a5c19ac015402ec94884fabad4e3cfeaf2",
+      "repository_path": "Qwen3-14B-heretic.Q4_K_M.gguf",
+      "sha256": "4d529e77f0f1755de42e6f81d7c62309d5f39a4968049d817862d8a9263c317f",
+      "size_bytes": 9001753952,
+      "provenance_status": "verified_source_metadata",
+      "gpu_validation": "pending",
+      "metadata_evidence": {
+        "provider": "Hugging Face Git/LFS commit diff",
+        "commit_url": "https://huggingface.co/mradermacher/Qwen3-14B-heretic-GGUF/commit/88cac1a5c19ac015402ec94884fabad4e3cfeaf2"
+      }
     }
   ],
   "pending_artifacts": [
@@ -482,27 +503,6 @@
       "converter_revision": "60eeeb6082c1126bb8bc72902c83123cd056811b",
       "converter_sha256": "e38975e1c68d98ac1664dfd530616eb35c72294382a4dd873d4746b23f27779f",
       "gpu_validation": "pending"
-    },
-    {
-      "id": "h3-writer-replacement",
-      "role": "Step 3/4 Qwen3-14B Heretic Q4_K_M",
-      "provider": "huggingface",
-      "profiles": [
-        "h3_full"
-      ],
-      "required": true,
-      "destination": "LLM/Qwen3-14B-heretic.Q4_K_M.gguf",
-      "repository": "mradermacher/Qwen3-14B-heretic-GGUF",
-      "repository_path": "Qwen3-14B-heretic.Q4_K_M.gguf",
-      "observed_source_revision": "88cac1a5c19ac015402ec94884fabad4e3cfeaf2",
-      "observed_sha256": "4d529e77f0f1755de42e6f81d7c62309d5f39a4968049d817862d8a9263c317f",
-      "observed_size_bytes": 9001753952,
-      "status": "blocked_source_metadata",
-      "reason": "Repository, quantization, main pointer and upload commit link observed. Rechecked 2026-10-14: immutable upload commit, raw/blob at the full revision and revision API still could not be fetched independently. Observations are not provisioning authority.",
-      "gpu_validation": "pending",
-      "metadata_evidence": {
-        "blob_url": "https://huggingface.co/mradermacher/Qwen3-14B-heretic-GGUF/blob/main/Qwen3-14B-heretic.Q4_K_M.gguf"
-      }
     }
   ]
 }
