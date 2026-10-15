@@ -29,6 +29,7 @@ except ImportError:
 
 PACKAGE = models.PACKAGE
 TEMPLATE = PACKAGE / 'config/gpu_acceptance_session.example.json'
+PERSONAL_TEMPLATE = PACKAGE / 'config/gpu_personal_session.example.json'
 V20_SHA = '276621a1992a8b8da40d981a79417fd5eb3617b44166d890c8c82ffd8eb96222'
 UTC = timezone.utc
 
@@ -55,9 +56,18 @@ def read_session(path):
     return json.loads(bounded_text(path))
 
 
+def store_environment(session):
+    environment = dict(os.environ)
+    environment.pop('H3_MODEL_ACCEPTANCE_MODELS_ROOT', None)
+    if session.get('scope') == 'personal_first_run':
+        environment['H3_MODEL_ACCEPTANCE_MODELS_ROOT'] = session['storage'].get('models_root')
+    return environment
+
+
 def validate_session(session, phase='A', now=None):
     """No guessed approval, quote, reserve or time/budget limit."""
-    expected = json.loads(TEMPLATE.read_text())
+    personal = session.get('scope') == 'personal_first_run'
+    expected = json.loads((PERSONAL_TEMPLATE if personal else TEMPLATE).read_text())
     def shape(value, example, prefix=''):
         if not isinstance(value, dict) or set(value) != set(example):
             raise ValueError('unknown/missing session fields')
@@ -66,11 +76,11 @@ def validate_session(session, phase='A', now=None):
             name = prefix + key
             if isinstance(sample, dict):
                 missing.extend(shape(value[key], sample, name + '.'))
-            elif value[key] is None and not name.startswith('billing.'):
+            elif value[key] is None and not name.startswith('billing.') and not (personal and name == 'storage.volume_id'):
                 missing.append(name)
         return missing
     missing = shape(session, expected)
-    if type(session['schema_version']) is not int or session['schema_version'] != 1 or session['scope'] != 'gpu_acceptance_phase1':
+    if type(session['schema_version']) is not int or session['schema_version'] != 1 or session['scope'] not in {'gpu_acceptance_phase1', 'personal_first_run'}:
         raise ValueError('wrong Phase 1 scope')
     if any(type(value) is not bool for value in session['approvals'].values()):
         raise ValueError('explicit boolean approvals required')
@@ -82,20 +92,27 @@ def validate_session(session, phase='A', now=None):
         return missing
     if not re.fullmatch('[0-9a-f]{40}', session['checkout_sha']):
         raise ValueError('exact checkout SHA required')
-    models.isolated_root(Path(session['root']))
+    environment = store_environment(session)
+    models.isolated_root(Path(session['root']), environment)
+    model_root = models.models_directory(Path(session['root']), environment)
     store = session['storage']
     mount = Path(store['mount'])
-    if not mount.is_absolute() or '..' in mount.parts or mount == Path('/'):
+    if not mount.is_absolute() or '..' in mount.parts or not personal and mount == Path('/'):
         raise ValueError('separate actual mount required')
     models.no_symlink_prefix(mount)
     if not Path(session['root']).is_relative_to(mount) or Path(session['root']) == mount:
         raise ValueError('acceptance root must be inside retained mount')
-    for key in ('volume_id', 'machine_id'):
+    if personal and not model_root.is_relative_to(mount):
+        raise ValueError('shared models must be on the declared instance disk')
+    if personal and (store['mode'] != 'ephemeral' or store['volume_id'] is not None
+                     or session['quote']['volume_usd_per_hour'] != 0 or session['quote']['retention_hours'] != 0):
+        raise ValueError('ephemeral mode cannot claim a retained volume')
+    for key in (('machine_id',) if personal else ('volume_id', 'machine_id')):
         if not isinstance(store[key], str) or not re.fullmatch('[0-9]+', store[key]):
             raise ValueError('real provider IDs required')
     for key in ('device', 'inode', 'build_reserve_bytes', 'evidence_reserve_bytes'):
         number(store[key], positive=True, integer=True)
-    if store['fstype'] not in {'ext4', 'xfs', 'btrfs', 'zfs'}:
+    if store['fstype'] not in ({'ext4', 'xfs', 'btrfs', 'zfs', 'overlay'} if personal else {'ext4', 'xfs', 'btrfs', 'zfs'}):
         raise ValueError('retained filesystem required')
     for key in ('source', 'fsroot'):
         if not isinstance(store[key], str) or not store[key] or '\n' in store[key]:
@@ -116,6 +133,9 @@ def validate_session(session, phase='A', now=None):
             or limits['poll_seconds'] > min(limits['max_probe_seconds'], limits['max_download_seconds'])
             or limits['shutdown_grace_seconds'] >= limits['max_probe_seconds']):
         raise ValueError('inconsistent operator time limits')
+    if personal and sum(limits[key] for key in ('max_preflight_seconds', 'max_build_seconds', 'max_download_seconds',
+            'max_probe_seconds', 'max_review_seconds', 'max_render_seconds', 'max_cleanup_seconds')) > limits['max_session_seconds']:
+        raise ValueError('personal first-run phases exceed the session deadline')
     quote = session['quote']
     if not isinstance(quote['reference'], str) or not quote['reference'].strip():
         raise ValueError('operator quote reference required')
@@ -136,7 +156,8 @@ def cost_ceiling(session):
             + retention * sum(number(q[key]) for key in ('stopped_disk_usd_per_hour', 'volume_usd_per_hour'))
             + number(q['download_bytes_cap']) / 10**9 * number(q['ingress_usd_per_gb'])
             + number(q['upload_bytes_cap']) / 10**9 * number(q['egress_usd_per_gb'])
-            + number(q['external_preparation_usd']))
+            + number(q['external_preparation_usd']) + number(q.get('other_fees_usd', 0))
+            + number(limits.get('cleanup_reserve_usd', 0)))
 
 
 def plan(session, phase='A', now=None, *, live=False):
@@ -146,6 +167,14 @@ def plan(session, phase='A', now=None, *, live=False):
               'submissions': False, 'gpu_acceptance': 'NOT RUN', 'production_gate_retired': False,
               'approved_artifacts': [item['id'] for item in items],
               'known_model_bytes': sum(item['size_bytes'] for item in items)}
+    if session['scope'] == 'personal_first_run':
+        try:
+            from .provision_models import default_lora_destinations
+        except ImportError:
+            from provision_models import default_lora_destinations
+        optional = default_lora_destinations(PACKAGE / 'config/lora_registry.json')
+        entries = json.loads((PACKAGE / 'config/models_manifest.json').read_text())['artifacts']
+        result['known_model_bytes'] = sum(i['size_bytes'] for i in entries if i['required'] or i['destination'] in optional)
     if missing:
         # A human may review a bounded quote before renting. Actual mount/device
         # facts remain pending until access exists; never fabricate them or issue GO.
@@ -162,7 +191,17 @@ def plan(session, phase='A', now=None, *, live=False):
         except (TypeError, KeyError, ValueError):
             pass
         return result
-    disk = models.plan(Path(session['root']), items, approval)
+    environment = store_environment(session)
+    disk = models.plan(Path(session['root']), items, approval, environment)
+    if session['scope'] == 'personal_first_run':
+        try:
+            from .provision_models import disk_plan, default_lora_destinations
+        except ImportError:
+            from provision_models import disk_plan, default_lora_destinations
+        disk = disk_plan(json.loads((PACKAGE / 'config/models_manifest.json').read_text()),
+                         models.models_directory(Path(session['root']), environment),
+                         optional_destinations=default_lora_destinations(PACKAGE / 'config/lora_registry.json'))
+        result['known_model_bytes'] = disk['known_stack_bytes']
     reserve = session['storage']['build_reserve_bytes'] + session['storage']['evidence_reserve_bytes']
     required = reserve if live else disk['minimum_free_bytes'] + reserve
     result.update(minimum_free_bytes=required, operator_min_free_bytes=session['limits']['min_free_bytes'],
@@ -215,11 +254,22 @@ def observe(session):
         with socket.socket() as probe:
             try: probe.bind(('127.0.0.1', port))
             except OSError: occupied.append(port)
+    group_control = None
+    if session['scope'] == 'personal_first_run':
+        try:
+            from .process_identity import require_group_control
+        except ImportError:
+            from process_identity import require_group_control
+        try:
+            require_group_control(); group_control = True
+        except Exception:
+            group_control = False
     return {'mount': filesystem[0], 'device': info.st_dev, 'inode': info.st_ino,
             'container_root_device': Path('/').stat().st_dev, 'gpu': gpu, 'gpu_pids': sorted(pids),
             'cuda': toolkit.group(1), 'kernel': platform.release(), 'python': list(sys.version_info[:3]),
             'ram_available_bytes': ram, 'cpu_cores': cpu, 'free_bytes': shutil.disk_usage(mount).free,
-            'production_ports': occupied}
+            'production_ports': occupied,
+            'pidfd_group_control': group_control if session['scope'] == 'personal_first_run' else None}
 
 
 def inspect(session, phase='A', *, allowed_pids=(), observer=observe, now=None, live=False, verify_models=False):
@@ -227,19 +277,26 @@ def inspect(session, phase='A', *, allowed_pids=(), observer=observe, now=None, 
     if result['blocked']: return result
     observed = observer(session); store = session['storage']; hardware = session['hardware']
     gpu = observed['gpu']; mount = observed['mount']
-    mismatched_mount = (any(mount.get(key) != store[expected] for key, expected in
+    personal = session['scope'] == 'personal_first_run'
+    model_disk_changed = False
+    if personal:
+        path = models.models_directory(Path(session['root']), store_environment(session))
+        while not path.exists(): path = path.parent
+        model_disk_changed = path.stat().st_dev != Path(store['mount']).stat().st_dev
+    mismatched_mount = (model_disk_changed or any(mount.get(key) != store[expected] for key, expected in
         (('target', 'mount'), ('source', 'source'), ('fstype', 'fstype'), ('fsroot', 'fsroot')))
         or observed['device'] != store['device'] or observed['inode'] != store['inode']
-        or observed['device'] == observed['container_root_device'] or 'rw' not in mount.get('options', '').split(','))
+        or session['scope'] != 'personal_first_run' and observed['device'] == observed['container_root_device'] or 'rw' not in mount.get('options', '').split(','))
     driver = tuple(map(int, gpu['driver'].split('.')))
     kernel = tuple(map(int, re.match(r'(\d+)\.(\d+)', observed['kernel']).groups()))
     for condition, reason in (
-        (mismatched_mount, 'PERSISTENT_MOUNT_CHANGED_OR_UNPROVEN'),
+        (mismatched_mount, 'EPHEMERAL_DISK_IDENTITY_CHANGED' if session['scope'] == 'personal_first_run' else 'PERSISTENT_MOUNT_CHANGED_OR_UNPROVEN'),
+        (session['scope'] == 'personal_first_run' and observed.get('pidfd_group_control') is not True, 'PIDFD_GROUP_CONTROL_UNAVAILABLE'),
         (gpu['name'] != hardware['gpu_name'] or gpu['compute_cap'] != '12.0' or gpu['total_mib'] < hardware['min_vram_mib'], 'GPU_MISMATCH'),
         (driver < (580, 65, 6) or observed['cuda'] != hardware['cuda'], 'DRIVER_CUDA_MISMATCH'),
         # Isolated native acceptance has no production service/group restarts.
         # Full deployment still requires >=6.9 and the actual pidfd group probe.
-        (kernel < (6, 8) or observed['python'] < [3, 11, 0], 'KERNEL_PYTHON_MISMATCH'),
+        (kernel < ((6, 9) if session['scope'] == 'personal_first_run' else (6, 8)) or observed['python'] < [3, 11, 0], 'KERNEL_PYTHON_MISMATCH'),
         (observed['ram_available_bytes'] < hardware['min_ram_bytes'] or observed['cpu_cores'] < hardware['min_cpu_cores'], 'RAM_CPU_INSUFFICIENT'),
         (observed['free_bytes'] < max(result['minimum_free_bytes'], session['limits']['min_free_bytes']), 'INSUFFICIENT_DISK'),
         (bool(set(observed['gpu_pids']) - set(allowed_pids)), 'UNEXPECTED_GPU_PROCESS'),
@@ -247,14 +304,15 @@ def inspect(session, phase='A', *, allowed_pids=(), observer=observe, now=None, 
         if condition: result['blocked'].append(reason)
     if phase == 'C':
         items, approval = models.load_selection()
-        root = models.require_store(Path(session['root']), approval)
+        environment = store_environment(session)
+        root = models.require_store(Path(session['root']), approval, environment=environment)
         for item in items:
-            models.check_model_path(root, item)
-            path = root / 'models' / item['destination']
+            models.check_model_path(root, item, environment)
+            path = models.models_directory(root, environment) / item['destination']
             if not path.is_file() or path.stat().st_size != item['size_bytes']:
                 result['blocked'].append('MODELS_INCOMPLETE'); break
         if not result['blocked'] and verify_models:
-            result['file_runtime_verification'] = models.verify_models(root, items, approval, cuda_version=session['hardware']['cuda'])
+            result['file_runtime_verification'] = models.verify_models(root, items, approval, cuda_version=session['hardware']['cuda'], environment=environment)
     result.update(status='BLOCKED' if result['blocked'] else 'PREFLIGHT_READY', observations=observed,
                   model_sha256_verification='VERIFIED' if 'file_runtime_verification' in result else 'NOT RUN; use existing --verify before model probes')
     return result
@@ -270,7 +328,7 @@ def live_budget(session, phase, now, elapsed):
     transfer = number(q['download_bytes_cap']) / 10**9 * number(q['ingress_usd_per_gb']) + number(q['upload_bytes_cap']) / 10**9 * number(q['egress_usd_per_gb'])
     retention = number(q['retention_hours']) * (number(q['stopped_disk_usd_per_hour']) + number(q['volume_usd_per_hour']))
     rate = sum(number(q[key]) for key in ('gpu_usd_per_hour', 'instance_disk_usd_per_hour', 'volume_usd_per_hour'))
-    estimate = actual + Decimal(str(age)) / 3600 * rate + transfer + retention + number(q['external_preparation_usd'])
+    estimate = actual + Decimal(str(age)) / 3600 * rate + transfer + retention + number(q['external_preparation_usd']) + number(q.get('other_fees_usd', 0)) + number(limits.get('cleanup_reserve_usd', 0))
     phase_limit = limits['max_probe_seconds'] if phase == 'C' else limits['max_build_seconds'] + limits['max_download_seconds']
     if session_age >= limits['max_session_seconds'] or elapsed >= phase_limit or estimate >= number(limits['max_total_usd']):
         raise ValueError('approved time/cost ceiling reached')
@@ -333,7 +391,7 @@ def watch(path, session, phase, output, allowed_pids=(), *, observer=observe, cl
                     stop_reasons = ['MODEL_CHANGED_AFTER_VERIFICATION']
                     items, _ = models.load_selection()
                     for item in items:
-                        current = (root/'models'/item['destination']).lstat()
+                        current = (models.models_directory(root, store_environment(session))/item['destination']).lstat()
                         if models.signature(current) != verified_signatures[item['id']]:
                             raise ValueError('model changed after full SHA256 verification')
                 stop_reasons = ['OBSERVATION_OR_EVIDENCE_FAILURE']
@@ -354,9 +412,9 @@ def watch(path, session, phase, output, allowed_pids=(), *, observer=observe, cl
                   'gpu_acceptance': 'NOT RUN', 'production_gate_retired': False, 'stop_reasons': stop_reasons})
         except OSError:
             status = 'STOP; evidence incomplete'
-    return {'status':status, 'gpu_acceptance':'NOT RUN', 'production_gate_retired':False,
+    return {'status':status, 'storage_retained': session['scope'] != 'personal_first_run', 'gpu_acceptance':'NOT RUN', 'production_gate_retired':False,
             'sampled_peak_vram_mib':peak, 'billing_continues':True, 'stop_reasons':stop_reasons,
-            'operator_action':'Stop owned process; verify retained data; separately stop rented compute in provider console. No automatic lifecycle action.'}
+            'operator_action':'Stop owned processes; download wanted results; manually stop/destroy compute in provider console. Ephemeral data is lost on destroy; only a separately verified Local Volume provides retention.'}
 
 
 def main(argv=None):

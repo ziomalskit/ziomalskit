@@ -6,10 +6,17 @@ unset AJ_ACCEPTANCE_DOWNLOAD_TOKEN
 AJ_ACCEPTANCE_DOWNLOAD_TOKEN="${HF_TOKEN:-}"
 unset HF_TOKEN HF_HUB_TOKEN HUGGING_FACE_HUB_TOKEN VAST_API_KEY
 export H3_ALLOW_SUBMISSIONS=0 H3_ALLOW_DIAGNOSTIC_SUBMISSIONS=0 H3_ENABLE_TERMINAL=0
+export PIP_NO_CACHE_DIR="${PIP_NO_CACHE_DIR:-1}"
+export HF_HOME="${HF_HOME:-${WORKSPACE:-/workspace}/.cache/huggingface}"
 export VAST_CLI=/usr/bin/false SERVICE_CTL=/usr/bin/false
 
 AJ_ACCEPTANCE_PACKAGE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AJ_ACCEPTANCE_ROOT="${H3_MODEL_ACCEPTANCE_ROOT:?Select an absolute, private model acceptance directory distinct from production}"
+# Share a pinned native build only when the physical models store is shared.
+AJ_ACCEPTANCE_BUILD_ROOT="$AJ_ACCEPTANCE_ROOT/.h3-build"
+if [[ -n "${H3_MODEL_ACCEPTANCE_MODELS_ROOT:-}" ]]; then
+  AJ_ACCEPTANCE_BUILD_ROOT="${H3_BUILD_ROOT:-${WORKSPACE:-/workspace}/.h3-build}"
+fi
 AJ_ACCEPTANCE_BOOTSTRAP="${PYTHON_BIN:-$(command -v python3)}"
 AJ_ACCEPTANCE_ACTION="${1:---plan}"
 [[ "$#" -le 1 ]] || { echo 'Usage: INSTALL_MODEL_ACCEPTANCE.sh [--plan|--install]' >&2; exit 2; }
@@ -44,8 +51,8 @@ done
 env WORKSPACE="$AJ_ACCEPTANCE_ROOT" DATA_ROOT="$AJ_ACCEPTANCE_ROOT" \
   COMFY_ROOT="$AJ_ACCEPTANCE_ROOT/native" PANEL_ROOT="$AJ_ACCEPTANCE_PACKAGE" \
   COMFY_PYTHON="$AJ_ACCEPTANCE_PYTHON" PYTHON_BIN="$AJ_ACCEPTANCE_PYTHON" \
-  H3_BUILD_ROOT="$AJ_ACCEPTANCE_ROOT/.h3-build" \
-  bash "$AJ_ACCEPTANCE_PACKAGE/scripts/setup_linux_llama.sh" 9>&-
+  H3_BUILD_ROOT="$AJ_ACCEPTANCE_BUILD_ROOT" \
+  "$AJ_ACCEPTANCE_PYTHON" "$AJ_ACCEPTANCE_PACKAGE/scripts/install_timing.py" run llama_build -- bash "$AJ_ACCEPTANCE_PACKAGE/scripts/setup_linux_llama.sh" 9>&-
 "$AJ_ACCEPTANCE_PYTHON" -m pip check 9>&-
 
 AJ_ACCEPTANCE_DOWNLOAD_PYTHON="$AJ_ACCEPTANCE_ROOT/.aj-download-venv/bin/python"

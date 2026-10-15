@@ -59,11 +59,11 @@ class ProductionSessionPlanTests(unittest.TestCase):
             complete = disk_plan(self.manifest, root, optional_destinations=None)
             self.assertEqual(cold['known_stack_bytes'], 278009016136)
             self.assertEqual(cold['missing_download_bytes'], 278009016136)
-            self.assertEqual(cold['download_staging_bytes'], 66280487368)
-            self.assertEqual(cold['minimum_free_bytes'], 344289503504)
+            self.assertEqual(cold['download_staging_bytes'], 0)
+            self.assertEqual(cold['minimum_free_bytes'], 278009016136)
             self.assertEqual(complete['known_stack_bytes'], 284661829208)
             self.assertEqual(cold['minimum_free_bytes'] + sum(i['size_bytes'] for i in native),
-                             457685473296)
+                             391404985928)
             # A plan observes existence only. These placeholders are not verified weights.
             for item in native:
                 path = root / item['destination']
@@ -72,7 +72,7 @@ class ProductionSessionPlanTests(unittest.TestCase):
             warm = disk_plan(self.manifest, root, optional_destinations=self.optional)
             self.assertEqual(warm['known_stack_bytes'], cold['known_stack_bytes'])
             self.assertEqual(warm['missing_download_bytes'], 164613046344)
-            self.assertEqual(warm['minimum_free_bytes'], 230893533712)
+            self.assertEqual(warm['minimum_free_bytes'], 164613046344)
             self.assertIn('10eros-writer', warm['pending_artifacts'])
 
     def test_real_cli_reports_selected_plan_then_blocks_retained_davidau_without_writes(self):
@@ -90,7 +90,7 @@ class ProductionSessionPlanTests(unittest.TestCase):
                     self.assertEqual(json.loads(result.stdout)['known_stack_bytes'], expected)
                     self.assertFalse(root.exists())
 
-    def test_atomic_copy_preserves_source_and_reuse_rehashes_without_network_or_receipt_copy(self):
+    def test_atomic_move_keeps_one_inode_and_reuse_rehashes_without_network_or_receipt_copy(self):
         item = artifact()
         with tempfile.TemporaryDirectory() as temporary:
             source, target = (Path(temporary) / name for name in ('isolated', 'production'))
@@ -100,12 +100,13 @@ class ProductionSessionPlanTests(unittest.TestCase):
             forbidden = Mock(side_effect=AssertionError('local copy/reuse must not download'))
             ensure_download(source, item, downloader=forbidden)
             source_receipt = read_json(source, '.verification/fixture-model.json')
+            original_inode=path.stat().st_ino
             with store_lock(target):
                 installed = install_verified(target, item, source, path)
             self.assertEqual(installed['sha256'], item['sha256'])
             self.assertFalse((target / '.verification').exists())
-            self.assertNotEqual(path.stat().st_ino, (target / item['destination']).stat().st_ino)
-            self.assertEqual(path.stat().st_nlink, 1)
+            self.assertFalse(path.exists())
+            self.assertEqual(original_inode, (target / item['destination']).stat().st_ino)
             self.assertEqual((target / item['destination']).stat().st_nlink, 1)
             result = ensure_download(target, item, downloader=forbidden)
             self.assertTrue(result['reused'])
@@ -113,7 +114,7 @@ class ProductionSessionPlanTests(unittest.TestCase):
             self.assertNotEqual(source_receipt['signature'], target_receipt['signature'])
             self.assertEqual(target_receipt['signature'], verify_file(target, item['destination'], item)['signature'])
             self.assertEqual(read_json(source, '.verification/fixture-model.json'), source_receipt)
-            self.assertEqual(path.read_bytes(), BODY)
+            self.assertEqual((target / item['destination']).read_bytes(), BODY)
             forbidden.assert_not_called()
 
 

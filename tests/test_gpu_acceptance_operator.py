@@ -162,7 +162,7 @@ class OperatorTests(unittest.TestCase):
         with patch.object(models.shutil,'disk_usage',return_value=SimpleNamespace(free=100*10**9)):
             result=operator.plan(self.session,now=NOW)
         self.assertIn('INSUFFICIENT_DISK',result['blocked'])
-        self.assertEqual(result['minimum_free_bytes'],132795578176+2*10**9)
+        self.assertEqual(result['minimum_free_bytes'],113395969792+2*10**9)
         self.session['quote']['download_bytes_cap']=1
         self.assertIn('TRANSFER_CAP_TOO_SMALL',operator.plan(self.session,now=NOW)['blocked'])
 

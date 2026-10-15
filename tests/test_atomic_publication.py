@@ -153,12 +153,16 @@ download.ensure_download(Path(sys.argv[2])/'models',artifact(),downloader=tiny)
         final=self.models/self.item['destination']
         self.assertFalse(final.exists())
         retained=list(final.parent.glob('.model.gguf.*.partial'))
-        self.assertEqual(len(retained),1)
-        original=retained[0].read_bytes()
+        self.assertEqual(retained, [])
+        staged=self.models/'.downloads'/self.item['id']/self.item['repository_path']
+        original_inode=staged.stat().st_ino
+        unknown=final.parent/'.unknown.partial';unknown.write_bytes(b'preserve')
         result=downloads.ensure_download(self.models,self.item,downloader=self.download)
         self.assertFalse(result['reused'])
         self.assertEqual(final.read_bytes(),BODY)
-        self.assertEqual(retained[0].read_bytes(),original,'unknown retained partials must be preserved')
+        self.assertFalse(staged.exists())
+        self.assertEqual(final.stat().st_ino,original_inode)
+        self.assertEqual(unknown.read_bytes(),b'preserve')
         self.assertEqual(final.stat().st_nlink,1)
 
     def test_corrupt_existing_file_never_downloaded_or_overwritten(self):
@@ -180,9 +184,9 @@ download.ensure_download(Path(sys.argv[2])/'models',artifact(),downloader=tiny)
     def test_destination_symlink_race_refused_without_overwrite_or_external_write(self):
         original=downloads.publish_noreplace
         outside=self.root.parent/'outside.gguf'
-        def race(directory,temporary,name):
-            os.symlink(outside,name,dir_fd=directory)
-            return original(directory,temporary,name)
+        def race(directory,temporary,name,destination_directory):
+            os.symlink(outside,name,dir_fd=destination_directory)
+            return original(directory,temporary,name,destination_directory)
         with patch.object(downloads,'publish_noreplace',side_effect=race),self.assertRaises(FileExistsError):
             downloads.ensure_download(self.models,self.item,downloader=self.download)
         self.assertFalse(outside.exists())
@@ -191,11 +195,9 @@ download.ensure_download(Path(sys.argv[2])/'models',artifact(),downloader=tiny)
     def test_unowned_temporary_name_collision_is_preserved(self):
         final=self.models/self.item['destination'];final.parent.mkdir(parents=True)
         retained=final.parent/'.model.gguf.fixture.partial';retained.write_bytes(b'preserve unverified data')
-        with patch.object(downloads.uuid,'uuid4',return_value=types.SimpleNamespace(hex='fixture')), \
-             self.assertRaises(FileExistsError):
-            downloads.ensure_download(self.models,self.item,downloader=self.download)
+        downloads.ensure_download(self.models,self.item,downloader=self.download)
         self.assertEqual(retained.read_bytes(),b'preserve unverified data')
-        self.assertFalse(final.exists())
+        self.assertEqual(final.read_bytes(),BODY)
 
     def test_directory_fsync_failure_after_atomic_publish_recovers_without_download(self):
         original=downloads.publish_noreplace

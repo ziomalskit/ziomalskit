@@ -21,12 +21,12 @@ sys.path.insert(0, str(PACKAGE))
 from app.artifacts import atomic_json, parent_directory, read_json, signature, validate_artifact, verify_file
 from app.production import read_profiles
 try:
-    from .model_downloads import ensure_download
+    from .model_downloads import ensure_download, partial_bytes
     from .runtime_config import LLAMA_COMMIT, LLAMA_TAG, LLM_NODE_COMMIT
     from .llama_runtime import verify_llama, sha256
     from .patch_llama_binary import patch_source
 except ImportError:
-    from model_downloads import ensure_download
+    from model_downloads import ensure_download, partial_bytes
     from runtime_config import LLAMA_COMMIT, LLAMA_TAG, LLM_NODE_COMMIT
     from llama_runtime import verify_llama, sha256
     from patch_llama_binary import patch_source
@@ -133,14 +133,35 @@ def scope_identity(approval):
     return hashlib.sha256(json.dumps(approval, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
 
 
-def marker_value(root, approval):
-    return {'schema_version': 1, 'scope': SCOPE, 'root': str(root), 'approval_sha256': scope_identity(approval),
-            'submissions': False, 'automatic_inference': False, 'production_gate_retired': False}
+def models_directory(root, environment=None):
+    """An explicit shared store is the real ComfyUI models directory, not a link."""
+    env = os.environ if environment is None else environment
+    value = env.get('H3_MODEL_ACCEPTANCE_MODELS_ROOT')
+    if not value:
+        return Path(root) / 'models'
+    path = Path(value)
+    base = Path(env.get('H3_PERSISTENT_ROOT') or env.get('WORKSPACE') or '/workspace')
+    comfy = Path(env.get('COMFY_ROOT') or base / 'ComfyUI')
+    if (not path.is_absolute() or '..' in path.parts or path != comfy / 'models'
+            or env.get('COMFY_MODELS_DIR', str(path)) != str(path)
+            or path == root or path.is_relative_to(root) or Path(root).is_relative_to(path)
+            or path == PACKAGE or path.is_relative_to(PACKAGE) or PACKAGE.is_relative_to(path)):
+        raise ValueError('shared acceptance files must use the actual separate ComfyUI models directory')
+    no_symlink_prefix(path)
+    return path
+
+
+def marker_value(root, approval, environment=None):
+    value = {'schema_version': 1, 'scope': SCOPE, 'root': str(root), 'approval_sha256': scope_identity(approval),
+             'submissions': False, 'automatic_inference': False, 'production_gate_retired': False}
+    if (os.environ if environment is None else environment).get('H3_MODEL_ACCEPTANCE_MODELS_ROOT'):
+        value['models_root'] = str(models_directory(root, environment))
+    return value
 
 
 def require_store(root, approval, *, create=False, environment=None):
     root = isolated_root(root, environment)
-    expected = marker_value(root, approval)
+    expected = marker_value(root, approval, environment)
     if not root.exists():
         if not create:
             raise ValueError('acceptance store was not explicitly prepared')
@@ -170,8 +191,8 @@ def require_store(root, approval, *, create=False, environment=None):
     return root
 
 
-def check_model_path(root, item):
-    path = root / 'models' / item['destination']
+def check_model_path(root, item, environment=None):
+    path = models_directory(root, environment) / item['destination']
     no_symlink_prefix(path.parent)
     try:
         info = path.lstat()
@@ -186,31 +207,34 @@ def plan(root, items, approval, environment=None):
     if root.exists():
         require_store(root, approval, environment=environment)
     missing = []
+    model_root = models_directory(root, environment)
     for item in items:
-        check_model_path(root, item)
-        if not (root / 'models' / item['destination']).exists():
+        check_model_path(root, item, environment)
+        if not (model_root / item['destination']).exists():
             missing.append(item)
-    target = root
+    target = model_root
     while not target.exists():
         target = target.parent
-    download = sum(item['size_bytes'] for item in missing)
+    retained = sum(partial_bytes(model_root, item) for item in missing)
+    download = sum(item['size_bytes'] for item in missing) - retained
     staging = max((item['size_bytes'] for item in missing), default=0)
     return {'scope': SCOPE, 'submissions': False, 'automatic_inference': False, 'production_gate_retired': False,
-            'root': str(root), 'approved_artifacts': [item['id'] for item in items],
+            'root': str(root), 'models_root': str(model_root), 'approved_artifacts': [item['id'] for item in items],
             'known_model_bytes': sum(item['size_bytes'] for item in items), 'missing_download_bytes': download,
-            'download_staging_bytes': staging, 'minimum_free_bytes': download + staging,
+            'download_staging_bytes': 0, 'largest_download_bytes': staging,
+            'retained_partial_bytes': retained, 'minimum_free_bytes': download,
             'free_bytes': shutil.disk_usage(target).free, 'gpu_acceptance': 'not_run'}
 
 
-def download_models(root, items, approval, *, downloader=ensure_download):
-    root = require_store(root, approval)
-    budget = plan(root, items, approval)
+def download_models(root, items, approval, *, downloader=ensure_download, environment=None):
+    root = require_store(root, approval, environment=environment)
+    budget = plan(root, items, approval, environment)
     if budget['free_bytes'] < budget['minimum_free_bytes']:
         raise ValueError('acceptance disk cannot hold approved models and staging')
     results = []
     for item in items:
-        check_model_path(root, item)
-        results.append(downloader(root / 'models', item))
+        check_model_path(root, item, environment)
+        results.append(downloader(models_directory(root, environment), item))
     return {'scope': SCOPE, 'submissions': False, 'results': results, 'gpu_acceptance': 'not_run', 'production_gate_retired': False}
 
 
@@ -256,13 +280,14 @@ def prepare_native_node(root, approval):
     return node
 
 
-def verify_models(root, items, approval, *, cuda_version='13.0'):
-    root = require_store(root, approval)
+def verify_models(root, items, approval, *, cuda_version='13.0', environment=None):
+    root = require_store(root, approval, environment=environment)
+    model_root = models_directory(root, environment)
     models = []
     for item in items:
-        check_model_path(root, item)
-        verified = verify_file(root / 'models', item['destination'], item)
-        with parent_directory(root / 'models', item['destination']) as (directory, name):
+        check_model_path(root, item, environment)
+        verified = verify_file(model_root, item['destination'], item)
+        with parent_directory(model_root, item['destination']) as (directory, name):
             descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
             try:
                 if signature(os.fstat(descriptor)) != verified['signature']:
@@ -302,10 +327,13 @@ def verify_models(root, items, approval, *, cuda_version='13.0'):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
+    parser.add_argument('--models-root', type=Path, help='explicit shared COMFY_ROOT/models; evidence/runtime remain separate')
     actions = parser.add_mutually_exclusive_group()
     for action in ('plan', 'prepare', 'prepare-native-node', 'download', 'verify'):
         actions.add_argument('--' + action, action='store_true')
     args = parser.parse_args(argv)
+    if args.models_root is not None:
+        os.environ['H3_MODEL_ACCEPTANCE_MODELS_ROOT'] = str(args.models_root)
     os.environ.update(H3_ALLOW_SUBMISSIONS='0', H3_ALLOW_DIAGNOSTIC_SUBMISSIONS='0',
                       H3_ENABLE_TERMINAL='0', VAST_CLI='/usr/bin/false', SERVICE_CTL='/usr/bin/false')
     os.environ.pop('VAST_API_KEY', None)

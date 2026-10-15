@@ -178,7 +178,8 @@ class ModelProvisioningTests(unittest.TestCase):
         manifest = {"schema_version": 2, "status": "production_pinned_gpu_pending", "artifacts": [artifact(), self.item]}
         plan = disk_plan(manifest, self.root)
         self.assertEqual(plan["generated_source_bytes"], sum(len(body) for body in self.sources.values()))
-        self.assertGreater(plan["minimum_free_bytes"], len(BODY) * 2 + plan["generated_source_bytes"])
+        self.assertEqual(plan["download_staging_bytes"], 0)
+        self.assertEqual(plan["minimum_free_bytes"], len(BODY) + plan["generated_source_bytes"] + plan["generated_output_estimate_bytes"])
         with patch("h3.scripts.provision_models.shutil.disk_usage", return_value=Mock(free=1)), \
              patch("h3.scripts.provision_models.ensure_download") as download:
             with self.assertRaisesRegex(ValueError, "cannot hold"):
