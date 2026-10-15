@@ -484,7 +484,8 @@ Przykład (dane wprowadzane na prywatnym terminalu, nie w argv):
 : "${AJ_CURL_CONFIG:?nowy prywatny plik}"
 python3 - "$AJ_CURL_CONFIG" <<'PY'
 import getpass, json, os, sys
-user = input('Panel user: ')
+# stdin carries this heredoc; getpass reads the SSH terminal through /dev/tty.
+user = getpass.getpass('Panel user (hidden input): ')
 password = getpass.getpass('Panel password: ')
 fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
 with os.fdopen(fd, 'w') as f:
@@ -493,7 +494,8 @@ PY
 ```
 
 Dalsze wywołania panelu używają `curl --config "$AJ_CURL_CONFIG"`. Brak poprawnej
-autoryzacji nie jest powodem wyłączenia auth.
+autoryzacji nie jest powodem wyłączenia auth. Oba pola wprowadza się w terminalu
+SSH bez echa; nie używaj `input()` na stdin zajętym przez heredoc.
 
 ## Gate 3 — prompt-only dla obu profili, zero render POST
 
