@@ -25,7 +25,11 @@ class PromptAcceptanceTests(unittest.IsolatedAsyncioTestCase):
         body["seed"] = 123
         return await prepare(self.m, body, output or self.output(), str(uuid.uuid4()), 456, 789)
 
-    async def test_pending_davidau_blocks_before_conversion_or_network(self):
+    async def test_unresolved_required_artifact_blocks_before_conversion_or_network(self):
+        manifest = self.m.CONFIG / 'models_manifest.json'
+        value = json.loads(manifest.read_text())
+        value['pending_artifacts'] = [{'id': 'cpu-unresolved-required', 'required': True}]
+        manifest.write_text(json.dumps(value))
         with patch.dict(os.environ, H3_ALLOW_SUBMISSIONS="0"), \
              patch.object(self.m, "run_cli_envelope", AsyncMock()) as cli, \
              patch.object(self.m, "verify_production_files", AsyncMock()) as verify:
@@ -35,7 +39,7 @@ class PromptAcceptanceTests(unittest.IsolatedAsyncioTestCase):
             verify.assert_not_awaited()
 
     def approved_fixture(self):
-        # Synthetic future approval exists only in the disposable CPU fixture.
+        # Explicit current manifest setup exists only in this disposable CPU fixture.
         manifest = self.m.CONFIG / "models_manifest.json"
         value = json.loads(manifest.read_text())
         value["pending_artifacts"] = []
