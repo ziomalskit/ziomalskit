@@ -252,8 +252,8 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError,"model provenance changed"):self.m.production_workflow(job)
         self.req=self.req.model_copy(update={"request_id":__import__("uuid").uuid4()})
         first=len(self.m.queue);await self.batch("10eros_full");eros=self.m.queue[first]
-        retired=next(item for item in data["pending_artifacts"] if item["id"]=="10eros-writer")
-        retired["converter_sha256"]="b"*64
+        writer27=next(item for item in data["artifacts"] if item["id"]=="10eros-writer-replacement")
+        writer27["revision"]="b"*40
         manifest.write_text(json.dumps(data))
         with self.assertRaisesRegex(ValueError,"model provenance changed"):self.m.production_workflow(eros)
 
@@ -494,7 +494,7 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([(p["id"], p["label"]) for p in config["profiles"]], [("h3_full", "H3 Full"), ("10eros_full", "10Eros Full")])
         self.assertTrue(all("id" in value and "defaults" in value for value in config["loras"]))
         self.assertEqual(result["production"]["gpu_validation"], "pending")
-        self.assertEqual(result["models"]["manifest_status"], "blocked_source_provenance")
+        self.assertEqual(result["models"]["manifest_status"], "production_pinned_gpu_pending")
         self.assertEqual(self.m.QUEUE_FILE.read_bytes(), before)
 
     async def test_inline_extra_cut_is_rejected_through_guard_approval_recovery_and_render_preparation(self):

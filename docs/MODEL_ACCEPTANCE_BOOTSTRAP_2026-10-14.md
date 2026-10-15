@@ -1,5 +1,11 @@
 # Native model acceptance bootstrap — 14 October 2026
 
+Historyczny raport wcześniejszego HEAD. Aktualna instalacja:
+[Personal First Run](PERSONAL_FIRST_RUN.md). Nieużywany DavidAU9B jest usunięty,
+retirement nie jest wymagany. Wagi mają pełne source/revision/size/SHA, GPU nadal
+pending; ephemeral i jeden store zastępują dawny plan retencji/dwóch store.
+
+
 Follow-up in existing Draft PR #8, starting at
 `6185b0e5c63ffb6b2f583502beb780b0a629f1be`. PR #6/#5 bases remain unchanged.
 No GPU rental, real model download/inference, Vast operation or merge occurred.

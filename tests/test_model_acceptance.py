@@ -69,21 +69,20 @@ class AcceptanceModelTests(unittest.TestCase):
             with self.assertRaises(ValueError):acceptance.select_artifacts(manifest,self.approval,self.profiles)
 
     def test_approval_cannot_expand_ids_select_old_writer_or_arm_inference(self):
-        for change in ('extra_artifact','old_writer','submissions','automatic_inference','runtime','gate_schema'):
+        for change in ('extra_artifact','old_writer','submissions','automatic_inference','runtime'):
             approval = copy.deepcopy(self.approval)
             if change=='extra_artifact':approval['approved_artifacts'].append(next(a for a in self.manifest['artifacts'] if a['id']=='h3-writer'))
             elif change=='old_writer':approval['approved_artifacts'][-1] = next(a for a in self.manifest['artifacts'] if a['id']=='h3-writer')
             elif change=='runtime':approval['runtime']['llama_cpp_revision']='1'*40
-            elif change=='gate_schema':approval['retained_production_gate'].pop('converter_sha256')
             else:approval[change]=True
             with self.subTest(change=change),self.assertRaises(ValueError):acceptance.select_artifacts(self.manifest,approval,self.profiles)
 
-    def test_unexpected_pending_changed_davidau_and_duplicate_sources_fail_closed(self):
-        for change in ('unknown_pending','missing_gate','retired_gate','duplicate_id','duplicate_destination'):
+    def test_any_pending_or_unfrozen_manifest_and_duplicate_sources_fail_closed(self):
+        for change in ('unknown_pending','unfrozen','retired_gate','duplicate_id','duplicate_destination'):
             manifest = copy.deepcopy(self.manifest)
             if change=='unknown_pending':manifest['pending_artifacts'].append(dict(id='unknown',required=True))
-            elif change=='missing_gate':manifest['pending_artifacts']=[]
-            elif change=='retired_gate':manifest['pending_artifacts'][0]['required']=False
+            elif change=='unfrozen':manifest['status']='blocked_source_provenance'
+            elif change=='retired_gate':manifest['pending_artifacts']=[dict(id='10eros-writer',required=False)]
             elif change=='duplicate_id':manifest['artifacts'].append(copy.deepcopy(manifest['artifacts'][0]))
             else:manifest['artifacts'][1]['destination']=manifest['artifacts'][0]['destination']
             with self.subTest(change=change),self.assertRaises(ValueError):acceptance.select_artifacts(manifest,self.approval,self.profiles)
@@ -103,7 +102,7 @@ class AcceptanceModelTests(unittest.TestCase):
         self.assertFalse(self.root.exists())
         self.assertEqual(result['known_model_bytes'],sum(item['size_bytes'] for item in self.items))
         self.assertEqual(result['minimum_free_bytes'],result['missing_download_bytes']+result['download_staging_bytes'])
-        self.assertIs(result['submissions'],False); self.assertIs(result['production_gate_retired'],False)
+        self.assertIs(result['submissions'],False); self.assertNotIn('production_gate_retired',result)
 
     def test_production_and_inherited_paths_or_symlink_ancestors_are_refused(self):
         production = self.base/'production'; production.mkdir()
@@ -141,7 +140,7 @@ class AcceptanceModelTests(unittest.TestCase):
         shutil.rmtree(self.root/'models');(self.root/'models').symlink_to(self.base/'outside-directory',target_is_directory=True)
         with self.assertRaises(ValueError):acceptance.plan(self.root,self.items,self.approval)
 
-    def test_curated_downloads_preserve_production_gate_and_use_existing_integrity_downloader(self):
+    def test_curated_downloads_preserve_gpu_pending_and_use_existing_integrity_downloader(self):
         items, approval=self.synthetic();self.prepare(approval);seen=[]
         def downloader(root,item):
             seen.append(item['id'])
@@ -151,14 +150,14 @@ class AcceptanceModelTests(unittest.TestCase):
             return ensure_download(root,item,downloader=sdk)
         result=acceptance.download_models(self.root,items,approval,downloader=downloader)
         self.assertEqual(set(seen),acceptance.APPROVED)
-        self.assertIs(result['production_gate_retired'],False)
+        self.assertNotIn('production_gate_retired',result)
         self.assertEqual(result['gpu_acceptance'],'not_run')
         def reuse(root,item):
             from h3.scripts.model_downloads import ensure_download
             return ensure_download(root,item,downloader=Mock(side_effect=AssertionError('verified reuse must be offline')))
         again=acceptance.download_models(self.root,items,approval,downloader=reuse)
         self.assertTrue(all(item['reused'] for item in again['results']))
-        with self.assertRaises(ValueError):validate_manifest(self.manifest)
+        validate_manifest(self.manifest)
 
     def test_insufficient_disk_and_wrong_existing_bytes_abort_without_network(self):
         self.prepare();download=Mock()
@@ -186,7 +185,7 @@ class AcceptanceModelTests(unittest.TestCase):
         self.assertEqual(len(result['model_files']),11)
         for item, verified in zip(items, result['model_files']):
             self.assertEqual(verified['signature'], acceptance.signature((self.root/'models'/item['destination']).stat()))
-        self.assertEqual(result['gpu_acceptance'],'not_run');self.assertIs(result['production_gate_retired'],False)
+        self.assertEqual(result['gpu_acceptance'],'not_run');self.assertNotIn('production_gate_retired',result)
         self.assertTrue(result['unverified'])
         server=vendor/'llama-server';server.write_text('tampered executable')
         with patch.object(acceptance,'verify_native_source'),self.assertRaises(ValueError):acceptance.verify_models(self.root,items,approval)
@@ -218,10 +217,11 @@ class AcceptanceModelTests(unittest.TestCase):
     def test_normal_provisioning_stays_strict_even_after_acceptance_store_preparation(self):
         self.prepare()
         downloader=Mock(side_effect=AssertionError('normal production may not download'))
+        manifest=copy.deepcopy(self.manifest);manifest['pending_artifacts']=[dict(id='unknown',required=True)]
         with patch.object(provision_models,'ensure_download',downloader),self.assertRaises(ValueError):
-            provision_models.provision(self.manifest,self.base/'production-models',self.base/'toolchain')
+            provision_models.provision(manifest,self.base/'production-models',self.base/'toolchain')
         downloader.assert_not_called()
-        self.assertTrue(self.manifest['pending_artifacts'][0]['required'])
+        self.assertEqual(self.manifest['pending_artifacts'],[])
 
 
 class AcceptanceEntrypointTests(unittest.TestCase):
@@ -327,6 +327,7 @@ if '--build' in a:
                 if p.is_file():self.assertNotIn(token.encode(),p.read_bytes(),str(p))
             validate=Mock()
             manifest=json.loads((package/'config/models_manifest.json').read_text())
+            manifest['pending_artifacts']=[dict(id='unknown',required=True)]
             with patch.object(provision_models,'ensure_download',validate),self.assertRaises(ValueError):
                 provision_models.provision(manifest,base/'production-models',base/'toolchain')
             validate.assert_not_called()
@@ -340,7 +341,7 @@ if '--build' in a:
             self.assertFalse((root/'models').exists())
             self.assertEqual((base/'onstart.sh').read_text(),'preserve production startup')
             marker=json.loads((root/acceptance.MARKER).read_text())
-            self.assertIs(marker['submissions'],False);self.assertIs(marker['production_gate_retired'],False)
+            self.assertIs(marker['submissions'],False);self.assertNotIn('production_gate_retired',marker)
 
     def test_interrupted_native_clone_can_retry_without_relabeling_or_starting_production(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -372,8 +373,8 @@ if '--build' in a:
             self.assertNotEqual(result.returncode,0);self.assertFalse(root.exists())
             result=subprocess.run([sys.executable,str(ROOT/'h3/scripts/provision_models.py'),'--manifest',str(ROOT/'h3/config/models_manifest.json'),
                 '--models-root',str(root),'--plan'],capture_output=True,text=True)
-            self.assertEqual(result.returncode,1);self.assertFalse(root.exists())
-            self.assertIn('10eros-writer',result.stdout)
+            self.assertEqual(result.returncode,0);self.assertFalse(root.exists())
+            self.assertEqual(json.loads(result.stdout)['pending_artifacts'],[])
 
 
 class AcceptanceCompletionTests(unittest.TestCase):
@@ -387,7 +388,7 @@ class AcceptanceCompletionTests(unittest.TestCase):
         from tests.test_temporal_contract import CANONICAL
         result=completion_check.check(self.body(),CANONICAL,20)
         self.assertEqual((result['legal_frame_count'],result['effective_duration_seconds'],result['final_sections']),(481,20.04,6))
-        self.assertEqual(result['gpu_acceptance'],'not_attested');self.assertIs(result['production_gate_retired'],False)
+        self.assertEqual(result['gpu_acceptance'],'not_attested');self.assertNotIn('production_gate_retired',result)
         self.assertNotIn('PRIVATE_TRACE',json.dumps(result))
 
     def test_truncated_empty_reasoning_only_or_wrong_timeline_receipts_are_rejected(self):

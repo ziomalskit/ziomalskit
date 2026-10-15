@@ -1,27 +1,19 @@
 # AJ / H3 Ref2Video — product roadmap
 
-Current dual-LLM draft selection, split cache and replacement blockers are
-documented in [14 October report](DUAL_LLM_PROFILES_2026-10-14.md), including the
-correct llmfan46 Mistral/BF16 projector and larger profile-specific Step 4 budgets. This supersedes
-the older 4B/9B model choice below. [Native acceptance bootstrap](MODEL_ACCEPTANCE_BOOTSTRAP_2026-10-14.md)
-now resolves Qwen3-14B immutable metadata and isolates first model preparation
-from the retained DavidAU production gate; GPU acceptance remains pending.
+Current deployment target is [Personal First Run](PERSONAL_FIRST_RUN.md):
+one private phone UI, ephemeral instance disk, one shared verified models store,
+H3 Full +10Eros Full, two initial renders and manual provider destroy. Local
+Volume and23renders are not prerequisites. Keep-data destroy still requires
+real verified retained storage. Full [Gate1–6](GPU_PRODUCTION_SESSION.md) remains
+optional diagnostics, with honest NOT RUN for omitted tests.
 
-Status: PR #4 is merged at `bfcc2bb22ff9691fda924fe17bd060a7e131c2e2`.
-Its offline feature set and full CPU regression/audit are **PASS**:
-[9 October evidence and safety review](CPU_PRODUCT_ACCEPTANCE_2026-10-09.md).
-Production selection is **H3 Full + 10Eros Full with exact v20 Heretic**.
-The required DavidAU retirement gate still blocks normal production. Curated
-native model acceptance can now be prepared independently; real replacement
-load/generation evidence is required before reviewed gate retirement.
-GPU/live Vast acceptance remains **pending**.
-
-[Full production session runbook](GPU_PRODUCTION_SESSION.md) is the current goal:
-H3 Full + 10Eros Full with real Gate 1–6, cost/storage planning and an explicit
-reviewed DavidAU cutover. The [Phase 1 procedure](GPU_ACCEPTANCE_PHASE1.md) remains
-its isolated native-model first substage, not the endpoint. Full production
-requires Linux >=6.9 and the actual PIDFD process-group probe, even if isolated
-Phase 1 admits 6.8. No GPU or paid resource is started by this offline preparation.
+Step1/2 uses llmfan46 Mistral24B Q4_K_M(H3)/Q6_K(10Eros), matching BF16 projector.
+Step3/4 writers are Qwen3-14B Q4_K_M / Qwen3.5-27B Q5_K_M. The unused required
+DavidAU9B entry is removed; installation remains strictly pinned to source,
+revision,size,SHA256. No GPU acceptance is claimed. Real27B first inference must
+succeed before using10Eros autoprompting. Linux>=6.9 plus actual PIDFD group
+probe, Full models, exactv20, queue/access/lifecycle/frozen identities remain.
+First-session planning ceiling is $15/4h, conditional on a real approved quote.
 
 ## Product goal
 
@@ -49,7 +41,7 @@ behavior. No live/GPU acceptance PASS has been recorded.
 - **Parallel only**, with bounded prompt prefetch, default `H3_PROMPT_PREFETCH=3`.
 - Exactly six images and at most one audio reference.
 - Completed jobs expose canonical video outputs and a direct **OPEN MP4** link.
-- Retained Vast Local Volume is the durability boundary across compute destruction.
+- Ephemeral disk is supported; a real retained Local Volume is needed only when retaining data across compute destruction.
 - Only `h3_full` / **H3 Full** and `10eros_full` / **10Eros Full** are normal
   production profiles. H3 Full is the runtime default. Each batch/job freezes its
   profile, model route, LoRA selection and bridge settings before publication.

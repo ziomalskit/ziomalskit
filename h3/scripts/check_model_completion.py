@@ -46,7 +46,7 @@ def check(body, plan, requested_duration):
     final_timeline(final, plan, identity['effective_duration_seconds'])
     return {'native_eos': True, 'truncated': False, 'final_sections': 6, 'timeline': 'verified',
             'reasoning_present': bool(reasoning.strip()), **identity,
-            'submissions': False, 'production_gate_retired': False, 'gpu_acceptance': 'not_attested'}
+            'submissions': False, 'gpu_acceptance': 'not_attested'}
 
 
 def main(argv=None):

@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "status": "blocked_source_provenance",
+  "status": "production_pinned_gpu_pending",
   "gpu_validation": "pending",
   "baseline": {
     "file": "H3_v20_heretic_MASTER_DURATION_EXACT.json",
@@ -485,24 +485,5 @@
       }
     }
   ],
-  "pending_artifacts": [
-    {
-      "id": "10eros-writer",
-      "role": "10Eros Step 3/4 BF16 GGUF writer",
-      "provider": "generated",
-      "profiles": [
-        "10eros_full"
-      ],
-      "required": true,
-      "destination": "LLM/Qwen3.5-9B-F451-AND-TRI-Polar-Ultra-Pro-Writer-Uncensored-Heretic-BF16.gguf",
-      "source_repository": "DavidAU/Qwen3.5-9B-F451-AND-TRI-Polar-Ultra-Pro-Writer-Uncensored-Heretic",
-      "observed_source_revision": "72f2d803ae63499fc463607d997fe48abd38f093",
-      "status": "blocked_source_metadata",
-      "reason": "Complete source shard/config/tokenizer size/hash metadata could not be independently obtained. Do not generate or substitute a quantized writer. Retirement remains blocked until Qwen3.5-27B replacement load, native reasoning/final/EOS and minimal generation are verified; draft routing alone does not retire this gate.",
-      "llama_cpp_revision": "60eeeb6082c1126bb8bc72902c83123cd056811b",
-      "converter_revision": "60eeeb6082c1126bb8bc72902c83123cd056811b",
-      "converter_sha256": "e38975e1c68d98ac1664dfd530616eb35c72294382a4dd873d4746b23f27779f",
-      "gpu_validation": "pending"
-    }
-  ]
+  "pending_artifacts": []
 }

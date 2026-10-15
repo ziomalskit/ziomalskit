@@ -1,5 +1,11 @@
 # Audyt gotowości H3 Full + 10Eros Full
 
+Historyczny raport wcześniejszego HEAD. Aktualna instalacja:
+[Personal First Run](PERSONAL_FIRST_RUN.md). Nieużywany DavidAU9B jest usunięty,
+retirement nie jest wymagany. Wagi mają pełne source/revision/size/SHA, GPU nadal
+pending; ephemeral i jeden store zastępują dawny plan retencji/dwóch store.
+
+
 Audyt rozpoczęto na `140d9c222ffb18017bbb8913223f537cd3d055f5`, w istniejącym
 Draft PR #8 (`feat/dual-llm-profiles`). Baza pozostaje bez zmian. PR #5
 `c6f033ab41a4456fd55558e652a563d8c31418d1` i PR #6

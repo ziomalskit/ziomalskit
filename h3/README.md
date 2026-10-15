@@ -1,16 +1,16 @@
 # AJ / H3 Full production migration
 
-Current AJ/H3 runtime for CPU development and the eventual consolidated Vast
-acceptance session. Live GPU/Vast acceptance is still pending. Follow
-[`docs/ROADMAP.md`](../docs/ROADMAP.md): finish the feature set, run the full CPU
-regression/audit, close the pending replacement provenance/load gates, then perform one
-consolidated GPU/Vast session. [Migration evidence and self-review](../docs/MODEL_MIGRATION_2026-10-09.md)
-records what is verified and what still blocks readiness.
+Current personal deployment: [Personal First Run](../docs/PERSONAL_FIRST_RUN.md).
+Use ephemeral instance disk under `/workspace`, one physical verified models
+store, private phone access, two initial renders and manual provider destroy.
+Local Volume is optional; keep-data destroy still requires genuine verified
+retained storage. All Full models and exact v20 remain unchanged. Real GPU,
+VRAM and output acceptance is pending; CPU PASS is not inference evidence.
 
 Target:
 - RTX PRO 6000 Blackwell 96 GB
-- CUDA devel image, CUDA 13 preferred (>=12.8 required)
-- expose only panel port 7860
+- Personal target: CUDA devel13.0, compatible driver and verified effective cgroups/RAM/CPU
+- private SSH tunnel to panel7860; no public ComfyUI ports
 - ComfyUI 0.38.0 (pinned to the known-good local workflow environment)
 - comfy-cli 1.21.0
 - Python >=3.11 (development checks use Python 3.12)
@@ -54,11 +54,11 @@ Run:
 bash INSTALL_ON_VAST.sh
 ```
 
-The production installer currently stops before environment installation/model
-downloads on the retained required DavidAU gate. First use the separate
-[native model acceptance bootstrap](../docs/MODEL_ACCEPTANCE_BOOTSTRAP_2026-10-14.md)
-with submissions OFF. After actual Qwen3.5-27B acceptance, a reviewed retirement
-and a complete production manifest, use normal provisioning and then:
+The installer strictly validates the current manifest, source/revision/size/SHA
+and reuses verified files. The unused DavidAU9B dependency is removed: Step3/4
+10Eros uses Qwen3.5-27B Q5_K_M. GPU pending does not prevent installing verified
+weights. Perform its real first minimal inference according to Personal First
+Run before using10Eros autoprompting; error means stop that path. Then run:
 ```bash
 bash <PANEL_ROOT>/scripts/preflight.sh
 bash <PANEL_ROOT>/scripts/smoke_test.sh
@@ -80,7 +80,7 @@ prefetch and the writer/temporal contract remain unchanged.
 
 **Own final H3 prompt** accepts your exact final text and goes directly through
 local validation to the same Render Worker/adapter. Prompt Worker and every LLM
-generation step are bypassed; no 4B or DavidAU writer is loaded for that job.
+generation step are bypassed; no writer is loaded for that job.
 One manual batch creates **one render**, so three batches create three renders
 using the same frozen prompt and the normal render-seed policy. No second approval
 or review candidate is created. Both production profiles support this path;
@@ -100,11 +100,10 @@ existing STOP/drain/recovery/uncertain-submission fences. They do not use prompt
 prefetch. Prompt preview identifies manual sources and marks Step 0–3 skipped.
 
 Manual artifact checks require verified render files and active LoRA/bridge
-integrity, without requiring unused writer files. **This does not resolve the
-DavidAU 9B Autoprompt provenance blocker**: the complete Autoprompt manifest,
-provisioning/preflight and GPU/live acceptance remain blocked/pending. No model
-provenance changes are made. See [workflow/prompt contracts](../docs/WORKFLOW_ADAPTERS.md)
-for the explicit API schema, validation rules and CPU evidence.
+integrity, without requiring unused writer files. Autoprompt validates its
+required LLM files as well. Removing the unused DavidAU dependency does not
+weaken those checks or mark Qwen27B GPU validated. See
+[workflow/prompt contracts](../docs/WORKFLOW_ADAPTERS.md).
 
 Choose H3 Full or 10Eros Full and optional registered LoRAs. The UI loads display
 names, ranges and defaults from `/api/config`; it submits canonical IDs only.
@@ -231,8 +230,8 @@ no cache epoch claims that model weights stay resident on the GPU.
 ## Persistent model integrity and downloads
 
 Weights, LoRAs, GGUF source/build files, receipts and generated provenance live
-under `$COMFY_ROOT/models` on the retained volume. Controller state/input/output
-retain the existing persistent deployment layout. Unchanged artifact identities
+under `$COMFY_ROOT/models` on the instance disk (or an explicitly configured
+retained volume). Controller state/input/output use the existing deployment layout. Unchanged artifact identities
 reuse verified weights. A model change never renames or enrolls old weights under
 a new identity; it requires the new exact file and explicit job reconciliation.
 
@@ -240,8 +239,8 @@ a new identity; it requires the new exact file and explicit job reconciliation.
 canonical LoRA registry. Each downloaded file has a pinned commit, exact bytes
 and SHA256. The known stack now also includes both llmfan46 Mistral quantizations, their BF16 projector
 and both Qwen writers. Qwen3-14B immutable Git LFS metadata is now verified. The
-required DavidAU gate is retained until the replacement is load/generation
-accepted. Use the manifest disk plan for known totals, pending files and staging;
+unused DavidAU9B gate is removed; the active27B file is source-verified while
+its real GPU validation remains pending. Use the manifest disk plan for known totals, pending files and staging;
 older migration totals describe the earlier stack. `provision_models.py --plan` reports disk requirements
 and fails when known required storage exceeds available space.
 
@@ -250,22 +249,24 @@ and fails when known required storage exceeds available space.
 ### Isolated native model acceptance
 
 [Bootstrap/provenance and later GPU probes](../docs/MODEL_ACCEPTANCE_BOOTSTRAP_2026-10-14.md)
-break the DavidAU provisioning/acceptance dependency without opening production.
+prepare the current eleven strictly pinned GGUF files without opening submissions.
 `INSTALL_MODEL_ACCEPTANCE.sh` defaults to a read-only plan. An explicit future
 `--install` prepares private native CLI/server/download virtualenvs and only the
 11 GGUF artifacts locked by `config/model_acceptance.json`. It installs no
 ComfyUI service/panel, changes no production runtime.env/onstart and starts no
 inference/render/lifecycle. Submissions are always OFF. Scope/root/pin/hash
-drift, linked/shared stores and unknown pending artifacts fail closed.
+drift, unsafe linked paths and unknown pending artifacts fail closed. Personal
+acceptance explicitly shares the real `COMFY_ROOT/models` directory while its
+evidence and small native runtime remain separate, with no second weight copy.
 
 ```bash
 H3_MODEL_ACCEPTANCE_ROOT=/persistent/aj-native-model-acceptance \
   bash INSTALL_MODEL_ACCEPTANCE.sh --plan
 ```
 
-Normal provisioning/preflight remains strict on DavidAU until reviewed real
-replacement acceptance. Source/file/runtime checks and the offline native
-completion/timeline checker never attest GPU acceptance or retire that gate.
+Normal provisioning/preflight remains strict on every currently required artifact.
+Source/file/runtime checks and the offline native completion/timeline checker
+never attest GPU acceptance. No retirement procedure is required.
 
 Existing correct bytes are rehashed and reused. Wrong size/hash, symlinks and
 untrusted same-name generated files fail closed. HF/Xet downloads resume in

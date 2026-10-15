@@ -1,5 +1,12 @@
 # GPU Acceptance Phase 1 — runbook operatora
 
+**Bieżąca ścieżka Personal:** [Personal First Run](PERSONAL_FIRST_RUN.md) wspiera
+ephemeral, wspólny rzeczywisty `COMFY_ROOT/models` i brak retirement DavidAU.
+Poniższy retained-volume formularz oraz szerokie próby C są opcjonalnym wariantem
+diagnostycznym. Dla personal użyj `gpu_personal_session.example.json`, Linux>=6.9
+i rzeczywistego pidfd group probe; nie kopiuj wag ani nie przywracaj starej bramki.
+DavidAU9B został usunięty z aktywnego manifestu; GPU validation pozostaje pending.
+
 Status przygotowania: **runbook READY do review; rozpoczęcie kosztów BLOCKED**,
 dopóki operator nie zatwierdzi konkretnej oferty, limitów, retencji i zakresu.
 Ten dokument nie jest zgodą na wynajem. Nie uruchomiono GPU, Vast, pobierania
@@ -13,9 +20,9 @@ SHA tego punktu wyjścia. Nie merge'uj ani nie aktualizuj branchy automatycznie.
 
 Zakres: jedna RTX PRO 6000 Blackwell 96 GB, izolowany native llama.cpp,
 11 zatwierdzonych GGUF, pojedyncze ręcznie uruchamiane próby. Bez ComfyUI,
-panelu, kolejki, renderów i testów lifecycle. Produkcyjna bramka DavidAU
-pozostaje wymagana. Jej wycofanie wymaga osobnej analizy rzeczywistych wyników
-Qwen3.5-27B i jawnie zatwierdzonego follow-upu.
+panelu, kolejki, renderów i testów lifecycle. Pełna integralność aktualnych wag
+pozostaje wymagana. GPU pending nie blokuje instalacji źródłowo zweryfikowanych
+wag; rzeczywisty pierwszy test27B jest częścią Personal First Run, bez retirement.
 
 ## 1. Oferta, środowisko i wymagania do zatwierdzenia
 
@@ -72,7 +79,7 @@ flagi `PIDFD_SIGNAL_PROCESS_GROUP` (4). Produkcyjne
 `h3/app/main.py::_require_restart_group_control()` i
 `h3/scripts/process_identity.py::require_group_control()` wykonują rzeczywisty
 `pidfd_send_signal(..., 0, ..., 4)`; sama deklaracja wersji nie wystarcza.
-Ich kod, sterowanie lifecycle i bramka DavidAU nie zmieniają się. Akceptacja
+Ich kod i sterowanie lifecycle pozostają niezmienione. Akceptacja
 6.8 w Phase 1 nie zezwala na uruchomienie produkcji na tym hoście.
 
 ## 2. Czy można przygotować wagi bez drogiego GPU?
@@ -194,7 +201,7 @@ Nie używaj depletion salda jako kill switch ani destrukcyjnego automatu kosztow
 | B: isolated prepare/install | A2, `prepare_models=true`, aktualny koszt, zatwierdzone build/download rezerwy i deadlines. | `max_build_seconds + max_download_seconds`, w ramach session budget; GPU może kosztować przez cały transfer. | Build receipts, pełne 11 size/SHA, `gpu_acceptance=not_run`, submissions OFF. | Checksum/source drift, utrata mountu, niedostatek disk, deadline/budget: Ctrl-C/TERM własnego installera, sprawdzić zakończenie dzieci. Resume tym samym store i source lock po ponownym planie; zachować staging. |
 | C1–C4: pojedyncze load/minimal text/vision | B kompletne i zweryfikowane, `model_probes=true`, GPU wolny, aktualny billing, wybrana jedna konkretna próba. | Każda `max_probe_seconds`, plus cały session deadline. Token/context ustawienia komendy podlegają review operatora. | Model/SHA, dokładny argv, load/perf/kv logs, GPU samples, rzeczywisty input, return code. Sam CLI output nie poświadcza naturalnego EOS ani pełnego acceptance. | OOM, brak GPU offload, wrong projector, obcy process, mount/budget/deadline: przerwać własną próbę, odnotować FAIL/NOT RUN. Nie zmieniać quant/modelu ani progów dla PASS. |
 | C5–C7: Step 3/4 obu profili | Rzeczywiste, prywatne inputy wyprowadzone z v20 i 6 refs; zatwierdzone duration/seed; pełne profile budgets; poprawny canonical Step 3. | Jedna foreground native próba na raz, dokładnie jeden request; limity jw. Większy reasoning może wymagać dłuższej zatwierdzonej próby. | Native JSON, reasoning/final/EOS/finish/truncation, 6 sections, temporal validation, usage/timings/KV/VRAM. | Puste/ucięte/unclosed reasoning, EOS bez final, length/context limit, błędny timeline: FAIL. Nie przycinać odpowiedzi i nie łagodzić parsera. |
-| D: review i zamknięcie procedury | Spójne prywatne receipts i stan każdej próby, verified retained mount, świadomy operator. | `max_review_seconds` i session deadline; aktualny billing i dalszy koszt retencji. Dalszy offline review po STOP compute. | PASS/FAIL/NOT RUN per case; hash inventory/backup; końcowy observed invoice i provider state. | Zakończyć własne native procesy. Bez uruchamiania ComfyUI/panelu/renderu/lifecycle testów. Żaden automat nie retire'uje DavidAU ani nie DESTROY'uje compute/volume. |
+| D: review i zamknięcie procedury | Spójne prywatne receipts i stan każdej próby, verified retained mount, świadomy operator. | `max_review_seconds` i session deadline; aktualny billing i dalszy koszt retencji. Dalszy offline review po STOP compute. | PASS/FAIL/NOT RUN per case; hash inventory/backup; końcowy observed invoice i provider state. | Zakończyć własne native procesy. Bez uruchamiania ComfyUI/panelu/renderu/lifecycle testów. Żaden automat nie deklaruje GPU PASS ani nie DESTROY-uje compute/volume. |
 
 GO z helpera nie jest zgodą na wydatek ani GPU acceptance. A1 nie może dowieść
 rzeczywistego GPU/mountu przed uzyskaniem dostępu: operator zatwierdza **warunkowy,
@@ -477,7 +484,7 @@ Utwórz nowy case i powtórz **osobno**, zmieniając tylko model na
 `Qwen3-14B-heretic.Q4_K_M.gguf`. RC 124/137/143, OOM, brak/niedokończony output
 albo template/kernel error to FAIL. Sam exit 0 i tekst z `llama-cli` nie dowodzą
 naturalnego EOS: CLI nie zachowuje pełnego finish status. Te próby sprawdzają
-wyłącznie wstępny load/minimal generation; nie odblokowują DavidAU.
+wyłącznie wstępny load/minimal generation; nie dowodzą pełnego Step3/4/EOS.
 
 ### C4 — oba Mistrale i BF16 projector z rzeczywistymi obrazami
 

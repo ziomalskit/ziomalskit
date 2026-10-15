@@ -73,9 +73,9 @@ class ProductionSessionPlanTests(unittest.TestCase):
             self.assertEqual(warm['known_stack_bytes'], cold['known_stack_bytes'])
             self.assertEqual(warm['missing_download_bytes'], 164613046344)
             self.assertEqual(warm['minimum_free_bytes'], 164613046344)
-            self.assertIn('10eros-writer', warm['pending_artifacts'])
+            self.assertEqual(warm['pending_artifacts'], [])
 
-    def test_real_cli_reports_selected_plan_then_blocks_retained_davidau_without_writes(self):
+    def test_real_cli_strictly_accepts_current_selection_without_gpu_claims_or_writes(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / 'not-created'
             for flags, expected in (([], 278009016136), (['--include-optional'], 284661829208)):
@@ -85,8 +85,7 @@ class ProductionSessionPlanTests(unittest.TestCase):
                          '--manifest', str(MANIFEST), '--registry', str(REGISTRY),
                          '--models-root', str(root), '--plan', *flags],
                         capture_output=True, text=True, timeout=15)
-                    self.assertEqual(result.returncode, 1)
-                    self.assertIn('Model provisioning blocked', result.stderr)
+                    self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(json.loads(result.stdout)['known_stack_bytes'], expected)
                     self.assertFalse(root.exists())
 

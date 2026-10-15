@@ -164,7 +164,7 @@ def plan(session, phase='A', now=None, *, live=False):
     items, approval = models.load_selection()
     missing = validate_session(session, phase, now)
     result = {'status': 'BLOCKED' if missing else 'PLAN_READY', 'phase': phase, 'blocked': missing,
-              'submissions': False, 'gpu_acceptance': 'NOT RUN', 'production_gate_retired': False,
+              'submissions': False, 'gpu_acceptance': 'NOT RUN',
               'approved_artifacts': [item['id'] for item in items],
               'known_model_bytes': sum(item['size_bytes'] for item in items)}
     if session['scope'] == 'personal_first_run':
@@ -363,7 +363,7 @@ def watch(path, session, phase, output, allowed_pids=(), *, observer=observe, cl
         def save(record):
             stream.write(json.dumps(record, sort_keys=True) + '\n'); stream.flush(); os.fsync(stream.fileno())
         save({'event': 'START', 'phase': phase, 'checkout_sha': session['checkout_sha'], 'submissions': False,
-              'gpu_acceptance': 'NOT RUN', 'production_gate_retired': False, 'status': 'NOT RUN'})
+              'gpu_acceptance': 'NOT RUN', 'status': 'NOT RUN'})
         try:
             while True:
                 # Billing counters may be refreshed by the operator, but approvals,
@@ -409,10 +409,10 @@ def watch(path, session, phase, output, allowed_pids=(), *, observer=observe, cl
             status = 'STOP'
         try:
             save({'event': 'END', 'status': status, 'sampled_peak_vram_mib': peak, 'samples': samples,
-                  'gpu_acceptance': 'NOT RUN', 'production_gate_retired': False, 'stop_reasons': stop_reasons})
+                  'gpu_acceptance': 'NOT RUN', 'stop_reasons': stop_reasons})
         except OSError:
             status = 'STOP; evidence incomplete'
-    return {'status':status, 'storage_retained': session['scope'] != 'personal_first_run', 'gpu_acceptance':'NOT RUN', 'production_gate_retired':False,
+    return {'status':status, 'submissions':False, 'storage_retained': session['scope'] != 'personal_first_run', 'gpu_acceptance':'NOT RUN',
             'sampled_peak_vram_mib':peak, 'billing_continues':True, 'stop_reasons':stop_reasons,
             'operator_action':'Stop owned processes; download wanted results; manually stop/destroy compute in provider console. Ephemeral data is lost on destroy; only a separately verified Local Volume provides retention.'}
 

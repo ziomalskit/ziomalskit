@@ -2,6 +2,7 @@
 set -euo pipefail
 set +x
 # Download credentials are scoped to the download subprocess only.
+unset AJ_DOWNLOAD_HF_TOKEN
 AJ_DOWNLOAD_HF_TOKEN="${HF_TOKEN:-}"
 unset HF_TOKEN HUGGING_FACE_HUB_TOKEN HF_HUB_TOKEN
 
@@ -71,12 +72,14 @@ mkdir -p "$COMFY_ROOT/input" "$COMFY_ROOT/output" \
   "$COMFY_ROOT/models/loras" "$COMFY_ROOT/models/latent_upscale_models" \
   "$COMFY_ROOT/models/semantic_bridge"
 h3_comfy --skip-prompt --workspace="$COMFY_ROOT" set-default "$COMFY_ROOT"
+AJ_NODES_STAGE="$("$COMFY_PYTHON" "$PACKAGE_DIR/scripts/install_timing.py" begin comfy_configuration)"
 # Do not downgrade a failed dependency installation to a successful provision.
 h3_comfy --skip-prompt --workspace="$COMFY_ROOT" node install-deps \
   --workflow="$PANEL_ROOT/workflows/H3_v20_heretic_MASTER_DURATION_EXACT.json" --uv-compile
 h3_timed comfy_custom_nodes bash "$PANEL_ROOT/scripts/install_fallback_nodes.sh"
 "$COMFY_PYTHON" "$PANEL_ROOT/scripts/install_owned_nodes.py" \
   "$PANEL_ROOT/custom_nodes/aj_production" "$COMFY_ROOT/custom_nodes"
+"$COMFY_PYTHON" "$PACKAGE_DIR/scripts/install_timing.py" end "$AJ_NODES_STAGE" completed
 h3_timed llama_build bash "$PANEL_ROOT/scripts/setup_linux_llama.sh"
 
 AJ_LLAMA_SOURCE="${H3_BUILD_ROOT:-$DATA_ROOT/.h3-build}/llama.cpp-$("$COMFY_PYTHON" "$PANEL_ROOT/scripts/runtime_config.py" constant LLAMA_TAG)"

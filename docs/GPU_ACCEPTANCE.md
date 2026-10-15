@@ -1,132 +1,48 @@
-# Uruchomienie na GPU — acceptance po CPU/runtime PASS
+# GPU acceptance — zakres prób i rzeczywiste dowody
 
-Aktualne źródła, przygotowanie native acceptance i pozostałe bramki są w
-[raporcie bootstrap acceptance](MODEL_ACCEPTANCE_BOOTSTRAP_2026-10-14.md).
-Profile i budżety opisuje [raport wcześniejszego HEAD](DUAL_LLM_PROFILES_2026-10-14.md). Te kryteria zastępują
-starszy wybór 4B/9B opisany w raportach migracyjnych. Niczego nie uruchomiono na GPU.
+**Pierwsza sesja prywatnej aplikacji:** [Personal First Run](PERSONAL_FIRST_RUN.md).
+Linux>=6.9 z rzeczywistym PIDFD_SIGNAL_PROCESS_GROUP, RTX PRO6000 Blackwell96GB,
+CUDA13.0, zweryfikowane cgroups/RAM/CPU, prywatny panel, dokładny v20 i Full wagi
+pozostają wymagane. Wspieramy ephemeral instance disk i jeden fizyczny store
+`COMFY_ROOT/models`. Local Volume jest potrzebny tylko dla świadomej retencji;
+keep-data destroy bez rzeczywistego proof pozostaje niedostępny.
 
-Ten dokument opisuje **końcową, skonsolidowaną sesję GPU/Vast**. Zgodnie z
-[ROADMAP.md](ROADMAP.md) najpierw kończymy feature set offline/CPU, wykonujemy pełną
-regresję/audyt CPU i zamrażamy kompletne provenance finalnych modeli.
-Dopiero po tych etapach wynajmujemy GPU i przechodzimy wszystkie poniższe gate'y
-w jednej sesji. Profile to **H3 Full** i **10Eros Full**, z dokładną logiką
-**v20 Heretic**. Aktualny manifest zawiera 22 artefakty ze zweryfikowanymi
-metadata źródeł, w tym immutable Git LFS Qwen3-14B. Jedyny wymagany pending to
-bramka wycofania DavidAU. Produkcja pozostaje fail-closed do rzeczywistego
-acceptance zamiennika. Osobny bootstrap przygotowuje zatwierdzone modele i native
-runtime bez otwierania bramek produkcyjnych, usług ComfyUI/panelu, inferencji ani lifecycle.
+Domyślne19wag=278009016136B, bundle22=284661829208B,11GGUF to podzbiór tego
+samego store. Każdy używany plik ma source/revision/size/SHA256. Nieużywany wpis
+DavidAU9B został usunięty; Step3/4 10Eros używają Qwen3.5-27B Q5_K_M. Można
+instalować zweryfikowane wagi przed inferencją, bez retirement lub bypassu
+manifestu. GPU pozostaje pending. Rzeczywisty pierwszy minimalny test27B musi
+się udać przed użyciem10Eros autoprompt; jego błąd zatrzymuje tę ścieżkę.
 
-Aktualny cel to **pełne H3 Full + 10Eros Full, Gate 1–6**, a nie zakończenie na
-Phase 1. [Runbook jednej sesji](GPU_PRODUCTION_SESSION.md) podaje komendy,
-GO/STOP, przejście przez review DavidAU, storage i kosztorys. Ograniczony Phase 1
-pozostaje wyłącznie pierwszym podetapem; nie oznacza gotowości produkcji.
+Plan Personal: zatwierdzona prawdziwa oferta <=$15/4h → readonly preflight →
+11GGUF na wspólnym store/native build → minimalna rzeczywista próba27B → pełny
+installer z reuse, dwa ComfyUI workery i panel → preflight/smoke → pojedynczy
+krótki H3 Full i10Eros Full manual render → sprawdzenie/pobranie MP4 z telefonu →
+ręczny provider DESTROY i potwierdzenie końca billingu. Brak oferty nie daje GO.
+Nie wykonano tych prób na GPU w przygotowaniu offline.
 
-Bazą migracji jest merged PR #4, commit
-`bfcc2bb22ff9691fda924fe17bd060a7e131c2e2`, CPU accepted: **358 testów**
-oraz 16 HTTP smoke checks. Nowa migracja nie deklaruje GPU acceptance.
+[Pełny runbook Gate1–6](GPU_PRODUCTION_SESSION.md) oraz poniższe kryteria są
+**opcjonalną diagnostyką** szerszego zakresu, bez obowiązkowych23renderów.
+Nie przedstawiaj ograniczonej próby jako PASS pełnego overlap/recovery/lifecycle.
+Nie wymagaj całej sesji dla każdej normalnej zmiany seed/duration/LoRA.
+[Phase1](GPU_ACCEPTANCE_PHASE1.md) zachowuje szczegółowe native probes. Datowane
+raporty migracyjne/acceptance opisują historię, nie aktualny blocker DavidAU.
 
-Nadal nie wykonano acceptance na realnym GPU dla aktualnego merge commita. Celem tej procedury jest przejście od zweryfikowanego runtime do pierwszego bezpiecznego deploymentu Vast.
+## Gate 0–1 — przygotowanie i instalacja bez submissions
 
-## Ograniczona Phase 1 przed pełnym deploymentem
+Użyj dokładnego zatwierdzonego SHA istniejącego Draft PR8, aktualnego CPU/CI,
+czystego checkoutu i canonical v20 hash. Nie zakładaj, że kod znajduje się na
+main lub w archiwalnym migration. Sprawdź rzeczywisty host i instance disk,
+stawki/czas/transfer/rezerwy, SSH tunnel i prywatne inputs. Nie wynajmuj zasobów
+w zadaniu offline. Instalator nie podmienia modeli Full na INT8/Turbo.
 
-[GPU_ACCEPTANCE_PHASE1.md](GPU_ACCEPTANCE_PHASE1.md) jest osobnym runbookiem pierwszych native model probes na reviewowanym Draft PR #8. Kończy się na review i STOP własnych procesów, przed usługami, renderami i lifecycle tests. Wymaga jawnej decyzji operatora przed pierwszym kosztem. Poniższe pełne gate’y produkcji obowiązują dopiero po osobnej decyzji i rzeczywistym acceptance zamiennika DavidAU.
-
-## Docelowe środowisko
-
-Planowany target:
-- RTX PRO 6000 Blackwell 96 GB;
-- Linux >=6.9 **i rzeczywisty feature-probe `PIDFD_SIGNAL_PROCESS_GROUP`**;
-- CUDA **13.0 devel** i zgodny driver; historyczny floor buildera >=12.8
-  nie zmienia celu tej sesji;
-- jeden wybrany interpreter Python >=3.11;
-- ComfyUI 0.38.0 i comfy-cli 1.21.0 zgodnie z runtime;
-- publicznie tylko panel 7860;
-- render ComfyUI 8188 i prompt ComfyUI 8189 dostępne lokalnie;
-- trwały Vast Local Volume dla modeli, input/output i stanu wymagającego retencji.
-
-## Gate 0 — przed wynajmem
-
-Przed startem płatnej instancji:
-
-0. Zakończ feature set, pełne `make setup`, `make test`, `make audit` na finalnym
-   commicie oraz osobną decyzję o finalnym stosie modeli i ich zaufanych źródłach.
-
-1. Upewnij się, że deployment pochodzi z dokładnego reviewowanego SHA całego
-   stosu PR #5/#6/#8, z aktualnymi wynikami CPU/CI, nie z `migration/`.
-   PR-y pozostają Draft; nie zakładaj, że `main` zawiera ich kod.
-2. Zarezerwuj RTX PRO 6000 Blackwell 96 GB z wystarczającym dyskiem/RAM i Linuxem obsługującym wymagane pidfd process-group signalling.
-3. Przygotuj osobny persistent volume i zanotuj faktyczną ścieżkę mountu. Sam katalog `/workspace` nie jest dowodem retencji.
-4. Potwierdź niezmienne rewizje oraz exact sizes/SHA wszystkich finalnych modeli
-   i pasującego projektora. Metadane Qwen3-14B zostały potwierdzone.
-   Bramka DavidAU pozostaje wymagana do czasu rzeczywistego acceptance zamiennika;
-   nie zmieniaj jej tylko po to, by uruchomić installer. Ewentualna zachowana
-   ścieżka 9B wymaga pełnych shard/config/tokenizer hashes, przypiętego konwertera
-   i BF16 recipe. Produkcyjne provisioning/preflight pozostają zamknięte podczas
-   osobnego acceptance modeli. Użyj aktualnego manifest disk plan dla znanych
-   rozmiarów, pending i staging; historyczne 219.55 GB nie opisuje nowego stosu.
-5. Przygotuj panel password i ewentualne dane Vast/Hugging Face poza repozytorium i logami.
-6. Nie konfiguruj automatycznego DESTROY jako zabezpieczenia kosztowego przed przejściem live acceptance.
-
-## Gate 1 — provisioning bez renderowania
-
-### Gate 1A — native acceptance przed wycofaniem bramki DavidAU
-
-Normalny `provision.sh` pozostaje zablokowany na wymaganym pending już przy
-`provision_models.py --plan`, przed instalacją. Pierwsze testy zamiennika
-przygotuj osobno; nie zmieniaj manifestu ani flag produkcji, aby przejść tę bramkę.
-
-```bash
-H3_MODEL_ACCEPTANCE_ROOT=/persistent/aj-native-model-acceptance \
-  bash h3/INSTALL_MODEL_ACCEPTANCE.sh --plan
-```
-
-Plan jest tylko do odczytu. Dopiero w osobno autoryzowanej sesji CUDA/GPU
-wywołanie `--install` przygotowuje prywatne środowisko, te same przypięte CLI/server
-oraz 11 jawnie zatwierdzonych GGUF obu stacków LLM. Nie instaluje rendererów,
-nie uruchamia usług ani inferencji, nie zapisuje produkcyjnego runtime.env/onstart
-i zawsze zachowuje submissions OFF. Native source/build/file/version oraz pełne
-rozmiary/SHA są sprawdzane; GPU load/generation nadal pozostaje pending.
-
-[Dokładne polecenia, limity dysku, granice izolacji i ręczne próby native](MODEL_ACCEPTANCE_BOOTSTRAP_2026-10-14.md)
-obejmują load/vision/minimal generation, Step 3 OFF, większe budżety Step 4,
-natural EOS/no truncation, final channel, sześć sekcji i timeline. Lokalny checker
-completion receipt używa istniejącego parsera i nie poświadcza GPU acceptance.
-Przed ręcznymi próbami potwierdź, że produkcyjne workery są zatrzymane/settled;
-bootstrap nie zatrzymuje cudzych procesów i nie służy do benchmarku overlap.
-
-Po zebraniu i review rzeczywistych dowodów Qwen3.5-27B wycofaj DavidAU w osobnym
-reviewowanym follow-up. Żaden tryb acceptance nie robi tego automatycznie.
-
-### Gate 1B — normalna produkcja po zatwierdzeniu zamiennika
-
-Na docelowej instancji checkout dokładnego reviewowanego produkcyjnego SHA po
-udokumentowanym retirement (nie automatycznie `main`), następnie:
-
-```bash
-cd h3
-bash INSTALL_ON_VAST.sh
-```
-
-Jeżeli zachowanie danych jest wymagane, ustaw wcześniej:
-- `H3_PERSISTENCE_MODE=volume`;
-- `H3_PERSISTENT_ROOT=<rzeczywisty mount Local Volume>`.
-
-Keep-data destroy pozostaje wyłączony, dopóki nie ma poprawnej `H3_PERSISTENT_VOLUME_PROOF` opisanej w `h3/README.md`.
-
-Po instalacji nie przechodź jeszcze do generowania. Potwierdź:
-- `nvidia-smi`;
-- import torch i `torch.cuda.is_available()`;
-- zgodność Python/CUDA/PyTorch;
-- wersje ComfyUI/comfy-cli;
-- komplet wymaganych custom nodes;
-- komplet wymaganych modeli/LoRA;
-- że panel ma Basic Auth;
-- że 8188/8189 nie są publicznie wystawione.
-
-Installer zostawia `H3_ALLOW_SUBMISSIONS=0`. Download token jest jednorazowym
-`HF_TOKEN` odziedziczonym z procesu provisioningu, poza `runtime.env`, workerami,
-stanem, logami i provenance. Potwierdź reuse zweryfikowanych wag po usunięciu
-download tokena. Nie włączaj jeszcze automatycznej kolejki ani lifecycle.
+Dokładne komendy i checklista pierwszych15min są w Personal First Run. Zawsze
+submissionsOFF podczas instalacji; po niej: integralność plików, wersje
+ComfyUI/customnodes/native, Torch/CUDA, BasicAuth, brak publicznych8188/8189.
+Wymagane pending/source mismatch nadal zatrzymuje provisioning przed pobraniem.
+Jednorazowy tokenHF jest wyłącznie w procesie downloadu, nie runtime.env,
+receiptach, stanie lub logach. Test pierwszej27B ma prywatne rzeczywiste wyniki;
+nie nadaje globalnego GPU validated ani pełnego Step3/4/EOS PASS.
 
 ## Gate 2 — preflight i conversion smoke
 
@@ -270,7 +186,7 @@ Po każdym kroku sprawdź, że lifecycle control generation, queue persistence i
 
 ## Kryterium końcowe GPU acceptance
 
-GPU acceptance można uznać za PASS dopiero po udokumentowanym przejściu Gate 1–6 bez:
+Pełny zakres Gate1–6 można uznać za PASS po jego faktycznym wykonaniu bez:
 - duplicate paid submissions;
 - utraty queued/accepted jobs;
 - orphaned worker processes;
@@ -280,4 +196,4 @@ GPU acceptance można uznać za PASS dopiero po udokumentowanym przejściu Gate 
 
 Do tego momentu status projektu brzmi:
 
-**GPU/live acceptance pending; DavidAU replacement acceptance blocks normal production. Isolated native preparation is available with submissions OFF.**
+**GPU/live acceptance pending. Verified weights are installable; real model/Full render behaviour remains to be measured.**

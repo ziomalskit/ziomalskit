@@ -70,4 +70,4 @@ HF_TOKEN="$AJ_ACCEPTANCE_DOWNLOAD_TOKEN" "$AJ_ACCEPTANCE_DOWNLOAD_PYTHON" \
   "$AJ_ACCEPTANCE_PACKAGE/scripts/model_acceptance.py" --root "$AJ_ACCEPTANCE_ROOT" --download 9>&-
 unset AJ_ACCEPTANCE_DOWNLOAD_TOKEN HF_TOKEN
 "$AJ_ACCEPTANCE_PYTHON" "$AJ_ACCEPTANCE_PACKAGE/scripts/model_acceptance.py" --root "$AJ_ACCEPTANCE_ROOT" --verify 9>&-
-echo 'Acceptance model files/native runtime verified. GPU load/generation remains unverified; production gate retained. No service, inference, render or Vast lifecycle started.'
+echo 'Acceptance model files/native runtime verified. GPU load/generation remains unverified; no GPU validation attested. No service, inference, render or Vast lifecycle started.'

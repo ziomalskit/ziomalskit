@@ -104,7 +104,7 @@ class OperatorTests(unittest.TestCase):
             result=operator.plan(template,now=NOW)
         self.assertEqual(result['status'],'BLOCKED');self.assertFalse(self.root.exists())
         self.assertIn('limits.max_total_usd',result['blocked']);self.assertIn('approval.first_cost',result['blocked'])
-        self.assertEqual(len(result['approved_artifacts']),11);self.assertIs(result['production_gate_retired'],False)
+        self.assertEqual(len(result['approved_artifacts']),11);self.assertFalse(result['submissions'])
         self.assertEqual(template,json.loads(operator.TEMPLATE.read_text()))
 
     def test_phase_approvals_remain_separate_and_never_grant_production(self):
@@ -203,7 +203,7 @@ class OperatorTests(unittest.TestCase):
                     result=self.inspect(phase,verify_models=phase=='C')
                     self.assertEqual(result['status'],'PREFLIGHT_READY')
                     self.assertFalse(result['submissions'])
-                    self.assertFalse(result['production_gate_retired'])
+                    self.assertFalse(result['submissions'])
                     self.assertEqual(result['gpu_acceptance'],'NOT RUN')
                     if phase=='C':self.assertEqual(result['model_sha256_verification'],'VERIFIED')
 
@@ -234,7 +234,7 @@ class OperatorTests(unittest.TestCase):
             result=self.watch(output,phase='C')
         self.assertEqual(result['status'],'INTERRUPTED')
         self.assertTrue(result['billing_continues'])
-        self.assertFalse(result['production_gate_retired'])
+        self.assertFalse(result['submissions'])
         self.session['billing']['observed_at_utc']='2026-10-15T11:40:00Z'
         with self.assertRaisesRegex(ValueError,'stale/invalid actual billing'):
             self.watch(output.with_name('stale.jsonl'),phase='C')
@@ -264,7 +264,7 @@ class OperatorTests(unittest.TestCase):
         self.observed['gpu_pids']=[123]
         self.assertIn('UNEXPECTED_GPU_PROCESS',self.inspect()['blocked'])
         self.assertEqual(self.inspect(allowed_pids=[123])['status'],'PREFLIGHT_READY')
-        self.assertIs(self.inspect(allowed_pids=[123])['production_gate_retired'],False)
+        self.assertFalse(self.inspect(allowed_pids=[123])['submissions'])
 
     def test_incomplete_models_block_C_without_calling_file_runtime_verifier(self):
         self.prepare()
@@ -303,7 +303,7 @@ class OperatorTests(unittest.TestCase):
         self.assertEqual([record['event'] for record in records],['START','SAMPLE','END'])
         self.assertEqual(records[-1]['status'],'INTERRUPTED')
         self.assertEqual(output.stat().st_mode&0o777,0o600)
-        self.assertFalse(any(row.get('status')=='PASS' or row.get('production_gate_retired') for row in records))
+        self.assertFalse(any(row.get('status')=='PASS' or row.get('submissions') for row in records))
 
     def test_mount_loss_after_one_sample_stops_without_writing_an_acceptance(self):
         output=self.prepare();observer=Mock(side_effect=[copy.deepcopy(self.observed),copy.deepcopy(self.observed),

@@ -25,7 +25,7 @@ async def prepare(module, body, directory: Path, execution_id: str, analysis_see
         raise ValueError("export must run in a fresh process, never a running controller")
     from importlib import import_module
     artifacts = import_module(module.__package__ + ".artifacts")
-    # No acceptance exception: the retained DavidAU production gate blocks this.
+    # No acceptance exception: every required source must be strictly pinned.
     artifacts.validate_manifest(json.loads((module.CONFIG / "models_manifest.json").read_text()))
     req = module.BatchRequest.model_validate(body)
     if req.prompt_mode != "autoprompt" or req.batches != 1 or req.seed is None or not (req.prompt or "").strip():

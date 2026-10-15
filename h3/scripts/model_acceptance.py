@@ -18,7 +18,7 @@ import tempfile
 
 PACKAGE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE))
-from app.artifacts import atomic_json, parent_directory, read_json, signature, validate_artifact, verify_file
+from app.artifacts import atomic_json, parent_directory, read_json, signature, validate_artifact, validate_manifest, verify_file
 from app.production import read_profiles
 try:
     from .model_downloads import ensure_download, partial_bytes
@@ -39,29 +39,20 @@ ROUTES = {'h3_full': ('h3-analysis', 'h3-writer-replacement'),
 APPROVED = SHARED | {identifier for pair in ROUTES.values() for identifier in pair}
 FACTS = ('id', 'provider', 'repository', 'revision', 'repository_path', 'destination',
          'size_bytes', 'sha256', 'required', 'profiles', 'provenance_status')
-GATE_FACTS = {'id', 'provider', 'profiles', 'required', 'destination', 'source_repository',
-              'observed_source_revision', 'llama_cpp_revision', 'converter_revision', 'converter_sha256', 'gpu_validation'}
 
 
 def select_artifacts(manifest, approval, profiles):
-    """One named retirement exception, never a generic allow_pending switch."""
+    """Exact curated sources and routes from the strictly valid active manifest."""
     if (approval.get('schema_version') != 1 or approval.get('scope') != SCOPE
             or approval.get('submissions') is not False or approval.get('automatic_inference') is not False
             or approval.get('runtime') != {'llama_cpp_revision': LLAMA_COMMIT, 'llm_node_revision': LLM_NODE_COMMIT}
             or profiles.get('writer_runtime') != approval['runtime']):
         raise ValueError('acceptance scope/runtime approval differs')
-    if manifest.get('schema_version') != 2 or manifest.get('status') != 'blocked_source_provenance':
-        raise ValueError('acceptance requires the retained production retirement gate')
-    pending = manifest.get('pending_artifacts')
-    gate = approval.get('retained_production_gate', {})
-    if (set(gate) != GATE_FACTS or not isinstance(pending, list) or len(pending) != 1 or gate.get('id') != '10eros-writer'
-            or gate.get('required') is not True or pending[0].get('id') != '10eros-writer'
-            or any(pending[0].get(key) != value for key, value in gate.items())):
-        raise ValueError('unexpected pending artifact or changed production retirement gate')
+    validate_manifest(manifest)  # Pending/unknown provenance still fails closed.
     entries, destinations = {}, set()
     for item in manifest.get('artifacts', []):
         validate_artifact(item)
-        if item['id'] in entries or item['destination'] in destinations or item['destination'] == pending[0]['destination']:
+        if item['id'] in entries or item['destination'] in destinations:
             raise ValueError('duplicate acceptance source identity/destination')
         entries[item['id']] = item
         destinations.add(item['destination'])
@@ -153,7 +144,7 @@ def models_directory(root, environment=None):
 
 def marker_value(root, approval, environment=None):
     value = {'schema_version': 1, 'scope': SCOPE, 'root': str(root), 'approval_sha256': scope_identity(approval),
-             'submissions': False, 'automatic_inference': False, 'production_gate_retired': False}
+             'submissions': False, 'automatic_inference': False}
     if (os.environ if environment is None else environment).get('H3_MODEL_ACCEPTANCE_MODELS_ROOT'):
         value['models_root'] = str(models_directory(root, environment))
     return value
@@ -218,7 +209,7 @@ def plan(root, items, approval, environment=None):
     retained = sum(partial_bytes(model_root, item) for item in missing)
     download = sum(item['size_bytes'] for item in missing) - retained
     staging = max((item['size_bytes'] for item in missing), default=0)
-    return {'scope': SCOPE, 'submissions': False, 'automatic_inference': False, 'production_gate_retired': False,
+    return {'scope': SCOPE, 'submissions': False, 'automatic_inference': False,
             'root': str(root), 'models_root': str(model_root), 'approved_artifacts': [item['id'] for item in items],
             'known_model_bytes': sum(item['size_bytes'] for item in items), 'missing_download_bytes': download,
             'download_staging_bytes': 0, 'largest_download_bytes': staging,
@@ -235,7 +226,7 @@ def download_models(root, items, approval, *, downloader=ensure_download, enviro
     for item in items:
         check_model_path(root, item, environment)
         results.append(downloader(models_directory(root, environment), item))
-    return {'scope': SCOPE, 'submissions': False, 'results': results, 'gpu_acceptance': 'not_run', 'production_gate_retired': False}
+    return {'scope': SCOPE, 'submissions': False, 'results': results, 'gpu_acceptance': 'not_run'}
 
 
 def verify_native_source(node):
@@ -320,7 +311,7 @@ def verify_models(root, items, approval, *, cuda_version='13.0', environment=Non
     if LLAMA_COMMIT[:7].encode() not in version:
         raise ValueError('acceptance completion runtime revision mismatch')
     return {'scope': SCOPE, 'submissions': False, 'model_files': models, 'runtime': approval['runtime'],
-            'gpu_acceptance': 'not_run', 'production_gate_retired': False,
+            'gpu_acceptance': 'not_run',
             'unverified': ['GGUF tensors/template/context', 'real model load/vision/generation', 'reasoning/final/EOS/timeline', 'VRAM/render/lifecycle']}
 
 
