@@ -32,6 +32,10 @@ def production_catalog():
         catalog[name] = {"input": {"required": fields}, "output": outputs, "output_node": False}
     catalog["AJLateUNETLoader"] = copy.deepcopy(catalog["UNETLoader"])
     catalog["AJCompilerTextProcessor"] = copy.deepcopy(catalog["LLMTextProcessor"])
+    catalog["AJPromptTextProcessor"] = copy.deepcopy(catalog["LLMTextProcessor"])
+    catalog["AJGatedCompilerTextProcessor"] = copy.deepcopy(catalog["LLMTextProcessor"])
+    for kind in ("AJGatedCompilerTextProcessor", "AJPromptTextProcessor"):
+        catalog[kind]["input"]["required"].update(aj_headroom_mb=["INT", {"min": 1}], aj_allow_sampling=["BOOLEAN", {}])
     catalog["AJLateUNETLoader"]["input"]["required"]["after_conditioning"] = ["INT", {"forceInput": True}]
     # Pinned core nodes_logic.py SwitchNode uses lazy MatchType inputs. The
     # structural attachment fixture predates that complete worker contract.

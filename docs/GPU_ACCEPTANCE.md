@@ -1,78 +1,48 @@
-# Uruchomienie na GPU — acceptance po CPU/runtime PASS
+# GPU acceptance — zakres prób i rzeczywiste dowody
 
-Ten dokument opisuje **końcową, skonsolidowaną sesję GPU/Vast**. Zgodnie z
-[ROADMAP.md](ROADMAP.md) najpierw kończymy feature set offline/CPU, wykonujemy pełną
-regresję/audyt CPU i zamrażamy kompletne provenance finalnych modeli.
-Dopiero po tych etapach wynajmujemy GPU i przechodzimy wszystkie poniższe gate'y
-w jednej sesji. Profile to **H3 Full** i **10Eros Full**, z dokładną logiką
-**v20 Heretic**. Manifest ma 17 pinned artefaktów; pełne metadata źródłowego
-9B BF16 writera nadal blokuje gotowość. [Raport migracji](MODEL_MIGRATION_2026-10-09.md)
-opisuje ten bloker. Nie wynajmuj GPU, dopóki nie zostanie zamknięty.
+**Pierwsza sesja prywatnej aplikacji:** [Personal First Run](PERSONAL_FIRST_RUN.md).
+Linux>=6.9 z rzeczywistym PIDFD_SIGNAL_PROCESS_GROUP, RTX PRO6000 Blackwell96GB,
+CUDA13.0, zweryfikowane cgroups/RAM/CPU, prywatny panel, dokładny v20 i Full wagi
+pozostają wymagane. Wspieramy ephemeral instance disk i jeden fizyczny store
+`COMFY_ROOT/models`. Local Volume jest potrzebny tylko dla świadomej retencji;
+keep-data destroy bez rzeczywistego proof pozostaje niedostępny.
 
-Bazą migracji jest merged PR #4, commit
-`bfcc2bb22ff9691fda924fe17bd060a7e131c2e2`, CPU accepted: **358 testów**
-oraz 16 HTTP smoke checks. Nowa migracja nie deklaruje GPU acceptance.
+Domyślne19wag=278009016136B, bundle22=284661829208B,11GGUF to podzbiór tego
+samego store. Każdy używany plik ma source/revision/size/SHA256. Nieużywany wpis
+DavidAU9B został usunięty; Step3/4 10Eros używają Qwen3.5-27B Q5_K_M. Można
+instalować zweryfikowane wagi przed inferencją, bez retirement lub bypassu
+manifestu. GPU pozostaje pending. Rzeczywisty pierwszy minimalny test27B musi
+się udać przed użyciem10Eros autoprompt; jego błąd zatrzymuje tę ścieżkę.
 
-Nadal nie wykonano acceptance na realnym GPU dla aktualnego merge commita. Celem tej procedury jest przejście od zweryfikowanego runtime do pierwszego bezpiecznego deploymentu Vast.
+Plan Personal: zatwierdzona prawdziwa oferta <=$15/4h → readonly preflight →
+11GGUF na wspólnym store/native build → minimalna rzeczywista próba27B → pełny
+installer z reuse, dwa ComfyUI workery i panel → preflight/smoke → pojedynczy
+krótki H3 Full i10Eros Full manual render → sprawdzenie/pobranie MP4 z telefonu →
+ręczny provider DESTROY i potwierdzenie końca billingu. Brak oferty nie daje GO.
+Nie wykonano tych prób na GPU w przygotowaniu offline.
 
-## Docelowe środowisko
+[Pełny runbook Gate1–6](GPU_PRODUCTION_SESSION.md) oraz poniższe kryteria są
+**opcjonalną diagnostyką** szerszego zakresu, bez obowiązkowych23renderów.
+Nie przedstawiaj ograniczonej próby jako PASS pełnego overlap/recovery/lifecycle.
+Nie wymagaj całej sesji dla każdej normalnej zmiany seed/duration/LoRA.
+[Phase1](GPU_ACCEPTANCE_PHASE1.md) zachowuje szczegółowe native probes. Datowane
+raporty migracyjne/acceptance opisują historię, nie aktualny blocker DavidAU.
 
-Planowany target:
-- RTX PRO 6000 Blackwell 96 GB;
-- Linux >=6.9;
-- CUDA >=12.8, preferowane środowisko CUDA 13 zgodne z aktualnym installerem;
-- jeden wybrany interpreter Python >=3.11;
-- ComfyUI 0.38.0 i comfy-cli 1.21.0 zgodnie z runtime;
-- publicznie tylko panel 7860;
-- render ComfyUI 8188 i prompt ComfyUI 8189 dostępne lokalnie;
-- trwały Vast Local Volume dla modeli, input/output i stanu wymagającego retencji.
+## Gate 0–1 — przygotowanie i instalacja bez submissions
 
-## Gate 0 — przed wynajmem
+Użyj dokładnego zatwierdzonego SHA istniejącego Draft PR8, aktualnego CPU/CI,
+czystego checkoutu i canonical v20 hash. Nie zakładaj, że kod znajduje się na
+main lub w archiwalnym migration. Sprawdź rzeczywisty host i instance disk,
+stawki/czas/transfer/rezerwy, SSH tunnel i prywatne inputs. Nie wynajmuj zasobów
+w zadaniu offline. Instalator nie podmienia modeli Full na INT8/Turbo.
 
-Przed startem płatnej instancji:
-
-0. Zakończ feature set, pełne `make setup`, `make test`, `make audit` na finalnym
-   commicie oraz osobną decyzję o finalnym stosie modeli i ich zaufanych źródłach.
-
-1. Upewnij się, że deployment pochodzi z aktualnego `main`, nie z `migration/`.
-2. Zarezerwuj RTX PRO 6000 Blackwell 96 GB z wystarczającym dyskiem/RAM i Linuxem obsługującym wymagane pidfd process-group signalling.
-3. Przygotuj osobny persistent volume i zanotuj faktyczną ścieżkę mountu. Sam katalog `/workspace` nie jest dowodem retencji.
-4. Manifest musi być kompletny: źródłowe shardy/config/tokenizer 9B, dokładna
-   rewizja i hash konwertera, BF16 recipe oraz exact sizes/SHA wszystkich
-   pobieranych wag. Sprawdź dostęp i wymagane miejsce przed wynajmem; podstawowy
-   stos zajmuje 219.55 GB, plus 9B source/output, LoRA i staging.
-5. Przygotuj panel password i ewentualne dane Vast/Hugging Face poza repozytorium i logami.
-6. Nie konfiguruj automatycznego DESTROY jako zabezpieczenia kosztowego przed przejściem live acceptance.
-
-## Gate 1 — provisioning bez renderowania
-
-Na świeżej instancji checkout aktualnego `main`, następnie:
-
-```bash
-cd h3
-bash INSTALL_ON_VAST.sh
-```
-
-Jeżeli zachowanie danych jest wymagane, ustaw wcześniej:
-- `H3_PERSISTENCE_MODE=volume`;
-- `H3_PERSISTENT_ROOT=<rzeczywisty mount Local Volume>`.
-
-Keep-data destroy pozostaje wyłączony, dopóki nie ma poprawnej `H3_PERSISTENT_VOLUME_PROOF` opisanej w `h3/README.md`.
-
-Po instalacji nie przechodź jeszcze do generowania. Potwierdź:
-- `nvidia-smi`;
-- import torch i `torch.cuda.is_available()`;
-- zgodność Python/CUDA/PyTorch;
-- wersje ComfyUI/comfy-cli;
-- komplet wymaganych custom nodes;
-- komplet wymaganych modeli/LoRA;
-- że panel ma Basic Auth;
-- że 8188/8189 nie są publicznie wystawione.
-
-Installer zostawia `H3_ALLOW_SUBMISSIONS=0`. Download token jest jednorazowym
-`HF_TOKEN` odziedziczonym z procesu provisioningu, poza `runtime.env`, workerami,
-stanem, logami i provenance. Potwierdź reuse zweryfikowanych wag po usunięciu
-download tokena. Nie włączaj jeszcze automatycznej kolejki ani lifecycle.
+Dokładne komendy i checklista pierwszych15min są w Personal First Run. Zawsze
+submissionsOFF podczas instalacji; po niej: integralność plików, wersje
+ComfyUI/customnodes/native, Torch/CUDA, BasicAuth, brak publicznych8188/8189.
+Wymagane pending/source mismatch nadal zatrzymuje provisioning przed pobraniem.
+Jednorazowy tokenHF jest wyłącznie w procesie downloadu, nie runtime.env,
+receiptach, stanie lub logach. Test pierwszej27B ma prywatne rzeczywiste wyniki;
+nie nadaje globalnego GPU validated ani pełnego Step3/4/EOS PASS.
 
 ## Gate 2 — preflight i conversion smoke
 
@@ -99,11 +69,16 @@ transformer load; nie może powstać cykl model → conditioning → model.
 To ma być **oddzielny prompt-only test**, nie zwykłe utworzenie panelowego batcha.
 
 Użyj oddzielnej prompt-only ścieżki v20 dla każdego profilu i sześciu obrazów;
-audio może być pominięte. Włącz submissions dopiero świadomie dla tej kontrolowanej
-sesji; normalny batch sam planuje pięć płatnych renderów.
+audio może być pominięte. `prepare_prompt_acceptance.py` eksportuje zweryfikowany
+request bez POST i bez batcha, z produkcyjnymi submissions OFF. Operator wykonuje
+jeden świadomy prompt POST dopiero według runbooka, z własnym deadline/billingiem;
+normalny batch sam planuje pięć płatnych renderów.
 
 Kryteria PASS:
 - prompt worker kończy Step 0–4;
+- Step 0–3 wymagają natywnych EOS/no-truncation receipts, również dla vision;
+  plain CLI output/exit0 nie jest dowodem ukończenia. Prywatny one-shot adapter
+  używa tego samego przypiętego silnika i zachowuje parametry oraz GPU lease;
 - wynikowy final H3 prompt jest poprawnie przechwycony;
 - brak render POST do render workera;
 - cache Step 0–2 działa przy kolejnych kandydatach tam, gdzie powinien;
@@ -111,9 +86,16 @@ Kryteria PASS:
 - brak podwójnego autopromptera na render workerze;
 - kolejka/persistence pozostają zdrowe.
 - full/F16 JoyCaption + mmproj, verifier V4.5 F16 + mmproj oraz Gemma F16 + mmproj;
-- 4B Heretic Q8_0 dla H3, wygenerowany z canonical 9B BF16 GGUF dla 10Eros;
+- Step 1/2: llmfan46 Mistral Small 3.2 24B Instruct 2506 Ultra Uncensored Heretic
+  Q4_K_M dla H3 i Q6_K dla 10Eros, oba z projektorem
+  `Mistral-Small-3.2-24B-Instruct-2506-mmproj-BF16.gguf` z tego samego immutable
+  uploadu, zgodnym według wydawcy; potwierdź rzeczywisty load/vision;
+- Step 3/4: Qwen3-14B Heretic Q4_K_M dla H3 i Qwen3.5-27B Heretic Q5_K_M dla 10Eros;
 - osobne Step 3/4 prompts, seeds, temperatury i outputs, bez vision mmproj;
-- Step 3 thinking OFF; Step 4 ON, natywny budget 4096, total 12352/context 29184;
+- Step 3 thinking OFF, total 8192/context 24576; Step 4 ON, natywny budget
+  **H3 6144 / 10Eros 8192**, final 8192 + framing 64, total **14400 / 16448**,
+  context **32768 / 36864**; zapisz native EOS/no truncation receipts i zmierz
+  KV/workspace przy tych kontekstach bez obniżania progów VRAM na podstawie GGUF;
 - reasoning nie dociera do final prompt; natywny output file i guarded final channel;
 - sześć sekcji i pełne pokrycie requested runtime, szczególnie 20 sekund;
 - requested duration, legal frames i effective duration muszą odpowiadać v20:
@@ -122,10 +104,12 @@ Kryteria PASS:
 - Step 3 Timeline kończy się dokładnie na effective duration, bez luk/overlap;
   również raw plan 90 s musi zostać deterministycznie retimed przed Step 4;
 - Step 4 cuts odpowiadają canonical Step 3 starts; Shot 1 nie ma timestamp;
-- rzeczywisty MP4 frame count/FPS/duration potwierdza legal frames. Nie oceniaj
-  quantization delta jako błędu; odróżnij request, timeline i frame duration;
-- zmiana profilu nie powtarza Step 0–2, a restart Prompt Worker zmienia epoch;
+- zmiana profilu współdzieli Step 0, ale rozdziela Step 1/2 według modelu,
+  kwantyzacji i instrukcji; kandydaci #2–10 odzyskują tę samą analizę swojego profilu;
+- restart Prompt Worker zmienia epoch, zachowując zweryfikowane teksty;
 - durable tekst po restarcie nie wymaga założenia, że modele/cache GPU przetrwały;
+- cache sprzed poprawki F2 pozostaje zapisany, ale nie jest źródłem zweryfikowanej
+  analizy; nowe native/controller identity podlega dotychczasowej reconciliation;
 - writer → Gemma compiler można porównać jako osobny acceptance benchmark,
   zachowując v20 instructions i bez dodatkowego selektora w normalnym UI.
 
@@ -146,6 +130,8 @@ Potwierdź najpierw H3 Full, następnie pojedynczy 10Eros Full, potem H3 ponowni
 - jeden remote submission;
 - sukces widoczny w `/history`;
 - rzeczywisty MP4 istnieje i odtwarza się przez proxy/panel;
+- MP4 frame count/FPS/duration potwierdza legal frames; odróżnij request,
+  timeline i frame duration oraz normalną quantization delta;
 - VRAM, czas renderu i logi nie wskazują na OOM/restart loop.
 
 **Historyczny risk:** Full/BF16 H3 był zgłaszany jako źródło czarnych klatek na
@@ -154,7 +140,11 @@ Obejrzyj wynik i zbadaj klatki, jasność oraz rzeczywisty ruch; zachowaj dowody
 Nie zastępuj Full modelem INT8 ani innym checkpointem w celu ukrycia niepowodzenia.
 
 LoRA compatibility i optymalne strength wymagają osobnego porównania w tej samej
-sesji. H3 zachowuje defaults 1.0/0.6/0.5; 10Eros zaczyna z opcjonalnymi LoRA OFF.
+sesji. H3 domyślnie HM 1.0 ON, MysticXXX 0.6 OFF i Movement 0.5 OFF;
+10Eros zaczyna z opcjonalnymi LoRA OFF. Nieużywane LoRA nie wymagają instalacji.
+Zwykłe ustawienia nowych jobów nie wymagają powtórzenia niepowiązanych gate
+acceptance; nowy adapter wymaga własnej kontroli zgodności/VRAM. Patrz
+[zasady konfiguracji](LORA_CONFIGURATION.md).
 Samo znalezienie lub załadowanie pliku nie oznacza GPU validation.
 
 Zapisz: GPU, sterownik, CUDA, torch, peak VRAM, czas renderu, resolution, duration, seed i SHA checkoutu.
@@ -163,10 +153,12 @@ Zapisz: GPU, sterownik, CUDA, torch, peak VRAM, czas renderu, resolution, durati
 
 Dopiero po pojedynczym renderze:
 
-1. Zmierz conservative H3 i balanced 10Eros. Podczas H3 sampling cold Step 0–2
-   ma czekać; warm/durable analysis może uruchomić mały writer tylko przy fresh
-   measured headroom. 10Eros może dopuścić analysis z measured headroom.
-   Conditioning/decoding/recovery muszą zamykać okno overlap.
+1. Zmierz oba nowe writery. Step 0–2 czeka podczas samplingu obu profili.
+   Warm/durable analysis dopuszcza Step 3/4 tylko przy fresh measured headroom.
+   Sprawdź progi powyżej i poniżej granicy z rzeczywistym KV/context/workspace.
+   Conditioning/decoding/recovery/unknown zamykają admission przed GPU pracą,
+   czekają na reap aktywnego LLM i pauzują kolejne kroki. Nie zamrażaj procesu CUDA
+   sygnałem STOP; musi zwolnić model przed decodingiem.
 2. Porównaj wall time z render-only baseline.
 3. Sprawdź restart prompt/render service podczas bezpiecznych stanów kolejki.
 4. Sprawdź recovery po restarcie panelu.
@@ -176,8 +168,7 @@ Dopiero po pojedynczym renderze:
    render H3, Prompt Worker może działać równolegle, bufor przyszłych renderów jest
    ograniczony, #1–5 mają pierwszeństwo, #6–10 ostatecznie trafiają do Review Pool.
 8. Sprawdź Diagnostics, Live Logs i OPEN MP4/timing na realnym layoucie. Terminal
-   jest opcjonalny, domyślnie wyłączony; jeśli świadomie włączony, sprawdź go tylko
-   przez zaufane/prywatne połączenie, wraz z disconnect/cleanup.
+   pozostaje niedostępny w produkcji, także przy `H3_ENABLE_TERMINAL=1`.
 9. Zmierz rzeczywiste peak VRAM i cache zachowanie pod presją GPU, cold/warm batch,
    OOM/restart i render speed. Dopiero te dowody pozwalają dostroić progi pamięci.
 
@@ -195,7 +186,7 @@ Po każdym kroku sprawdź, że lifecycle control generation, queue persistence i
 
 ## Kryterium końcowe GPU acceptance
 
-GPU acceptance można uznać za PASS dopiero po udokumentowanym przejściu Gate 1–6 bez:
+Pełny zakres Gate1–6 można uznać za PASS po jego faktycznym wykonaniu bez:
 - duplicate paid submissions;
 - utraty queued/accepted jobs;
 - orphaned worker processes;
@@ -205,4 +196,4 @@ GPU acceptance można uznać za PASS dopiero po udokumentowanym przejściu Gate 
 
 Do tego momentu status projektu brzmi:
 
-**GPU/live acceptance pending; complete 9B source provenance blocks readiness.**
+**GPU/live acceptance pending. Verified weights are installable; real model/Full render behaviour remains to be measured.**

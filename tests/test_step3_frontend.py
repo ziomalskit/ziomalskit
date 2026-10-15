@@ -12,5 +12,6 @@ class Step3FrontendTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 for scenario in ('approval','approval_uncertain','approval_replacement','selection','jobs','vast','guards',
-                 'focused','edit_during_save','partial_save','guard_conflict','restart','action_snapshot','jobs_failure'):
+                 'focused','edit_during_save','partial_save','guard_conflict','restart','action_snapshot','jobs_failure',
+                 'cost_hold','cost_resume'):
     setattr(Step3FrontendTests, 'test_' + scenario, lambda self, scenario=scenario: self.run_js(scenario))

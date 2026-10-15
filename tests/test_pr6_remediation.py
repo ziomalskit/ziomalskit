@@ -103,14 +103,18 @@ class RemediationControllerTests(unittest.IsolatedAsyncioTestCase):
         job = await self.job()
         path = self.m.CONFIG / "lora_registry.json"
         original = json.loads(path.read_text())
-        changes = (("h3-combat-v2", {"strength_range": [-1, 1]}),
-                   ("h3-combat-v2", {"compatibility": {"h3_full": "incompatible", "10eros_full": "pending"}}),
-                   ("h3-turbo-8step", {"provenance_status": "external/user-provided"}))
+        # Only a used artifact is a dependency. HM is active in this job;
+        # unrelated optional registry entries are covered by flexibility tests.
+        changes = (("hm-breasts-v2", {"strength_range": [-1, 1]}),
+                   ("hm-breasts-v2", {"compatibility": {"h3_full": "incompatible", "10eros_full": "pending"}}),
+                   ("hm-breasts-v2", {"provenance_status": "external/user-provided"}))
         for identifier, change in changes:
             with self.subTest(change=change):
                 data = copy.deepcopy(original)
                 row = next(row for row in data["loras"] if row["id"] == identifier)
                 row.update(change)
+                if row["compatibility"]["h3_full"] == "incompatible":
+                    row["defaults"]["h3_full"]["enabled"] = False
                 path.write_text(json.dumps(data))
                 with load_controller(source=self.m.ROOT, production_probes=True) as restarted:
                     restarted.load_state()

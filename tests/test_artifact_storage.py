@@ -175,23 +175,22 @@ class ArtifactStorageTests(unittest.TestCase):
             validate_generated_provenance(item, receipt)
 
     def test_download_sdk_suppresses_token_in_success_output_and_error(self):
-        observed = []
-        def fake_sdk(**kwargs):
-            observed.append(kwargs)
-            print(SENTINEL)
-            print(SENTINEL, file=__import__("sys").stderr)
-            return str(self.root / "model.gguf")
-        module = types.ModuleType("huggingface_hub")
-        module.hf_hub_download = fake_sdk
+        from tests.hf_sdk_fixture import sdk_fixture
         output = io.StringIO()
-        with patch.dict(os.environ, {"HF_TOKEN": SENTINEL, "HF_XET_HIGH_PERFORMANCE": "1"}), \
-             patch.dict("sys.modules", {"huggingface_hub": module}), redirect_stdout(output), redirect_stderr(output):
-            self.assertEqual(download_sdk(artifact(), self.root), self.root / "model.gguf")
-            module.hf_hub_download = Mock(side_effect=RuntimeError("download URL?token=" + SENTINEL))
+        with sdk_fixture(artifact(), BODY) as sdk, patch.dict(os.environ, {'HF_TOKEN': SENTINEL}), redirect_stdout(output), redirect_stderr(output):
+            def noisy(*args, **kwargs):
+                print(SENTINEL); print(SENTINEL, file=__import__('sys').stderr)
+                kwargs['resume_size'] == 0
+                args[1].write(BODY)
+            sdk.transport.http_get.side_effect = noisy
+            path = download_sdk(artifact(), self.root)
+            self.assertEqual(path.read_bytes(), BODY)
+            path.unlink()
+            sdk.hub.get_hf_file_metadata.side_effect = RuntimeError('download URL?token=' + SENTINEL)
             with self.assertRaises(ValueError) as raised:
                 download_sdk(artifact(), self.root)
-        self.assertEqual(observed[0]["token"], SENTINEL)
-        self.assertEqual(observed[0]["revision"], "1" * 40)
+        self.assertEqual(sdk.hub.get_hf_file_metadata.call_args.kwargs['token'], SENTINEL)
+        self.assertEqual(sdk.hub.hf_hub_url.call_args.kwargs['revision'], '1' * 40)
         self.assertNotIn(SENTINEL, output.getvalue() + str(raised.exception))
 
     def test_fake_hf_token_never_persisted_in_runtime_env_receipts_provenance_or_snapshot(self):
@@ -218,12 +217,18 @@ class ArtifactStorageTests(unittest.TestCase):
 import os, sys, types
 from pathlib import Path
 from h3.scripts.model_downloads import download_sdk
+from tests.test_artifact_storage import artifact
 module=types.ModuleType('huggingface_hub')
-def download(**kwargs):
+def download(*args,**kwargs):
  for descriptor in (1,2): os.write(descriptor,os.environ['HF_TOKEN'].encode()+b'\\n')
  raise RuntimeError(os.environ['HF_TOKEN'])
-module.hf_hub_download=download;sys.modules['huggingface_hub']=module
-try: download_sdk({'repository':'fixture/model','revision':'1'*40,'repository_path':'model.gguf'},Path(sys.argv[1]))
+module.hf_hub_url=lambda *a,**k:'https://huggingface.co/fixture'
+module.get_hf_file_metadata=download
+transport=types.ModuleType('huggingface_hub.file_download');transport.http_get=download
+utils=types.ModuleType('huggingface_hub.utils');utils.build_hf_headers=download
+sys.modules['huggingface_hub.file_download']=transport;sys.modules['huggingface_hub.utils']=utils
+sys.modules['huggingface_hub']=module
+try: download_sdk(artifact(),Path(sys.argv[1]))
 except ValueError as error: print(str(error))
 '''
         result = subprocess.run([sys.executable, "-c", code, str(self.root)], cwd=Path(__file__).resolve().parents[1],

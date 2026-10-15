@@ -53,7 +53,7 @@ def production_fixture_history(module,prompt_id,label):
     path=module.patch_workflow(job,module.production_workflow(job))
     catalog=production_catalog()
     graph=prepare_api_prompt(exact_convert(json.loads(path.read_text()),catalog),catalog,phase="prompt")
-    graph=temporal_guards(frozen_duration(graph,job["context"],catalog),catalog)
+    graph=module.job_workflow_adapter(job).install_runtime_guards(graph,catalog,job["context"],phase="prompt")[0]
     plan,final=production_fixture_texts(job["context"],label)
     titles={"STEP 0 — JoyCaption Visual Facts / Output":"CPU facts", "STEP 1 — Expanded Intent / Output":"CPU intent",
             "STEP 2 — Reference Map / Output":"CPU reference map", "STEP 3 — Creative Director / Output":plan,

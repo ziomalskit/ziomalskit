@@ -1,7 +1,9 @@
 {
   "bundled_backend_classes": [
     "AJAnalysisText",
+    "AJPromptTextProcessor",
     "AJCompilerTextProcessor",
+    "AJGatedCompilerTextProcessor",
     "AJFrozenDuration",
     "AJCreativeTimelineGuard",
     "AJFinalPromptTimeGuard",

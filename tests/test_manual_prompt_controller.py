@@ -96,7 +96,17 @@ class ManualPromptControllerTests(unittest.IsolatedAsyncioTestCase):
     async def test_mixed_autoprompt_work_can_still_prefetch_alongside_queued_manual_jobs(self):
         await self.job(batches=5)
         await self.m.create_batches(self.req.model_copy(update={"request_id": uuid.uuid4()}))
-        self.assertEqual(self.m.pick_next_prompt_job()["prompt_mode"], "autoprompt")
+        # A ready manual render now takes priority over starting a new LLM.
+        self.assertIsNone(self.m.pick_next_prompt_job())
+        render = self.m.pick_next_render_job()
+        self.assertEqual(render["prompt_mode"], "manual_final")
+        render.update(status="render_running", render_phase="sampling")
+        candidate = next(job for job in self.m.queue if job["prompt_mode"] == "autoprompt")
+        from tests.test_production_controller import TEXTS
+        self.m.analysis_cache.record(candidate, self.m.batch_for_job(candidate), TEXTS,
+                                     execution_epoch=self.m.analysis_cache.epoch)
+        self.m.overlap_telemetry.update(free_vram_mb=65536, sampled_at=__import__("time").monotonic())
+        self.assertIs(self.m.pick_next_prompt_job(), candidate)
         self.assertEqual(self.m.prompt_prefetch_status()["buffer"], 0)
 
     async def test_complete_worker_flow_has_zero_prompt_submissions_for_three_manual_renders(self):

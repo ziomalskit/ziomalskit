@@ -113,6 +113,18 @@ class V20Hooks:
             return v20_api.phase_boundaries(prepared, catalog, context["profile_identity"]["memory_policy"], contract=contract)
         if analysis_texts is not None:
             prepared = v20_api.reuse_analysis(prepared, analysis_texts, catalog, contract=contract)
+        from ..writer_policy import stage_routes
+        routes = stage_routes(context["profile_identity"])
+        for key, node in prepared.items():
+            if node["class_type"] not in {"LLMTextProcessor", "AJCompilerTextProcessor"}:
+                continue
+            stage = next((name for name, identifier in contract["writer_stages"].items() if identifier == key), None)
+            if node["class_type"] == "LLMTextProcessor":
+                node["class_type"] = "AJPromptTextProcessor"
+            else:
+                node["class_type"] = "AJGatedCompilerTextProcessor"
+            node["inputs"].update({field: routes[stage][field] for field in ("aj_headroom_mb", "aj_allow_sampling")} if stage else {
+                "aj_headroom_mb": context["profile_identity"]["overlap_policy"]["analysis_headroom_mb"], "aj_allow_sampling": False})
         prepared = v20_api.temporal_guards(prepared, catalog, contract=contract)
         return prepared, None
 
@@ -122,7 +134,7 @@ class V20Hooks:
         if context.get("prompt_mode") == "manual_final":
             if phase != "render" or prompt.get(contract["prompt_override"], {}).get("inputs", {}).get("positive") != context["manual_final_prompt"]:
                 a.fail("manual final graph phase/text differs from frozen source")
-            if any(node.get("class_type") in {"LLMTextProcessor", "AJCompilerTextProcessor", "AJAnalysisText",
+            if any(node.get("class_type") in {"LLMTextProcessor", "AJPromptTextProcessor", "AJCompilerTextProcessor", "AJGatedCompilerTextProcessor", "AJAnalysisText",
                     "AJCreativeTimelineGuard", "AJFinalPromptTimeGuard"} for node in prompt.values()):
                 a.fail("manual final graph contains prompt generation or generated-plan guards")
         from ..writer_policy import stage_routes
@@ -132,6 +144,17 @@ class V20Hooks:
             a.fail("persisted duration differs from submitted graph")
         if phase == "prompt":
             a.validate_writer_graph(prompt, stage_routes(context["profile_identity"]))
+            for identifier in contract["analysis_stages"].values():
+                if identifier in prompt:
+                    node = prompt[identifier]
+                    if node.get("class_type") != "AJPromptTextProcessor" or node["inputs"].get("model") != context["profile_identity"]["analysis_model"] or node["inputs"].get("mmproj") != context["profile_identity"]["analysis_mmproj"]:
+                        a.fail("converted analysis differs from persisted model/projector policy")
+            for key, node in prompt.items():
+                if node.get("class_type") in {"LLMTextProcessor", "AJCompilerTextProcessor"}:
+                    a.fail("prompt graph contains an ungated LLM")
+                if node.get("class_type") == "AJPromptTextProcessor" and key not in contract["writer_stages"].values():
+                    if node["inputs"].get("aj_headroom_mb") != context["profile_identity"]["overlap_policy"]["analysis_headroom_mb"] or node["inputs"].get("aj_allow_sampling") is not False:
+                        a.fail("analysis bypasses frozen GPU gate")
             v20_api.validate_temporal_graph(prompt, context, contract=contract)
             return
         sink = contract["render_sink"]

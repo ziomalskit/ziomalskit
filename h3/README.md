@@ -1,16 +1,16 @@
 # AJ / H3 Full production migration
 
-Current AJ/H3 runtime for CPU development and the eventual consolidated Vast
-acceptance session. Live GPU/Vast acceptance is still pending. Follow
-[`docs/ROADMAP.md`](../docs/ROADMAP.md): finish the feature set, run the full CPU
-regression/audit, close the remaining 9B provenance blocker, then perform one
-consolidated GPU/Vast session. [Migration evidence and self-review](../docs/MODEL_MIGRATION_2026-10-09.md)
-records what is verified and what still blocks readiness.
+Current personal deployment: [Personal First Run](../docs/PERSONAL_FIRST_RUN.md).
+Use ephemeral instance disk under `/workspace`, one physical verified models
+store, private phone access, two initial renders and manual provider destroy.
+Local Volume is optional; keep-data destroy still requires genuine verified
+retained storage. All Full models and exact v20 remain unchanged. Real GPU,
+VRAM and output acceptance is pending; CPU PASS is not inference evidence.
 
 Target:
 - RTX PRO 6000 Blackwell 96 GB
-- CUDA devel image, CUDA 13 preferred (>=12.8 required)
-- expose only panel port 7860
+- Personal target: CUDA devel13.0, compatible driver and verified effective cgroups/RAM/CPU
+- private SSH tunnel to panel7860; no public ComfyUI ports
 - ComfyUI 0.38.0 (pinned to the known-good local workflow environment)
 - comfy-cli 1.21.0
 - Python >=3.11 (development checks use Python 3.12)
@@ -20,7 +20,7 @@ Conservative first-release input contract:
 - exactly 6 images: Picture 1 + 5 supporting references
 - 0 or 1 audio reference
 - exactly two normal production profiles: H3 Full (default) and 10Eros Full
-- exact v20 Heretic prompt baseline, shared Step 0–2 and profile-specific Step 3/4
+- exact v20 Heretic prompt baseline, shared Step 0, quantization-specific Step 1/2 and profile-specific Step 3/4
 - legacy INT8 graphs are explicit diagnostic artifacts only
 
 If preserving data, set `H3_PERSISTENCE_MODE=volume` and
@@ -54,9 +54,11 @@ Run:
 bash INSTALL_ON_VAST.sh
 ```
 
-The installer downloads/verifies the pinned stack and builds the 9B BF16 GGUF
-when its complete recipe is frozen. It currently stops before model downloads
-because 9B source metadata is incomplete. After that blocker is closed:
+The installer strictly validates the current manifest, source/revision/size/SHA
+and reuses verified files. The unused DavidAU9B dependency is removed: Step3/4
+10Eros uses Qwen3.5-27B Q5_K_M. GPU pending does not prevent installing verified
+weights. Perform its real first minimal inference according to Personal First
+Run before using10Eros autoprompting; error means stop that path. Then run:
 ```bash
 bash <PANEL_ROOT>/scripts/preflight.sh
 bash <PANEL_ROOT>/scripts/smoke_test.sh
@@ -78,7 +80,7 @@ prefetch and the writer/temporal contract remain unchanged.
 
 **Own final H3 prompt** accepts your exact final text and goes directly through
 local validation to the same Render Worker/adapter. Prompt Worker and every LLM
-generation step are bypassed; no 4B or DavidAU writer is loaded for that job.
+generation step are bypassed; no writer is loaded for that job.
 One manual batch creates **one render**, so three batches create three renders
 using the same frozen prompt and the normal render-seed policy. No second approval
 or review candidate is created. Both production profiles support this path;
@@ -98,11 +100,10 @@ existing STOP/drain/recovery/uncertain-submission fences. They do not use prompt
 prefetch. Prompt preview identifies manual sources and marks Step 0–3 skipped.
 
 Manual artifact checks require verified render files and active LoRA/bridge
-integrity, without requiring unused writer files. **This does not resolve the
-DavidAU 9B Autoprompt provenance blocker**: the complete Autoprompt manifest,
-provisioning/preflight and GPU/live acceptance remain blocked/pending. No model
-provenance changes are made. See [workflow/prompt contracts](../docs/WORKFLOW_ADAPTERS.md)
-for the explicit API schema, validation rules and CPU evidence.
+integrity, without requiring unused writer files. Autoprompt validates its
+required LLM files as well. Removing the unused DavidAU dependency does not
+weaken those checks or mark Qwen27B GPU validated. See
+[workflow/prompt contracts](../docs/WORKFLOW_ADAPTERS.md).
 
 Choose H3 Full or 10Eros Full and optional registered LoRAs. The UI loads display
 names, ranges and defaults from `/api/config`; it submits canonical IDs only.
@@ -140,14 +141,42 @@ Duration remains synchronized through v20's Generation Settings and both duratio
 locks. Seeds remain Step 0 stable, Step 1 analysis seed, Step 2 +1, Step 3 candidate
 seed and Step 4 +1. Writer/temperature/output separation remains intact.
 
+[Current metadata/bootstrap gates](../docs/MODEL_ACCEPTANCE_BOOTSTRAP_2026-10-14.md)
+and [dual-profile configuration evidence](../docs/DUAL_LLM_PROFILES_2026-10-14.md):
+
+| Profile | Step 1/2 | Step 3/4 |
+| --- | --- | --- |
+| H3 Full | llmfan46 Mistral Small 3.2 24B Instruct 2506 Ultra Uncensored Heretic Q4_K_M | Qwen3-14B Heretic Q4_K_M |
+| 10Eros Full | llmfan46 Mistral Small 3.2 24B Instruct 2506 Ultra Uncensored Heretic Q6_K | Qwen3.5-27B Heretic Q5_K_M |
+
+Step 0A JoyCaption F16, 0B Qwen3-VL Caption V4.5 F16 and 0C Gemma Philadelphia
+F16 remain unchanged. Step 1/2 retain their images and require the matching
+Mistral GGUF **BF16** vision projector, `Mistral-Small-3.2-24B-Instruct-2506-mmproj-BF16.gguf`,
+from the same llmfan46 GGUF repository/immutable upload as both quantizations.
+The publisher explicitly pairs it with both variants. Exact-file load/vision
+inference remains pending; the previous Heretic-v1.2-2 F16 projector is not used.
+
 Normal compilation uses each profile's writer for both Step 3 and Step 4, without
-a vision projector. Step 3 thinking is OFF; Step 4 thinking is ON with the pinned
-CLI's native 4,096-token reasoning budget. Step 4 allows 12,352 generated tokens
-(8,192 final + 4,096 reasoning + 64 framing) and 29,184 context tokens, retaining
-the previous input allowance. These settings and runtime pins are frozen in each
+a vision projector. Step 3 thinking is OFF, 8,192 generation / 24,576 context.
+Step 4 thinking is ON with native `--reasoning-format deepseek --reasoning-budget`:
+
+| Step 4 setting | H3 Full | 10Eros Full |
+| --- | ---: | ---: |
+| reasoning_budget | 6144 | 8192 |
+| final_answer_tokens | 8192 | 8192 |
+| framing_tokens | 64 | 64 |
+| max_tokens | 14400 | 16448 |
+| ctx_size | 32768 | 36864 |
+
+The input allowance remains at least 16,384 tokens. These settings and runtime pins are frozen in each
 job; restart/default changes cannot change queued settings. The Step 4 adapter
-reads the CLI's native output file and forwards only its validated final channel.
+uses a private one-shot sibling `llama-server` from the same pinned revision
+and requires machine-readable natural EOS, no truncation and a validated final
+channel. Step 0–3 retain `llama-cli`; a persistent server remains a separate
+future optimization, not part of this change.
 Actual writer quality and truncation remain model acceptance benchmarks.
+Jobs bound to the previous Mistral/provenance or native implementation require
+explicit reconciliation; their saved parameters/analysis are never rewritten.
 `compiler: shared_gemma` is a server-configured
 acceptance benchmark only; it retains v20 instructions and raises overlap headroom.
 It is not a third production profile or a normal UI choice.
@@ -173,32 +202,71 @@ then sampling gets VRAM priority. Another boundary releases resources after vide
 creation. Render `/free` clears the idle renderer at job/model boundaries; it
 does not touch Prompt ComfyUI. No per-sampling-step CPU/GPU streaming was added.
 
-H3 Full defers cold Step 0–2 during sampling. Valid saved Step 0–2 text lets the
-smaller 4B writer overlap with measured headroom. 10Eros's balanced policy also
-permits analysis when measured headroom is sufficient. Conditioning, decoding,
-unknown phase and recovery defer prompt work. Thresholds in
-`config/production_profiles.json` are conservative, adjustable acceptance inputs.
-The 66 GB transformer and 51 GB encoder must not be assumed simultaneously resident.
+Both profiles pause Step 0–2 during sampling. Verified saved analysis permits
+only Step 3/4 overlap, using fresh measured free VRAM and the frozen profile's
+headroom. Thresholds in `config/production_profiles.json` are configurable GPU
+acceptance inputs (H3 writer 24,576 MiB, 10Eros writer 40,960 MiB). They include
+budget for weights, KV/context, workspace and reserve; file bytes are disk cost,
+never a VRAM measurement. All thresholds remain GPU-unvalidated.
 
-Step 0–2 text is shared per batch, independent of render profile/candidate seed.
-Prompt ComfyUI exposes a process UUID epoch. Restart invalidates assumed live
-cache residency, while verified durable text can feed Step 3/4 directly.
-The pinned LLM node launches/reaps a separate llama-cli process per stage;
-an epoch never claims that those model weights remain resident.
+Native workers coordinate through OS phase leases under the shared ComfyUI
+output directory `.aj-gpu`. Before conditioning, decoding, recovery or an unknown
+node, the renderer closes admission and waits for the current LLM invocation to
+finish and reap; subsequent model stages pause before allocation. Sampling opens
+a measured writer window. Missing/stale state, dead owner and unavailable VRAM
+keep it closed. Ready renders also outrank new controller prompt preparation.
+Reinstall the complete owned package and restart both workers after updating code.
+
+Step 0 facts are shared across profiles/batches with matching assets, instructions
+and model identities. Step 1/2 keys additionally bind the exact model/projector
+source, quantization and analysis seed. Candidate seed, writer and LoRAs are
+excluded. Candidates #2–10 reuse all completed analysis for their profile.
+Partial Step 0 and full Step 0–2 survive a terminal writer failure and controller
+restart. Unidentified old records are never silently relabeled as current cache.
+Prompt service epochs invalidate ephemeral residency, preserving durable texts.
+The pinned runtime launches/reaps a separate native process per invocation;
+no cache epoch claims that model weights stay resident on the GPU.
 
 ## Persistent model integrity and downloads
 
 Weights, LoRAs, GGUF source/build files, receipts and generated provenance live
-under `$COMFY_ROOT/models` on the retained volume. Controller state/input/output
-retain the existing persistent deployment layout. Code updates do not change
-artifact identities or force verified weights to download again.
+under `$COMFY_ROOT/models` on the instance disk (or an explicitly configured
+retained volume). Controller state/input/output use the existing deployment layout. Unchanged artifact identities
+reuse verified weights. A model change never renames or enrolls old weights under
+a new identity; it requires the new exact file and explicit job reconciliation.
 
 `config/models_manifest.json` has shared/profile artifacts and a link to the
 canonical LoRA registry. Each downloaded file has a pinned commit, exact bytes
-and SHA256. The 13 required core artifacts total **219,551,087,416 bytes**;
-all 17 pinned downloads total **221,692,946,200 bytes**, before 9B source/output,
-external LoRAs and staging. `provision_models.py --plan` reports disk requirements
+and SHA256. The known stack now also includes both llmfan46 Mistral quantizations, their BF16 projector
+and both Qwen writers. Qwen3-14B immutable Git LFS metadata is now verified. The
+unused DavidAU9B gate is removed; the active27B file is source-verified while
+its real GPU validation remains pending. Use the manifest disk plan for known totals, pending files and staging;
+older migration totals describe the earlier stack. `provision_models.py --plan` reports disk requirements
 and fails when known required storage exceeds available space.
+
+[Phase 1 operator runbook](../docs/GPU_ACCEPTANCE_PHASE1.md) covers the exact hardware/storage plan, operator-only quote and budget limits, separate A–D approvals, private evidence and manual stop/resume. The diagnostic helper never rents compute, runs inference or retires production gates.
+
+### Isolated native model acceptance
+
+[Bootstrap/provenance and later GPU probes](../docs/MODEL_ACCEPTANCE_BOOTSTRAP_2026-10-14.md)
+prepare the current eleven strictly pinned GGUF files without opening submissions.
+`INSTALL_MODEL_ACCEPTANCE.sh` defaults to a read-only plan. An explicit future
+`--install` prepares private native CLI/server/download virtualenvs and only the
+11 GGUF artifacts locked by `config/model_acceptance.json`. It installs no
+ComfyUI service/panel, changes no production runtime.env/onstart and starts no
+inference/render/lifecycle. Submissions are always OFF. Scope/root/pin/hash
+drift, unsafe linked paths and unknown pending artifacts fail closed. Personal
+acceptance explicitly shares the real `COMFY_ROOT/models` directory while its
+evidence and small native runtime remain separate, with no second weight copy.
+
+```bash
+H3_MODEL_ACCEPTANCE_ROOT=/persistent/aj-native-model-acceptance \
+  bash INSTALL_MODEL_ACCEPTANCE.sh --plan
+```
+
+Normal provisioning/preflight remains strict on every currently required artifact.
+Source/file/runtime checks and the offline native completion/timeline checker
+never attest GPU acceptance. No retirement procedure is required.
 
 Existing correct bytes are rehashed and reused. Wrong size/hash, symlinks and
 untrusted same-name generated files fail closed. HF/Xet downloads resume in

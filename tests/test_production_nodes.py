@@ -132,11 +132,66 @@ class ProductionNodeTests(unittest.TestCase):
         sys.modules["nodes"].NODE_CLASS_MAPPINGS=module.NODE_CLASS_MAPPINGS
         return sys.modules[name+".llama_cli"],module
 
-    def compiler_values(self):
-        return dict(model="CPUFixture.gguf",mmproj="none",system_prompt="none",prompt="Exact v20 fixture instruction.",
+    def compiler_values(self,profile=None):
+        # Keep the prior frozen-job policy covered alongside current defaults.
+        values = dict(model="CPUFixture.gguf",mmproj="none",system_prompt="none",prompt="Exact v20 fixture instruction.",
                     max_tokens=12352,temperature=.8,top_p=.95,top_k=64,repeat_penalty=1.05,ctx_size=29184,
                     memory_mode="gpu_layers",n_gpu_layers=50,n_cpu_moe_layers=1,seed=202,timeout_seconds=600,
                     reasoning="on",enable_processing=True,extra_args="--reasoning-format deepseek --reasoning-budget 4096")
+        if profile:
+            policy=json.loads((ROOT/'config/production_profiles.json').read_text())['profiles'][profile]['writer_stages']['step4']
+            values.update(max_tokens=policy['max_tokens'],ctx_size=policy['ctx_size'],
+                          extra_args=f"--reasoning-format deepseek --reasoning-budget {policy['reasoning_budget']}")
+        return values
+
+    def test_both_new_step_four_policies_reach_native_command_and_json_request(self):
+        from tests.test_temporal_contract import FINAL
+        from unittest.mock import MagicMock
+        self.pinned_llm();compiler=sys.modules[self.module.__name__+'.compiler']
+        response=MagicMock();response.__enter__.return_value.status=200
+        opener=MagicMock();opener.open.return_value=response
+        for name,budget,total,context in (('h3_full',6144,14400,32768),('10eros_full',8192,16448,36864)):
+            with self.subTest(profile=name):
+                commands=[];stopped=[];payloads=[]
+                def spawn(command,**kwargs):
+                    commands.append(command)
+                    return types.SimpleNamespace(poll=lambda:None,terminate=lambda:stopped.append(True),wait=lambda **_:0)
+                def complete(url,payload,timeout):
+                    payloads.append(payload)
+                    return {'choices':[{'index':0,'finish_reason':'stop','message':{'role':'assistant','content':FINAL,'reasoning_content':'PRIVATE_TRACE'}}],
+                            '__verbose':{'stop':True,'stop_type':'eos','truncated':False}}
+                with patch.object(compiler,'verified_server',return_value=Path('/CPUFixture/llama-server')), \
+                     patch.object(compiler.subprocess,'Popen',side_effect=spawn), \
+                     patch.object(compiler.urllib.request,'build_opener',return_value=opener), \
+                     patch.object(compiler,'post_completion',side_effect=complete):
+                    self.assertEqual(self.module.AJCompilerTextProcessor().generate(**self.compiler_values(name)),(FINAL,'PRIVATE_TRACE',''))
+                command=commands[0]
+                for flag,value in (('--reasoning','on'),('--reasoning-format','deepseek'),('--reasoning-budget',budget),('-n',total),('-c',context)):
+                    self.assertEqual(command[command.index(flag)+1],str(value))
+                self.assertEqual(payloads[0]['max_tokens'],total)
+                self.assertIs(payloads[0]['stream'],False)
+                self.assertIs(payloads[0]['verbose'],True)
+                self.assertEqual(stopped,[True])
+
+    def test_native_compiler_rejects_starved_context_and_final_before_process_launch(self):
+        self.pinned_llm();compiler=sys.modules[self.module.__name__+'.compiler']
+        for name in ('h3_full','10eros_full'):
+            values=self.compiler_values(name)
+            for change in ({'ctx_size':values['max_tokens']+16383},{'ctx_size':1048577},
+                           {'ctx_size':True},{'max_tokens':values['max_tokens']-1},{'max_tokens':32769}):
+                with self.subTest(profile=name,change=change),patch.object(compiler,'run_completion') as launch:
+                    with self.assertRaisesRegex(ValueError,'frozen reasoning/final-answer budget'):
+                        self.module.AJCompilerTextProcessor().generate(**dict(values,**change))
+                    launch.assert_not_called()
+
+    def test_natural_eos_cannot_publish_reasoning_only_empty_or_incomplete_final(self):
+        from tests.test_temporal_contract import FINAL
+        compiler=sys.modules[self.module.__name__+'.compiler']
+        for content in (None,'','   ','PRIVATE_REASONING_ONLY','[Start thinking]\nUnfinished\n'+FINAL,
+                        FINAL.replace('non_diegetic_music: None.','non_diegetic_music:')):
+            body={'choices':[{'index':0,'finish_reason':'stop','message':{'role':'assistant','content':content,'reasoning_content':'PRIVATE_REASONING_ONLY'}}],
+                  '__verbose':{'stop':True,'stop_type':'eos','truncated':False}}
+            with self.subTest(content=content),self.assertRaises(ValueError):compiler.completion_response(body)
 
     def test_pinned_llm_fixture_has_exact_authoritative_source_hashes(self):
         fixture=ROOT.parent/"tests/fixtures/pinned_llm"

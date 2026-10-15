@@ -14,7 +14,7 @@ from h3.scripts import build_generated_models as build
 from h3.scripts.enroll_external_loras import enroll
 from h3.scripts.install_owned_nodes import install
 from h3.scripts.model_downloads import ensure_download
-from h3.scripts.provision_models import disk_plan, provision
+from h3.scripts.provision_models import disk_plan, provision, default_lora_destinations
 from tests.test_artifact_storage import artifact, generated, BODY, SENTINEL
 
 ROOT = Path(__file__).resolve().parents[1] / "h3"
@@ -178,12 +178,31 @@ class ModelProvisioningTests(unittest.TestCase):
         manifest = {"schema_version": 2, "status": "production_pinned_gpu_pending", "artifacts": [artifact(), self.item]}
         plan = disk_plan(manifest, self.root)
         self.assertEqual(plan["generated_source_bytes"], sum(len(body) for body in self.sources.values()))
-        self.assertGreater(plan["minimum_free_bytes"], len(BODY) * 2 + plan["generated_source_bytes"])
+        self.assertEqual(plan["download_staging_bytes"], 0)
+        self.assertEqual(plan["minimum_free_bytes"], len(BODY) + plan["generated_source_bytes"] + plan["generated_output_estimate_bytes"])
         with patch("h3.scripts.provision_models.shutil.disk_usage", return_value=Mock(free=1)), \
              patch("h3.scripts.provision_models.ensure_download") as download:
             with self.assertRaisesRegex(ValueError, "cannot hold"):
                 provision(manifest, self.root, self.toolchain)
             download.assert_not_called()
+
+    def test_unused_optional_models_are_not_provisioned_or_in_selected_disk_plan(self):
+        required = artifact()
+        optional = copy.deepcopy(required)
+        optional.update(id='unused-optional', destination='loras/unused.safetensors', required=False)
+        manifest = {"schema_version": 2, "status": "production_pinned_gpu_pending", "artifacts": [required, optional]}
+        with patch('h3.scripts.provision_models.ensure_download', return_value={}) as download:
+            provision(manifest, self.root, self.toolchain)
+        self.assertEqual([c.args[1]['id'] for c in download.call_args_list], [required['id']])
+        self.assertEqual(disk_plan(manifest, self.root, optional_destinations=())['known_stack_bytes'], required['size_bytes'])
+        with patch('h3.scripts.provision_models.ensure_download', return_value={}) as download:
+            provision(manifest, self.root, self.toolchain, optional_destinations={optional['destination']})
+        self.assertEqual([c.args[1]['id'] for c in download.call_args_list], [required['id'], optional['id']])
+
+    def test_provision_defaults_select_only_enabled_registered_optional_resources(self):
+        selected = default_lora_destinations(ROOT / 'config/lora_registry.json')
+        self.assertEqual(selected, {'loras/HMBreastsV2.safetensors',
+                                   'semantic_bridge/BUNNY_H3_ActionLogic_Bridge_V1.safetensors'})
 
     def test_external_enrollment_accepts_only_registered_ids_and_rejects_changed_bytes(self):
         path = self.root / "loras/movement_h3_lora_v1_500.safetensors"

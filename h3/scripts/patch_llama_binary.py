@@ -1,6 +1,8 @@
 """Add the Linux platform to the exact pinned node without changing its release."""
 import ast
 from pathlib import Path
+import stat
+import subprocess
 import sys
 
 try:
@@ -45,6 +47,27 @@ def patch_source(source: str) -> str:
         s=s.replace(old,new)
     ast.parse(s)
     return s
+
+
+def verify_owned_patch(node: Path, revision: str) -> None:
+    """Admit only our unstaged Linux selector patch at the already checked pin.
+
+    Never reset a checkout or accept staged, unrelated or linked source changes.
+    The caller also checks the repository origin before reaching this check.
+    """
+    def git(*args):
+        return subprocess.check_output(["git", "-C", str(node), *args])
+    if node.is_symlink() or (node / ".git").is_symlink() or git("rev-parse", "HEAD").decode().strip() != revision:
+        raise ValueError("owned patch requires the exact pinned repository")
+    if git("status", "--porcelain", "--untracked-files=all") != b" M llama_binary.py\n":
+        raise ValueError("unrelated or staged changes in pinned node")
+    selector = node / "llama_binary.py"
+    info = selector.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise ValueError("linked selector is not installer-owned")
+    original = git("show", "HEAD:llama_binary.py").decode("utf-8")
+    if selector.read_bytes() != patch_source(original).encode("utf-8"):
+        raise ValueError("selector differs from the exact installer-owned patch")
 
 
 if __name__ == "__main__":
