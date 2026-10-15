@@ -72,14 +72,18 @@ na wynajem ani zapisu wykonanego GPU acceptance.
 
 ## Kosztorys
 
-22 pliki: **284661829208 B**, w tym wymagane 277909390584 B i opcjonalne
-6752438624 B. Izolowane 11: **113395969792 B**. Dwa store plus największy
-staging: **464338286368 B**, przed środowiskami, buildami, cache, mediami
-oraz external LoRA. Plan 768 GiB + L jest rezerwą, nie dowodem wolnego miejsca.
-Kontrolowana kopia 11 oszczędza ponowny transfer 113.4 GB, lecz nie destination SHA.
+Pełne 22 pliki: **284661829208 B**, wymagane 17: **277909390584 B**.
+Aktualny domyślny wybór to 19 (wymagane + HM/Bunny): **278009016136 B**.
+Izolowane 11: **113395969792 B**. Dwa store plus największy staging dla
+**domyślnego** wyboru: **457685473296 B**, przed środowiskami, buildami, cache,
+mediami i external LoRA. Z `--include-optional` baseline wynosi 464338286368 B.
+Plan 768 GiB + L zostawia 366948247536 B ponad domyślny baseline; to rezerwa,
+nie dowód wolnego miejsca. Kontrolowana kopia 11 oszczędza ponowny transfer
+113.4 GB, lecz nie lokalny odczyt/zapis, miejsce ani destination SHA.
 
-Sam transfer 285 GB przy 100/250/500/1000 Mbit/s trwa co najmniej
-6.33/2.53/1.27/0.63 h. Trzeba dodać instalacje, build, SHA, próby modeli,
+Sam zewnętrzny transfer domyślnych wag **z reuse** to 278.009 GB; przy
+100/250/500/1000 Mbit/s trwa co najmniej 6.18/2.47/1.24/0.62 h. Trzeba dodać
+instalacje, build, SHA, próby modeli,
 review, co najmniej 23 rendery (w tym warianty upscaler/drugi pass obu profili)
 oraz retry/lifecycle. Przy 23 × 30 min sam render zajmuje 11.5 h.
 Wariant 8–24 h wymaga przeliczenia konkretnej oferty:

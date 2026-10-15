@@ -1,10 +1,14 @@
 # Jedna sesja H3 Full + 10Eros Full — Gate 0–6
 
-Stan audytu: **STOP dla pełnego acceptance na obecnym HEAD**. Punkt startowy
-PR #8 to `140d9c222ffb18017bbb8913223f537cd3d055f5`; zawiera Draft PR #5
-`c6f033ab41a4456fd55558e652a563d8c31418d1` i Draft PR #6
-`84af26e26c0ec85a40efe712e5e32506c5a9af3f`. Nie zakładaj merged `main`.
-Nie uruchomiono GPU, inference, downloadu wag ani żadnej akcji Vast.
+Aktualizacja offline: punkt startowy PR #8
+`baa59252d03ab553c7dc382ca6b4d0cdbdc5a36d` (976 testów CPU + 16 HTTP smoke
+w CI). Zawiera Draft PR #5 `c6f033ab41a4456fd55558e652a563d8c31418d1`
+i Draft PR #6 `84af26e26c0ec85a40efe712e5e32506c5a9af3f`; nie zakładaj merged
+`main`. Do sesji wybierz finalny reviewowany SHA z zielonym CI, nie historyczny
+punkt startowy dokumentu. Przygotowanie offline pozwala wybrać i zatwierdzić
+host; **pełna produkcja nadal wymaga rzeczywistych Gate 1–6 i review 27B**.
+Na obecnym kodzie DavidAU prawidłowo blokuje pełny installer. Nie uruchomiono
+GPU, inference, downloadu wag ani żadnej akcji Vast.
 
 Ten runbook rozszerza [kryteria Gate 1–6](GPU_ACCEPTANCE.md), a nie zamienia
 wyników CPU w GPU PASS. [Inwentarz 22 artefaktów](PRODUCTION_MODEL_INVENTORY_2026-10-14.md)
@@ -50,36 +54,69 @@ a nie ponownie do całego `MAX_USD`. Nie zmieniono istniejącej architektury gua
 
 | Składnik | Bajty / ograniczenie |
 | --- | --- |
-| Wszystkie 22, installer także pobiera opcjonalne | **284661829208 B** = 284.662 GB = około 265.1 GiB |
-| 11 zatwierdzonych GGUF w isolated store | **113395969792 B** |
-| Produkcyjne modele pozostałe po tych 11 | **171265859416 B** |
-| Największy jednoplikowy staging produkcji | **66280487368 B** |
-| Minimum same modele produkcyjne + największy staging | **350942316576 B** |
-| Dwa store + największy staging | **464338286368 B**, przed venv/build/cache/input/output/LoRA |
-| Cache/transfer | HF/Xet cache, `.transfer`, partial retries, receipt metadata i checkout/build trzeba doliczyć. Nie zakładamy hardlinków/deduplikacji ani bezkosztowego storage. Zewnętrzny staging może chwilowo dodać kolejne 113.4 GB lub więcej. |
+| Pełny manifest, 22 artefakty: jawne `--include-optional` | **284661829208 B** = 284.662 GB = 265.112 GiB |
+| Wymagane 17 artefaktów | **277909390584 B** |
+| Domyślnie aktywne opcjonalne: HM Breasts V2 / Bunny Bridge | **77580016 B / 22045536 B** |
+| Domyślna produkcja: 17 + 2 = 19 artefaktów | **278009016136 B** = 278.009 GB = 258.916 GiB |
+| Oddzielny isolated store 11 GGUF | **113395969792 B** = 105.608 GiB |
+| Pozostały download produkcji po zweryfikowanej kopii tych 11 | **164613046344 B** |
+| Największy jednoplikowy staging (`h3-transformer`) | **66280487368 B** |
+| Zimna domyślna produkcja + największy staging | **344289503504 B** |
+| Dwa oddzielne store + największy staging, domyślnie | **457685473296 B** = 426.253 GiB |
+| Dwa store + staging z całym bundle `--include-optional` | **464338286368 B** |
 
-`provision_models.py --plan` na aktualnym manifeście drukuje plan znanych
-plików, ale kończy się błędem wymaganego pending. To prawidłowy STOP.
-Nie wyłączaj SHA ani provenance dla szybszego startu. `artifact_health` używa
-lokalnych podpisów cache dopiero po pełnym hash; na destination wymagaj nowego
-pełnego hash, a nie skopiowanej informacji o inode z innego hosta.
+Liczby pochodzą z bieżącego `models_manifest.json`, wyboru 11 przez
+`model_acceptance.load_selection()` oraz `default_lora_destinations()` używanego
+przez CLI `provision_models.py`. HM jest domyślnie ON w H3, Bunny ON zgodnie z
+rejestrem. Pozostałe opcjonalne wpisy manifestu nie są pobierane domyślnie.
+Własne MysticXXX/Movement nie są częścią powyższego bundle: OFF nie wymagają
+plików; włączenie wymaga tylko weryfikacji używanych zasobów, według
+[LORA_CONFIGURATION.md](LORA_CONFIGURATION.md), bez reinstalacji stacku.
 
-Najkrótszy transfer 284.662 GB: `8 * bytes / (Mbit_s * 1e6)`:
+To **nie jest pełne wymaganie pojemności volume**. Dolicz rzeczywiste rozmiary
+obu venv, osobnych checkoutów/buildów, HF/Xet/pip cache, zatrzymanych partials,
+input/output/MP4, prywatnych dowodów/backupów i plików użytkownika L. Nie ma
+gwarancji górnego limitu cache ani deduplikacji. Zewnętrzny staging całych GGUF
+może dodać kolejne 113395969792 B. Plan **768 GiB + L** zostawia względem
+samego domyślnego baseline **366948247536 B (341.747 GiB)** na te dodatki;
+to rezerwa do sprawdzenia przez `df -B1` i `du -x -B1`, nie dowód wystarczalności.
+Nie rezerwuj wszystkich wolnych bajtów dla jednego downloadera.
+
+`provision_models.py --plan` domyślnie liczy wybrane 19; z `--include-optional`
+liczy 22. Na obecnym manifeście drukuje plan, a potem kończy się błędem
+wymaganego pending DavidAU: to prawidłowy STOP. Plan uwzględnia istnienie plików,
+**nie potwierdza ich SHA**. Po poprawnej kopii 11 GGUF pokazuje dodatkowe minimum
+wolnego miejsca **230893533712 B** (reszta + staging); zajęte już oba store nie
+znikają z rachunku pojemności. Nie wyłączaj provenance dla szybszego startu.
+Cache health ufa podpisowi destination dopiero po pełnym hash; kopiowanie receiptów
+inode/source nie stanowi weryfikacji destination.
+
+Przy kontrolowanym reuse na jednym volume zewnętrzny transfer wag wynosi
+**113395969792 + 164613046344 = 278009016136 B**: GGUF pobierasz raz, potem
+kopiujesz lokalnie. Sama kopia zapisuje dodatkowe 113395969792 B, a odczyt+zapis
+to co najmniej 226791939584 B lokalnego I/O, przed hashami. Nie zakładaj zerowego
+czasu/kosztu kopii, hardlinków ani deduplikacji. Przy innym hoście sprawdź także
+billing transferu między store. Bez reuse download domyślnych wag wyniesie
+**391404985928 B** (produkcja + isolated); dla wszystkich 22 odpowiednio
+**284661829208 B z reuse / 398057799000 B bez reuse**. Nie doliczaj ponownie
+pobranych GGUF do zewnętrznego transferu, jeśli faktycznie użyto poprawnej kopii.
+
+Dolna granica zewnętrznego transferu domyślnych wag z reuse:
+`8 * 278009016136 / (Mbit_s * 1e6)`:
 
 | Faktyczny transfer | Sam transfer, bez narzutów/retry |
 | --- | --- |
-| 100 Mbit/s | 6.33 h |
-| 250 Mbit/s | 2.53 h |
-| 500 Mbit/s | 1.27 h |
-| 1 Gbit/s | 0.63 h |
-| 2 Gbit/s | 0.32 h |
+| 100 Mbit/s | 6.18 h |
+| 250 Mbit/s | 2.47 h |
+| 500 Mbit/s | 1.24 h |
+| 1 Gbit/s | 0.62 h |
+| 2 Gbit/s | 0.31 h |
 
-Bez bezpiecznego kopiowania GGUF do produkcji download wyniesie co najmniej
-398.058 GB (pełne 22 + oddzielne 11). Preferuj kontrolowaną kopię opisaną niżej;
-nie usuwa ona kosztu destination SHA. Jeden odczyt SHA pełnych 284.662 GB przy
-250/500/1000 MB/s trwa co najmniej 19.0/9.5/4.7 min. Będzie kilka przebiegów
-(download, destination verification, preflight, zmiana podpisu cache), a nie
-jeden. Zmierz przepustowość rzeczywistego volume.
+Jeden odczyt SHA domyślnych 278.009 GB przy 250/500/1000 MB/s trwa co najmniej
+18.5/9.3/4.6 min. Będzie kilka przebiegów (source, kopia, destination verification,
+installer, preflight lub zmiana podpisu cache), a nie jeden. Zmierz przepustowość
+rzeczywistego volume. Transfer image/source/packages, narzuty protokołu, retry,
+backup i egress dolicz osobno; w powyższej sumie są wyłącznie wagi.
 
 Robocza rezerwa, **nie benchmark ani obietnica**: host/attach 0.25–0.5 h,
 transfer 0.6–2.5+ h, dwa środowiska/build/instalacje 0.75–2 h,
@@ -109,6 +146,23 @@ z oferty. **$15/4h nie jest obecnie wiarygodnym budżetem pełnych gate'ów**;
 nawet szybka sieć nie dowodzi czasu inferencji/renderów. Przed rental wymagaj
 oferty i finansowania realistycznego wariantu z retry albo ogranicz cel do
 osobno zatwierdzonego Gate 1A i jawnie pozostaw resztę NOT RUN.
+
+## Pierwsze 15 minut po SSH — tylko bezpieczny preflight
+
+Nie uruchamiaj installera, `--download`, pip/apt, buildów, usług ani inference.
+Checkout, prywatny formularz i identyfikatory/progi przygotuj przed rental.
+Wykonaj poniższy blok Gate 1A **tylko do `--phase A --inspect` włącznie**:
+
+| Minuty | Czynność / GO albo STOP |
+| --- | --- |
+| 0–3 | Prywatny katalog dowodów, exact zatwierdzony SHA, czysty checkout i ancestry. Nie drukuj sekretów, formularza ani `runtime.env`. |
+| 3–6 | Linux >=6.9 **i** `process_identity.py support` (realny `PIDFD_SIGNAL_PROCESS_GROUP`); UUID/model/96 GB/CC12, driver i CUDA13.0 zgodne z zatwierdzoną ofertą. `nvidia-smi`/`nvcc --version` nie uruchamiają modelu. |
+| 6–10 | Zapisz affinity i wszystkie widoczne cgroup ancestors; porównaj efektywny RAM/vCPU z ofertą/progami, także ukryte limity potwierdzone przez providera. Sprawdź obce procesy GPU, porty i brak produkcyjnych usług. |
+| 10–15 | `findmnt` + `df` i niezależny provider attachment: prawdziwy retained Local Volume, machine/volume IDs, wolne bajty i rezerwy. Potwierdź aktualny billing, stawki, deadline i ręczny STOP. `--inspect` musi PASS, zanim jakikolwiek download dostanie GO. |
+
+Ten czas to kolejność pracy, nie obietnica PASS w 15 minut. Niezgodność, brak
+dowodu lub niegotowy formularz = STOP przed pobieraniem; sam Linux6.9, nazwa
+mountu czy `nvidia-smi` nie wystarczają. Wyjście `--inspect` zapisz prywatnie.
 
 ## Gate 1A — ten sam docelowy host, izolowane 11 GGUF
 
@@ -142,6 +196,8 @@ nvidia-smi --query-gpu=uuid,name,driver_version,memory.total,compute_cap --forma
 nvcc --version > "$AJ_SESSION_DIR/nvcc.txt"
 findmnt -T "$H3_PERSISTENT_ROOT" -J -o SOURCE,TARGET,FSTYPE,FSROOT,UUID,MAJ:MIN > "$AJ_SESSION_DIR/mount.json"
 df -B1 "$H3_PERSISTENT_ROOT" > "$AJ_SESSION_DIR/disk.txt"
+nvidia-smi > "$AJ_SESSION_DIR/gpu-processes.txt"
+ss -ltnp > "$AJ_SESSION_DIR/preflight-listeners.txt"
 cat /proc/self/cgroup > "$AJ_SESSION_DIR/cgroup-membership.txt"
 cat /proc/self/mountinfo > "$AJ_SESSION_DIR/mountinfo.txt"
 python3 - <<'PY' > "$AJ_SESSION_DIR/cgroup-limits.json"
@@ -173,7 +229,8 @@ while True:
 print(json.dumps({'affinity_cpus': sorted(os.sched_getaffinity(0)), 'visible_ancestry': rows}, indent=2))
 PY
 timeout --signal=TERM --kill-after=15s "$PREFLIGHT_S" python3 h3/scripts/gpu_acceptance_operator.py \
-  --session "$AJ_SESSION_DIR/operator-session.json" --phase A --inspect
+  --session "$AJ_SESSION_DIR/operator-session.json" --phase A --inspect \
+  > "$AJ_SESSION_DIR/A-inspect-private.json"
 ```
 
 GO dopiero gdy GPU/driver/nvcc/mount z dwóch źródeł zgadzają się z formularzem,
@@ -239,36 +296,105 @@ python3 h3/scripts/process_identity.py support
 python3 h3/scripts/provision_models.py --manifest h3/config/models_manifest.json --models-root "$COMFY_MODELS_DIR" --plan
 ```
 
-Przed kopią wygeneruj listę **wyłącznie 11 destination** przez
-`model_acceptance.load_selection()` z G1. Użyj takiej kopii source→destination
-(lokalne bytes, po review izolowanego store i wolnego miejsca):
+### Najpierw prawdziwy checkout ComfyUI, potem kopia GGUF
+
+**Nie twórz samego `$COMFY_ROOT/models` przed checkoutem ComfyUI.** Pinned
+comfy-cli1.21.0 widząc istniejący katalog pomija clone, a potem wymaga repo do
+checkoutu wersji. Katalog zawierający wyłącznie modele nie spełnia tego warunku
+([źródło `install.execute`](https://github.com/Comfy-Org/comfy-cli/blob/v1.21.0/comfy_cli/command/install.py)).
+Przygotuj przypięty source; pełny installer obsługuje taki checkout przez
+istniejącą ścieżkę `install --restore`. To pobiera kod, nie modele, i odbywa się
+**dopiero po GO cutover**, poza checklistą pierwszych 15 minut:
 
 ```bash
-: "${AJ_ACCEPTANCE_ROOT:?}"
-AJ_NATIVE_CHECKOUT="$AJ_NATIVE_CHECKOUT" python3 - <<'PY' > "$AJ_SESSION_DIR/gguf-files.txt"
-import os, sys
-sys.path.insert(0, os.environ['AJ_NATIVE_CHECKOUT'])
-from h3.scripts.model_acceptance import load_selection
-for item in load_selection()[0]: print(item['destination'])
-PY
-mkdir -p "$COMFY_MODELS_DIR"
-rsync --ignore-existing --partial-dir=.transfer --files-from="$AJ_SESSION_DIR/gguf-files.txt" \
-  "$AJ_ACCEPTANCE_ROOT/models/" "$COMFY_MODELS_DIR/"
+AJ_COMFY_COMMIT="$(python3 h3/scripts/runtime_config.py constant COMFY_COMMIT)"
+test ! -L "$COMFY_ROOT"
+if [[ ! -e "$COMFY_ROOT" ]]; then
+  timeout --signal=TERM --kill-after="$TERM_GRACE_S" "$BUILD_S" \
+    git clone --no-checkout https://github.com/Comfy-Org/ComfyUI.git "$COMFY_ROOT"
+  git -C "$COMFY_ROOT" checkout --detach "$AJ_COMFY_COMMIT"
+fi
+test -f "$COMFY_ROOT/main.py"
+test "$(git -C "$COMFY_ROOT" rev-parse HEAD)" = "$AJ_COMFY_COMMIT"
+git -C "$COMFY_ROOT" diff --exit-code HEAD -- > "$AJ_SESSION_DIR/comfy-source-diff.txt"
 ```
 
-Nie używaj hardlinków, `--inplace`, `--copy-links` ani kopiowania markerów/cache
-z isolated store. Źródła 11 destination muszą być zwykłymi plikami bez symlinków;
-`rsync` bez `-l` ich nie dereferencjuje. Błędny destination = STOP/reconciliation,
-nie nadpisanie w miejscu. Installer rehashuje destination i pobierze resztę.
-Lokalne `HF_HOME` i `HF_XET_CACHE` są rozdzielone między acceptance i produkcję,
-na retained volume; nie pozostawiamy nieoszacowanego Xet cache na małym root
-disk kontenera. Cache pip też ma jawną ścieżkę. Te katalogi nie zastępują wag
-ani SHA receiptów. Ich rzeczywisty rozmiar i ewentualne zatrzymane partials
-wchodzą w rezerwę storage; nie kasuj aktywnych cache/staging podczas instalacji.
+Nie naprawiaj obcego katalogu w miejscu. Inny SHA, symlink lub katalog models
+bez repo = STOP; wybierz wcześniej uzgodniony czysty COMFY_ROOT, zachowując dane.
+Wznowienie przerwanego clone wymaga sprawdzenia jego stanu przed checkoutem.
+Przed kopią ponownie zweryfikuj isolated store **oryginalnym G1** (SHA/native
+receipts; nie inference). Zmienne ścieżek mają wskazywać różne, rzeczywiste
+katalogi na zatwierdzonym volume:
+
+```bash
+test "$(git -C "$AJ_NATIVE_CHECKOUT" rev-parse HEAD)" = "$AJ_NATIVE_SHA"
+test -z "$(git -C "$AJ_NATIVE_CHECKOUT" status --porcelain)"
+timeout --signal=TERM --kill-after="$TERM_GRACE_S" "$DOWNLOAD_S" \
+  "$AJ_ACCEPTANCE_ROOT/.h3-venv/bin/python" "$AJ_NATIVE_CHECKOUT/h3/scripts/model_acceptance.py" \
+  --root "$AJ_ACCEPTANCE_ROOT" --verify > "$AJ_SESSION_DIR/G1-before-copy-private.json"
+AJ_NATIVE_CHECKOUT="$AJ_NATIVE_CHECKOUT" AJ_ACCEPTANCE_ROOT="$AJ_ACCEPTANCE_ROOT" \
+  timeout --signal=TERM --kill-after="$TERM_GRACE_S" "$DOWNLOAD_S" \
+  python3 - > "$AJ_SESSION_DIR/gguf-copy-private.json" <<'PY_COPY'
+import json, os, sys
+from pathlib import Path
+sys.path.insert(0, os.environ['AJ_NATIVE_CHECKOUT'])
+from h3.scripts.model_acceptance import load_selection
+from h3.scripts.model_downloads import install_verified, store_lock
+from h3.app.artifacts import verify_file
+items, _ = load_selection()  # G1 retained gate, never the retired G2 selector
+production = json.loads(Path('h3/config/models_manifest.json').read_text())
+by_id = {item['id']: item for item in production['artifacts']}
+keys = ('id', 'provider', 'repository', 'revision', 'repository_path', 'destination', 'size_bytes', 'sha256')
+for item in items:
+    assert all(by_id[item['id']][key] == item[key] for key in keys), 'STOP: G1/G2 artifact mismatch'
+source = Path(os.environ['AJ_ACCEPTANCE_ROOT']) / 'models'
+target = Path(os.environ['COMFY_MODELS_DIR'])
+assert source.resolve() != target.resolve() and not source.resolve().is_relative_to(target.resolve())
+assert not target.resolve().is_relative_to(source.resolve())
+results = []
+with store_lock(target):
+    for item in items:
+        verify_file(source, item['destination'], item)
+        try:
+            result = verify_file(target, item['destination'], item)
+        except FileNotFoundError:
+            result = install_verified(target, item, source, source / item['destination'])
+        results.append({'id': item['id'], **result})
+print(json.dumps(results, sort_keys=True))
+PY_COPY
+python3 h3/scripts/provision_models.py --manifest h3/config/models_manifest.json \
+  --models-root "$COMFY_MODELS_DIR" --plan > "$AJ_SESSION_DIR/production-warm-plan.json"
+df -B1 "$H3_PERSISTENT_ROOT" > "$AJ_SESSION_DIR/disk-before-install.txt"
+```
+
+To używa istniejącego atomowego publishera: pełny hash source, kopia zwykłych
+bytes do prywatnego pliku, hash podczas kopiowania, fsync/no-overwrite, pełny
+hash destination. Nie używa hardlinków ani kopiowania markerów/cache/receiptów.
+Błędny istniejący destination = STOP, nie overwrite. Wznowienie tej samej
+komendy pomija wyłącznie poprawnie zweryfikowane destination; przerwana kopia
+bieżącego pliku może wymagać ponownego skopiowania tego pliku. Osierocone
+`.partial` po twardym kill zajmują miejsce: po settled ownership uwzględnij je
+w planie i usuń tylko dokładnie zidentyfikowane własne pliki. Nie wykonuj
+równolegle provisionera ani nie zmieniaj źródeł podczas kopii.
+
+Installer następnie rehashuje 11 destination, wystawia **nowe destination
+receipts** i pobiera tylko brakującą resztę. HF SDK zachowuje resumable staging
+`.downloads/<id>`; po przerwaniu instalacji sprawdź brak własnych dzieci,
+source lock, mount, billing i nowy plan, po czym powtórz ten sam installer na
+niezmienionym zatwierdzonym G2. Nie kasuj aktywnego staging/cache i nie ponawiaj
+na nowych SHA w tej samej próbie. Błędne bytes istniejącego modelu nie wywołają
+ślepego redownloadu/naprawy.
+
+`HF_HOME` i `HF_XET_CACHE` są rozdzielone między acceptance i produkcję na
+retained volume. Pip cache też ma jawną ścieżkę. Rzeczywisty rozmiar cache i
+partials wchodzi w rezerwę; mały root disk nie jest stagingiem dla wag.
 
 Teraz, dopiero po zatwierdzonym cutover, pojedynczy installer:
 
 ```bash
+: "${H3_BUILD_JOBS:?zatwierdzony limit CPU/RAM}"
+unset COMFY_PYTHON PYTHON_BIN
+# python_env wybierze produkcyjny WORKSPACE/.h3-venv, nie isolated runtime.
 timeout --signal=TERM --kill-after="$TERM_GRACE_S" "$((BUILD_S + DOWNLOAD_S))" \
   bash h3/INSTALL_ON_VAST.sh > "$AJ_SESSION_DIR/provision.log" 2>&1
 unset HF_TOKEN HF_HUB_TOKEN HUGGING_FACE_HUB_TOKEN
@@ -292,6 +418,29 @@ llama/node pins jak Gate1A, CUDA arch120. Pozostałe registry nodes rozwiązuje
 `comfy node install-deps --uv-compile`; zachowaj realny resolved inventory i
 `pip freeze` po instalacji. CPU nie dowodzi zgodności tych upstream zależności.
 Nie stosuj `latest`/auto-upgrade po rozpoczęciu acceptance.
+
+### Opcjonalny pełny bundle i późniejsze LoRA
+
+Zwykły `INSTALL_ON_VAST.sh` wybiera wymagane + domyślnie aktywne optional,
+a nie wszystkie 22. `--include-optional` jest flagą **provision_models.py**,
+nie wrappera instalacji. Tylko jeśli świadomie potrzebujesz pełnego bundle,
+po prawidłowej instalacji, przy submissions OFF i sprawdzonym planie/budżecie:
+
+```bash
+AJ_LLAMA_SOURCE="${H3_BUILD_ROOT:-$WORKSPACE/.h3-build}/llama.cpp-$("$COMFY_PYTHON" "$PANEL_ROOT/scripts/runtime_config.py" constant LLAMA_TAG)"
+"$WORKSPACE/.aj-download-venv/bin/python" "$PANEL_ROOT/scripts/provision_models.py" \
+  --manifest "$PANEL_ROOT/config/models_manifest.json" --models-root "$COMFY_MODELS_DIR" \
+  --include-optional --plan > "$AJ_SESSION_DIR/all-optional-plan.json"
+# Token, jeśli potrzebny: poza argv/history, tylko dla tego procesu; nie set -x.
+timeout --signal=TERM --kill-after="$TERM_GRACE_S" "$DOWNLOAD_S" \
+  "$WORKSPACE/.aj-download-venv/bin/python" "$PANEL_ROOT/scripts/provision_models.py" \
+  --manifest "$PANEL_ROOT/config/models_manifest.json" --models-root "$COMFY_MODELS_DIR" \
+  --toolchain "$AJ_LLAMA_SOURCE" --include-optional > "$AJ_SESSION_DIR/all-optional-provision.json"
+unset HF_TOKEN HF_HUB_TOKEN HUGGING_FACE_HUB_TOKEN
+```
+
+Ten krok nie włącza LoRA w profilu, nie instaluje external MysticXXX/Movement
+i nie omija DavidAU. Nie jest potrzebny przy domyślnych ustawieniach.
 
 Opcjonalnie, tylko jeśli sesja obejmuje jawnie włączone MysticXXX i Movement:
 umieść zaufane external LoRA bez overwrite, porównaj dostarczone pełne SHA i
@@ -639,6 +788,23 @@ komendy `vastai delete-volume`. Provider UI/API i bieżące ceny/deadlines musz�
 być sprawdzone przed sesją. Zgoda na keep-data destroy NIE jest zgodą na późniejsze
 usunięcie volume; operator stosuje uprzednio zatwierdzony plan cleanup.
 
+Jeżeli sesja kończy się ręcznym STOP providera poza działającym lifecycle panelu,
+po anulowaniu/settlement własnych jobów i backupie zatrzymaj własne usługi:
+
+```bash
+bash "$PANEL_ROOT/scripts/service_ctl.sh" stop all
+bash "$PANEL_ROOT/scripts/service_ctl.sh" status all > "$AJ_SESSION_DIR/services-stopped.txt"
+nvidia-smi > "$AJ_SESSION_DIR/gpu-before-provider-stop.txt"
+ss -ltnp > "$AJ_SESSION_DIR/listeners-before-provider-stop.txt"
+```
+
+Nie wykonuj tego przed zaplanowaną akcją API, która potrzebuje działającego panelu.
+Powyższe nie obejmuje raw native probe/build dzieci: ich zakończenie sprawdza
+operator według Phase1, bez `pkill` na cudzych procesach. Błąd ownership/stop
+oznacza STOP i ręczną interwencję, nie stwierdzenie „GPU wolne”. Zatrzymanie
+procesów **nie zatrzymuje billingu**: potem wymagaj potwierdzonego provider STOP
+lub destroy compute i osobnego usunięcia volume według uzgodnionego planu.
+
 ## Końcowy protokół GO / STOP
 
 PASS tylko po udokumentowanych Gate1–6: exact checkout(s), device/driver/CUDA,
@@ -648,6 +814,12 @@ normalne batch/review/priority, recovery, ownership i retencja/lifecycle.
 FAIL/NOT RUN dowolnego obowiązkowego punktu pozostaje widoczne. Nie zdejmuj
 DavidAU i nie merguj PR w ramach tego audytu. Zmiana źródła/identity/modelu wymaga
 nowego review, testów i właściwego powtórzenia zależnych gate'ów.
+
+Wybór i zatwierdzenie hosta można przygotować offline według Gate0 i checklisty
+pierwszych 15 minut. Ten acceptance dotyczy pierwszego wdrożenia; normalne
+zmiany parametrów generacji i wybór LoRA pozostają dostępne zgodnie z istniejącą
+walidacją używanych zasobów oraz frozen job identity. Nie wymagają reinstalacji
+całego stacku ani ponawiania całego Gate1–6 dla każdej zmiany formularza.
 
 Aktualnie gotowe są CPU mechanizmy i plan. Brakuje rzeczywistych dowodów GPU,
 retirement follow-upu i konkretnej oferty/budżetu/proof

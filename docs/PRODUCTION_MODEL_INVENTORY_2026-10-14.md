@@ -27,7 +27,7 @@
 | `10eros-writer-replacement` / tak / 10eros_full | 19399608384<br>`LLM/Qwen3.5-27B-heretic.Q5_K_M.gguf` | `mradermacher/Qwen3.5-27B-heretic-GGUF`<br>`81ceaf141911d6ad2e0fbd008e5c043ebdd33fc5`<br>`Qwen3.5-27B-heretic.Q5_K_M.gguf` | `66787dfbf5462ac355457efaf24e503d244f1083945243ba029080a8e6276322` |
 | `h3-writer-replacement` / tak / h3_full | 9001753952<br>`LLM/Qwen3-14B-heretic.Q4_K_M.gguf` | `mradermacher/Qwen3-14B-heretic-GGUF`<br>`88cac1a5c19ac015402ec94884fabad4e3cfeaf2`<br>`Qwen3-14B-heretic.Q4_K_M.gguf` | `4d529e77f0f1755de42e6f81d7c62309d5f39a4968049d817862d8a9263c317f` |
 
-Łącznie **284661829208 B**; wymagane 277909390584 B, opcjonalne 6752438624 B. Obecny installer pobiera wszystkie 22, również opcjonalne. Nie włączaj Turbo ani starego writera 4B jako zamienników Full lub nowych writerów.
+Łącznie **284661829208 B**; wymagane 277909390584 B, opcjonalne 6752438624 B. Aktualny installer wybiera 17 wymaganych + aktywne domyślne optional HM Breasts V2 (77580016 B) i Bunny Bridge (22045536 B): **19 artefaktów, 278009016136 B**. Pełne 22 pobiera się jawnie przez `provision_models.py --include-optional`; wrapper instalacji nie przekazuje tej flagi. Rachunek dwóch store, reuse i rezerw: [runbook](GPU_PRODUCTION_SESSION.md#rachunek-miejsca-czasu-i-kosztu). Nie włączaj Turbo ani starego writera 4B jako zamienników Full lub nowych writerów.
 
 Osobno pozostaje **wymagany pending `10eros-writer` DavidAU**. Nie jest 23. pobieralnym artefaktem z kompletnym SHA; jego rozmiar nie jest znany, a provisioning odmawia startu. Zamiennik 27B jest jednym z 22, ale sama obecność jego SHA nie wycofuje tej bramki.
 
