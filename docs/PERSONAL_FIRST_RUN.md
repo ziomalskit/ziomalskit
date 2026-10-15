@@ -379,16 +379,20 @@ Hasło jest w prywatnym `runtime.env` mode600; nie publikuj go ani nie zapisuj w
 logach. Portów ComfyUI nie otwieraj publicznie. Przed płatnym renderem sprawdź
 również /api/config i Diagnostics przez tę samą autoryzację.
 
-Dla poniższego wariantu HTTP utwórz prywatny config curl (getpass czyta TTY,
-nie argv). Podaj właściwe dane logowania panelu, nie token HF/Vast:
+Dla poniższego wariantu HTTP utwórz prywatny config curl w interaktywnym terminalu
+SSH. Login i hasło czytane są z TTY, ponieważ stdin Pythona zajmuje heredoc;
+hasło nie trafia do argv, historii shell ani logów. Podaj właściwe dane logowania
+panelu, nie token HF/Vast:
 
 ```bash
 mkdir -m 700 -p /workspace/private
 export AJ_CURL_CONFIG=/workspace/private/curl.conf
 python3 - <<'PY_AUTH'
-import getpass, os
+import getpass, os, sys
 from pathlib import Path
-user = input('Panel user: ')
+with open('/dev/tty', encoding='utf-8') as tty:
+    print('Panel user: ', end='', file=sys.stderr, flush=True)
+    user = tty.readline().rstrip('\n')
 password = getpass.getpass('Panel password: ')
 assert not any(c in user + password for c in '\r\n')
 value = (user + ':' + password).replace('\\', '\\\\').replace('"', '\\"')
