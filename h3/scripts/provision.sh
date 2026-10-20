@@ -51,9 +51,9 @@ if [[ -f "$COMFY_ROOT/main.py" ]]; then
   [[ "$(git -C "$COMFY_ROOT" rev-parse HEAD)" == "$COMFY_COMMIT" ]] || {
     echo "Existing ComfyUI differs from pinned v0.38.0; select a clean COMFY_ROOT" >&2; exit 1;
   }
-  h3_comfy --skip-prompt --workspace="$COMFY_ROOT" install --restore --version 0.38.0 --nvidia --cuda-version "$H3_CUDA_VERSION"
+  h3_comfy --skip-prompt --workspace="$COMFY_ROOT" install --restore --version 0.38.0 --skip-manager --nvidia --cuda-version "$H3_CUDA_VERSION"
 else
-  h3_comfy --skip-prompt --workspace="$COMFY_ROOT" install --version 0.38.0 --nvidia --cuda-version "$H3_CUDA_VERSION"
+  h3_comfy --skip-prompt --workspace="$COMFY_ROOT" install --version 0.38.0 --skip-manager --nvidia --cuda-version "$H3_CUDA_VERSION"
 fi
 [[ "$(git -C "$COMFY_ROOT" rev-parse HEAD)" == "$COMFY_COMMIT" ]] || {
   echo "Installed ComfyUI commit does not match verified v0.38.0" >&2; exit 1;
@@ -73,9 +73,7 @@ mkdir -p "$COMFY_ROOT/input" "$COMFY_ROOT/output" \
   "$COMFY_ROOT/models/semantic_bridge"
 h3_comfy --skip-prompt --workspace="$COMFY_ROOT" set-default "$COMFY_ROOT"
 AJ_NODES_STAGE="$("$COMFY_PYTHON" "$PACKAGE_DIR/scripts/install_timing.py" begin comfy_configuration)"
-# Do not downgrade a failed dependency installation to a successful provision.
-h3_comfy --skip-prompt --workspace="$COMFY_ROOT" node install-deps \
-  --workflow="$PANEL_ROOT/workflows/H3_v20_heretic_MASTER_DURATION_EXACT.json" --uv-compile
+# No registry discovery: mixed workflow metadata is not a reproducible lock.
 h3_timed comfy_custom_nodes bash "$PANEL_ROOT/scripts/install_fallback_nodes.sh"
 "$COMFY_PYTHON" "$PANEL_ROOT/scripts/install_owned_nodes.py" \
   "$PANEL_ROOT/custom_nodes/aj_production" "$COMFY_ROOT/custom_nodes"
@@ -86,11 +84,12 @@ AJ_LLAMA_SOURCE="${H3_BUILD_ROOT:-$DATA_ROOT/.h3-build}/llama.cpp-$("$COMFY_PYTH
 h3_timed python_dependencies "$COMFY_PYTHON" -m pip install -r "$AJ_LLAMA_SOURCE/requirements/requirements-convert_hf_to_gguf.txt"
 AJ_DOWNLOAD_VENV="$DATA_ROOT/.aj-download-venv"
 if [[ ! -x "$AJ_DOWNLOAD_VENV/bin/python" ]]; then "$COMFY_PYTHON" -m venv "$AJ_DOWNLOAD_VENV"; fi
-"$AJ_DOWNLOAD_VENV/bin/python" -m pip install -r "$PANEL_ROOT/download-requirements.txt"
+PIP_CONSTRAINT= "$AJ_DOWNLOAD_VENV/bin/python" -m pip install -r "$PANEL_ROOT/download-requirements.txt"
 HF_TOKEN="$AJ_DOWNLOAD_HF_TOKEN" h3_timed models_provision "$AJ_DOWNLOAD_VENV/bin/python" "$PANEL_ROOT/scripts/provision_models.py" \
   --manifest "$PANEL_ROOT/config/models_manifest.json" --models-root "$COMFY_ROOT/models" --toolchain "$AJ_LLAMA_SOURCE"
 unset AJ_DOWNLOAD_HF_TOKEN HF_TOKEN
 "$COMFY_PYTHON" -m pip check
+"$COMFY_PYTHON" "$PANEL_ROOT/scripts/runtime_dependencies.py" verify "$PANEL_ROOT" "$COMFY_ROOT" "$H3_CUDA_VERSION"
 
 "$COMFY_PYTHON" - "$COMFY_ROOT/input" <<'PY'
 from pathlib import Path

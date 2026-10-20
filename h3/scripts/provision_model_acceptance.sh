@@ -65,7 +65,7 @@ from pathlib import Path
 if Path(sys.prefix).absolute() != Path(sys.argv[1]).absolute():
     raise SystemExit('Acceptance downloader requires its own virtualenv')
 PY
-"$AJ_ACCEPTANCE_DOWNLOAD_PYTHON" -m pip install -r "$AJ_ACCEPTANCE_PACKAGE/download-requirements.txt" 9>&-
+PIP_CONSTRAINT= "$AJ_ACCEPTANCE_DOWNLOAD_PYTHON" -m pip install -r "$AJ_ACCEPTANCE_PACKAGE/download-requirements.txt" 9>&-
 HF_TOKEN="$AJ_ACCEPTANCE_DOWNLOAD_TOKEN" "$AJ_ACCEPTANCE_DOWNLOAD_PYTHON" \
   "$AJ_ACCEPTANCE_PACKAGE/scripts/model_acceptance.py" --root "$AJ_ACCEPTANCE_ROOT" --download 9>&-
 unset AJ_ACCEPTANCE_DOWNLOAD_TOKEN HF_TOKEN

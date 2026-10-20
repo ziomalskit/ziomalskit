@@ -13,7 +13,7 @@ Target:
 - private SSH tunnel to panel7860; no public ComfyUI ports
 - ComfyUI 0.38.0 (pinned to the known-good local workflow environment)
 - comfy-cli 1.21.0
-- Python >=3.11 (development checks use Python 3.12)
+- Python 3.11/3.12 for the reviewed GPU dependency set (development checks use Python 3.12)
 - Linux with ordinary pidfd signalling and readable `/proc` for service/lifecycle control
 
 Conservative first-release input contract:
@@ -65,6 +65,12 @@ bash <PANEL_ROOT>/scripts/smoke_test.sh
 ```
 
 Do not start a real H3 render until both pass.
+
+Fresh installs use a [reviewed dependency set](../docs/COMFY_DEPENDENCIES.md): fixed
+custom-node Git revisions and shared pip constraints, including CUDA-specific
+PyTorch wheels. The installer preserves ComfyUI v0.38.0 and does not discover
+latest nodes or install Manager. Preflight rejects missing or changed pins; smoke
+still checks the actual node catalog and both production workflows.
 
 Provisioning leaves `H3_ALLOW_SUBMISSIONS=0`, including on an existing deployment,
 so it cannot resume queued paid renders or Vast lifecycle actions automatically.

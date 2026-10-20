@@ -1,0 +1,6 @@
+# Linux x86_64 Python 3.11/3.12 wheels verified in the official cu128 index.
+# Keep the CUDA build selected by comfy install; converter's CPU index cannot replace it.
+-c runtime-constraints.txt
+torch==2.11.0+cu128
+torchvision==0.26.0+cu128
+torchaudio==2.11.0+cu128

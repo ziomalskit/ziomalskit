@@ -27,10 +27,14 @@ class FallbackNodeTests(unittest.TestCase):
         (self.panel / "config").mkdir()
         for name in ("install_fallback_nodes.sh", "python_env.sh", "runtime_config.py", "deployment.py", "patch_llama_binary.py"):
             shutil.copy2(ROOT / "h3/scripts" / name, self.panel / "scripts" / name)
+        shutil.copy2(ROOT / "h3/scripts/runtime_dependencies.py", self.panel / "scripts/runtime_dependencies.py")
+        # Service/native installers inherit the same reviewed pip constraints.
+        for constraints in (ROOT / "h3").glob("*constraints*.txt"):
+            shutil.copy2(constraints, self.panel / constraints.name)
         self.git_env = dict(os.environ, GIT_AUTHOR_NAME="AJ test", GIT_COMMITTER_NAME="AJ test",
                             GIT_AUTHOR_EMAIL="test@example.invalid", GIT_COMMITTER_EMAIL="test@example.invalid")
         manifest = json.loads((ROOT / "h3/config/custom_nodes_manifest.json").read_text())
-        self.specs = manifest["explicit_fallback_git"]
+        self.specs = manifest["workflow_git"] + manifest["explicit_fallback_git"]
         for index, spec in enumerate(self.specs):
             source = self.base / f"source-{index}"
             source.mkdir()

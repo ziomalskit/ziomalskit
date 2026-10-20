@@ -63,6 +63,10 @@ udostępnia tyle wolnych bajtów. Jeśli plan nie mieści się w rzeczywistym fr
 STOP: wybierz lżejszy obraz lub większy dysk z uzasadnionym rachunkiem. Brak
 miejsca nie usprawiedliwia INT8/Turbo lub pominięcia pełnego SHA256.
 
+Świeża instalacja używa [przypiętych zależności ComfyUI](COMFY_DEPENDENCIES.md),
+bez pobierania najnowszych custom nodes. Baseline v0.38.0, v20 i modele pozostają
+bez zmian; preflight i smoke nadal są wymagane. Zestaw wheel wymaga Python 3.11/3.12.
+
 Downloader używa przypiętych SDK `huggingface-hub==2.2.0`, `hf-xet==1.7.0`.
 High-level downloader 2.2 usuwa nieudany temporary file, dlatego używamy jego
 transportów zakresów: HTTP `resume_size` albo **ordered Xet `download_stream`
@@ -229,7 +233,7 @@ Budżet bez konkretnej oferty pozostaje nieuzupełniony.
 
 ## Przygotowanie 11 GGUF i pierwsza rzeczywista próba 27B
 
-Preinstalowany obraz CUDA devel musi mieć Python >=3.11, venv, Git/CMake i nvcc.
+Preinstalowany obraz CUDA devel musi mieć Python 3.11/3.12, venv, Git/CMake i nvcc.
 Najpierw przygotuj **rzeczywisty przypięty checkout ComfyUI**, zanim powstanie
 jego katalog models. Zapobiega to próbie instalacji do katalogu bez repozytorium:
 

@@ -173,6 +173,8 @@ def run_checks(environment: dict[str, str] | None = None) -> list[str]:
         cli = subprocess.check_output([python, "-c", "import importlib.metadata; print(importlib.metadata.version('comfy-cli'))"], text=True).strip()
         if cli != "1.21.0":
             raise ValueError("comfy-cli must be 1.21.0 in the selected Python")
+        subprocess.check_output([python, str(panel / "scripts/runtime_dependencies.py"),
+                                 "verify", str(panel), str(comfy), configured_cuda], text=True)
     check("pinned versions", versions)
 
     def cuda():

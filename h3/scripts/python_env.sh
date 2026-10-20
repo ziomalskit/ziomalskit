@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Every CLI, package installation, worker and preflight uses this same Python.
 h3_select_python() {
-  local requested prefix bootstrap
+  local requested prefix bootstrap package
   requested="${COMFY_PYTHON:-${PYTHON_BIN:-}}"
   if [[ -z "$requested" ]]; then
     requested="${DATA_ROOT:-${WORKSPACE:-/workspace}}/.h3-venv/bin/python"
@@ -20,6 +20,10 @@ h3_select_python() {
   export PYTHON_BIN COMFY_PYTHON VIRTUAL_ENV="$prefix"
   unset CONDA_PREFIX
   export PATH="$prefix/bin:$PATH"
+  # Applies to CLI subprocesses and node lazy pip installs as well as our pip.
+  package="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  PIP_CONSTRAINT="$("$COMFY_PYTHON" "$package/scripts/runtime_dependencies.py" constraint-uri "$package" "${H3_CUDA_VERSION:-13.0}")" || return 1
+  export PIP_CONSTRAINT
 }
 
 h3_comfy() {

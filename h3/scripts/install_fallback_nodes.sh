@@ -70,11 +70,12 @@ PYCOMMIT
   fi
 }
 
-# A cached /object_info cannot establish provenance. Always enforce the pins.
+# A cached /object_info cannot establish provenance. Install the complete pin set.
 specs="$("$COMFY_PYTHON" - "$PANEL_ROOT/config/custom_nodes_manifest.json" <<'PY'
 import json,re,sys
 from pathlib import Path
-for item in json.loads(Path(sys.argv[1]).read_text())['explicit_fallback_git']:
+manifest=json.loads(Path(sys.argv[1]).read_text())
+for item in manifest['workflow_git'] + manifest['explicit_fallback_git']:
     if not re.fullmatch(r'[0-9a-f]{40}',item['revision']) or not re.fullmatch(r'[A-Za-z0-9_-][A-Za-z0-9_.-]*',item['folder']):
         raise SystemExit('Invalid pinned fallback specification')
     fields=[item[key] for key in ('node_class','repo','folder','revision')]

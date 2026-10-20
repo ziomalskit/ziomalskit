@@ -196,6 +196,7 @@ class DeploymentTests(unittest.TestCase):
                      'H3_MODEL_CHECKSUMS_FILE':str(checksums),'RENDER_PORT':'9188','PROMPT_PORT':'9189','H3_PANEL_PORT':'9860'}
         def command(arguments, **kwargs):
             if arguments[0]=='git':return runtime_config.COMFY_COMMIT+'\n'
+            if arguments[1].endswith('/runtime_dependencies.py'):return ''
             if arguments[0]=='nvcc':return 'release 13.0, V13.0'
             if 'importlib.metadata' in arguments[-1]:return '1.21.0\n'
             self.assertIn("torch.ones(1, device='cuda')",arguments[-1])
@@ -225,13 +226,16 @@ from pathlib import Path
 a=sys.argv[1:]
 def record():
  with open(os.environ['TEST_COMMAND_LOG'],'a') as h:h.write(json.dumps(a)+'\\n')
-if a[:2]==['-m','pip']:record();sys.exit(0)
+if a[:2]==['-m','pip']:
+ record()
+ if os.environ.get('TEST_DEPENDENCY_FAIL')=='1' and '-r' in a and a[a.index('-r')+1].endswith('/requirements.txt'):sys.exit(7)
+ sys.exit(0)
+if a and a[0].endswith('/runtime_dependencies.py') and a[1]=='verify':record();sys.exit(0)
 if a[:2]==['-m','comfy_cli']:
  record()
  workspace=next(x.split('=',1)[1] for x in a if x.startswith('--workspace='))
  if 'install' in a:
   root=Path(workspace);root.mkdir(parents=True,exist_ok=True);(root/'main.py').write_text('# inert ComfyUI')
- if 'install-deps' in a and os.environ.get('TEST_DEPENDENCY_FAIL')=='1':sys.exit(7)
  sys.exit(0)
 if a and a[0]=='-c' and 'print(sys.prefix)' in a[1]:print({str(prefix)!r});sys.exit(0)
 if a and a[0]=='-c' and 'import torch' in a[1]:sys.exit(0)
@@ -305,7 +309,12 @@ if '--build' in a:
         cli=[command for command in commands if command[:2]==['-m','comfy_cli']]
         self.assertTrue(cli)
         self.assertTrue(all('--workspace='+str(comfy) in command for command in cli))
-        self.assertNotIn('--restore',next(command for command in cli if 'install' in command))
+        install = next(command for command in cli if 'install' in command)
+        self.assertNotIn('--restore',install)
+        self.assertIn('--skip-manager',install)
+        self.assertIn('0.38.0',install)
+        self.assertFalse(any('install-deps' in command for command in cli))
+        self.assertTrue(any(command[0].endswith('/runtime_dependencies.py') and command[1]=='verify' for command in commands))
         configured=runtime_config.read_env(package/'runtime.env')
         self.assertEqual(configured['COMFY_PYTHON'],str(self.base/'selected-env/bin/python'))
         self.assertEqual(configured['COMFY_PYTHON'],configured['PYTHON_BIN'])
