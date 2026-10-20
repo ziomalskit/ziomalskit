@@ -354,7 +354,7 @@ class AdversarialPersistenceTests(unittest.IsolatedAsyncioTestCase):
                 with patch.object(preflight, "get_json", side_effect=lambda url, *_args: config if url.endswith("/api/config") else {key: {} for key in critical}), \
                      patch.object(preflight, "verify_llama"), patch.object(preflight, "validate_gpu"), \
                      patch.object(preflight, "model_requirements", return_value=[]), \
-                     patch.object(preflight.subprocess, "check_output", side_effect=[preflight.COMFY_COMMIT, "1.21.0", "release 13.0", "{}"]), \
+                     patch.object(preflight.subprocess, "check_output", side_effect=[preflight.COMFY_COMMIT, "1.21.0", "", "release 13.0", "{}"]), \
                      patch("pathlib.Path.read_text", return_value="{}"), redirect_stdout(io.StringIO()):
                     errors = preflight.run_checks()
                 self.assertTrue(errors)
