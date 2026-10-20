@@ -100,7 +100,10 @@ class OwnedGroup:
                 finally:
                     if fd is not None:
                         os.close(fd)
-            if not self._anchored():
+            if captured and not self._anchored():
+                # Losing the last anchor is uncertain only when adopting new
+                # capabilities. Already captured processes may simply exit and
+                # be reaped while an empty/no-new-member scan is in flight.
                 raise IndeterminateIdentity('Group anchor exited during membership capture')
             for pid, fd, start in captured:
                 self.members[pid] = (fd, start)
@@ -112,6 +115,10 @@ class OwnedGroup:
 
     def send(self, sig: int) -> None:
         self.refresh()
+        if sig == signal.SIGTERM:
+            # A /proc walk can miss a member while processes fork/exit. Take
+            # another pass before TERM may remove the live leader anchor.
+            self.refresh()
         # Children first: capture their capabilities before TERM can exit the
         # leader. Each later signal still addresses that exact process instance.
         errors = []

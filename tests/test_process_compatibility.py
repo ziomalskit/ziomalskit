@@ -81,6 +81,40 @@ class ProcessCompatibilityTests(unittest.TestCase):
                 leader.wait(timeout=5)
                 foreign.kill(); foreign.wait(timeout=5)
 
+    def test_last_anchor_reaped_during_scan_without_new_members_is_not_uncertain(self):
+        proc = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(60)'], start_new_session=True)
+        fd = os.pidfd_open(proc.pid)
+        group = identity.OwnedGroup(proc.pid, fd)
+        try:
+            with patch.object(group, '_anchored', side_effect=[True, False]), \
+                 patch.object(identity, 'group_members', return_value=[]):
+                group.refresh()
+            self.assertIsNone(proc.poll())
+        finally:
+            group.close(); os.close(fd)
+            proc.kill(); proc.wait(timeout=5)
+
+    def test_new_member_capture_still_requires_an_anchor_after_the_scan(self):
+        proc = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(60)'], start_new_session=True)
+        fd = os.pidfd_open(proc.pid)
+        group = identity.OwnedGroup(proc.pid, fd)
+        extra = os.pidfd_open(proc.pid)
+        group.members.clear()  # Simulate an as-yet-uncaptured enumerated member.
+        closed = []
+        try:
+            with patch.object(group, '_anchored', side_effect=[True, False]), \
+                 patch.object(identity, 'group_members', return_value=[Path(f'/proc/{proc.pid}')]), \
+                 patch.object(os, 'pidfd_open', return_value=extra), \
+                 patch.object(os, 'close', side_effect=lambda item: closed.append(item)):
+                with self.assertRaises(identity.IndeterminateIdentity):
+                    group.refresh()
+            self.assertEqual(closed, [extra], 'uncommitted capability must be released')
+            self.assertEqual(group.members, {})
+            self.assertIsNone(proc.poll())
+        finally:
+            group.close(); os.close(extra); os.close(fd)
+            proc.kill(); proc.wait(timeout=5)
+
     def test_reused_numeric_group_with_no_matching_anchor_is_uncertain_and_never_signalled(self):
         proc = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(60)'], start_new_session=True)
         fd = os.pidfd_open(proc.pid)
