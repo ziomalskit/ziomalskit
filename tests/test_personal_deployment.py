@@ -38,7 +38,7 @@ class PersonalOperatorTests(unittest.TestCase):
         personal['limits'].update(max_session_seconds=14400, max_render_seconds=1200,
                                   max_cleanup_seconds=600, cleanup_reserve_usd=1)
         self.session = personal
-        self.observed.update(container_root_device=42, pidfd_group_control=True)
+        self.observed.update(container_root_device=42, process_control=True)
         environment = patch.dict(os.environ, {'WORKSPACE': str(self.base), 'COMFY_ROOT': str(self.base/'ComfyUI')})
         environment.start(); self.addCleanup(environment.stop)
 
@@ -53,12 +53,12 @@ class PersonalOperatorTests(unittest.TestCase):
         self.assertEqual(result['minimum_free_bytes'], 280009016136)
         self.assertFalse(result['submissions'])
 
-    def test_production_kernel_and_actual_group_probe_stay_required(self):
-        self.observed['kernel'] = '6.8.0-142-generic'
-        self.assertIn('KERNEL_PYTHON_MISMATCH', self.inspect()['blocked'])
-        self.observed['kernel'] = '6.9.0'
-        self.observed['pidfd_group_control'] = False
-        self.assertIn('PIDFD_GROUP_CONTROL_UNAVAILABLE', self.inspect()['blocked'])
+    def test_target_kernels_use_actual_process_capabilities(self):
+        for kernel in ('5.15.0', '6.1.0', '6.6.0', '6.8.0'):
+            self.observed['kernel'] = kernel
+            self.assertEqual(self.inspect()['blocked'], [])
+        self.observed['process_control'] = False
+        self.assertIn('PROCESS_CONTROL_UNAVAILABLE', self.inspect()['blocked'])
 
     def test_ephemeral_cannot_claim_retained_volume_or_use_linked_models(self):
         self.session['storage']['volume_id'] = '123'

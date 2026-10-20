@@ -9,8 +9,8 @@ się w $15/4h; osobno zaplanuj i zatwierdź dodatkowe koszty.
 
 ## Gate 0–2 — przygotowanie, modele, infrastruktura
 
-Wykonaj preflight, provisioning i smoke według Personal First Run. Linux >=6.9
-**oraz rzeczywisty PIDFD_SIGNAL_PROCESS_GROUP probe**, RTX PRO 6000 Blackwell
+Wykonaj preflight, provisioning i smoke według Personal First Run. Linux z działającymi zwykłymi pidfd i /proc
+**oraz rzeczywisty probe `process_identity.py support`**, RTX PRO 6000 Blackwell
 96 GB, CUDA13.0, zgodny driver, efektywne cgroup/RAM/CPU, pełne source/revision/
 size/SHA i prywatny dostęp pozostają wymagane. Każdy nieznany fakt oznacza STOP.
 Wagi są jednym rzeczywistym store `COMFY_ROOT/models`; oddzielne są dowody i

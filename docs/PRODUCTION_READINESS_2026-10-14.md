@@ -1,5 +1,10 @@
 # Audyt gotowości H3 Full + 10Eros Full
 
+> Process-control update: the Linux >=6.9 normal-deployment requirement recorded
+> below is superseded by ordinary-pidfd service control. See
+> [current runtime requirements](../h3/README.md#process-control-on-older-hosts).
+> Historical CPU/GPU evidence below is unchanged.
+
 Historyczny raport wcześniejszego HEAD. Aktualna instalacja:
 [Personal First Run](PERSONAL_FIRST_RUN.md). Nieużywany DavidAU9B jest usunięty,
 retirement nie jest wymagany. Wagi mają pełne source/revision/size/SHA, GPU nadal

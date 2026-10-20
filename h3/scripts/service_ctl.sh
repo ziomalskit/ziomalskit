@@ -38,7 +38,7 @@ mkdir -p "$PID_DIR" "$WORKSPACE"
 exec 9>"$PID_DIR/service_ctl.lock"
 flock -x 9
 "$COMFY_PYTHON" "$PANEL_ROOT/scripts/process_identity.py" support 9>&- || {
-  echo "Safe service control requires Linux pidfd support" >&2; exit 1;
+  echo "Safe service control requires ordinary Linux pidfd signalling and readable /proc" >&2; exit 1;
 }
 
 pidfile(){ echo "$PID_DIR/$1.pid"; }

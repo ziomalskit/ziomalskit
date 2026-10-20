@@ -14,7 +14,7 @@ Target:
 - ComfyUI 0.38.0 (pinned to the known-good local workflow environment)
 - comfy-cli 1.21.0
 - Python >=3.11 (development checks use Python 3.12)
-- Linux >=6.9 with pidfd process-group signalling for service/lifecycle control
+- Linux with ordinary pidfd signalling and readable `/proc` for service/lifecycle control
 
 Conservative first-release input contract:
 - exactly 6 images: Picture 1 + 5 supporting references
@@ -415,7 +415,7 @@ Security contract:
   Cleanup also covers descendants that create another process group/session.
   The controller retains original supervisor and gated-shell pidfds through group cleanup, never a numeric
   `killpg`, and waits for reaping on disconnect, error or cancellation. It requires
-  the same Linux >=6.9 group-control capability as existing service controls.
+  Linux >=6.9 atomic group signalling. This optional terminal requirement does not apply to normal service controls.
 
 CPU tests exercise tickets, real local PTYs and loopback HTTP/WebSockets, Ctrl+C,
 ignored TERM, detached children, shell exit, launch/capture errors, descriptor
@@ -452,4 +452,27 @@ The default ownership store is `$WORKSPACE/.h3-service-pids`, independent of
 `PANEL_ROOT` and `COMFY_ROOT`. Startup imports old `PANEL_ROOT/state/pids` records
 once before any service operation. An explicit `PID_DIR` must remain stable
 when changing worker configuration. Stop controls the entire originally owned
-group through one pidfd and readiness requires that group's listening socket.
+group through captured individual pidfds and readiness requires that group's listening socket.
+
+### Process control on older hosts
+
+Normal deployment targets Linux 5.15, 6.1, 6.6 and 6.8; these are compatibility
+targets, not a record of testing those kernels. `process_identity.py support`
+checks Python >=3.11, ordinary `pidfd_open`/`pidfd_send_signal` and readable `/proc`.
+Those pidfd primitives need Linux >=5.3 and a container policy that permits them.
+There is no normal-runtime dependency on `PIDFD_SIGNAL_PROCESS_GROUP`.
+
+Services still run in dedicated sessions. Stop captures individual member pidfds
+under verified birth/session identities before TERM, then escalates to KILL through
+those fds. An exited leader's already captured descendants remain owned. A later
+control attempt that finds a dead leader and surviving descendants reports UNKNOWN
+and preserves the record; it does not signal a numeric PGID or start a duplicate.
+Command helpers remain unreaped until cleanup so even early leader exit retains
+an ownership anchor. No service daemon or new runtime dependency is added.
+
+Membership capture is conservative: loss of all verified anchors with surviving
+untracked members is explicit uncertainty. Deliberately detached sessions are not
+part of a normal worker's service group. The optional terminal retains its stronger
+existing cleanup and requires the Linux >=6.9 group capability; production
+containment keeps it unavailable regardless of runtime opt-in. Driver/CUDA/model/GPU
+validation is separate.

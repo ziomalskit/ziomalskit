@@ -269,7 +269,7 @@ def observe(session):
             'cuda': toolkit.group(1), 'kernel': platform.release(), 'python': list(sys.version_info[:3]),
             'ram_available_bytes': ram, 'cpu_cores': cpu, 'free_bytes': shutil.disk_usage(mount).free,
             'production_ports': occupied,
-            'pidfd_group_control': group_control if session['scope'] == 'personal_first_run' else None}
+            'process_control': group_control if session['scope'] == 'personal_first_run' else None}
 
 
 def inspect(session, phase='A', *, allowed_pids=(), observer=observe, now=None, live=False, verify_models=False):
@@ -288,15 +288,13 @@ def inspect(session, phase='A', *, allowed_pids=(), observer=observe, now=None, 
         or observed['device'] != store['device'] or observed['inode'] != store['inode']
         or session['scope'] != 'personal_first_run' and observed['device'] == observed['container_root_device'] or 'rw' not in mount.get('options', '').split(','))
     driver = tuple(map(int, gpu['driver'].split('.')))
-    kernel = tuple(map(int, re.match(r'(\d+)\.(\d+)', observed['kernel']).groups()))
     for condition, reason in (
         (mismatched_mount, 'EPHEMERAL_DISK_IDENTITY_CHANGED' if session['scope'] == 'personal_first_run' else 'PERSISTENT_MOUNT_CHANGED_OR_UNPROVEN'),
-        (session['scope'] == 'personal_first_run' and observed.get('pidfd_group_control') is not True, 'PIDFD_GROUP_CONTROL_UNAVAILABLE'),
+        (session['scope'] == 'personal_first_run' and observed.get('process_control') is not True, 'PROCESS_CONTROL_UNAVAILABLE'),
         (gpu['name'] != hardware['gpu_name'] or gpu['compute_cap'] != '12.0' or gpu['total_mib'] < hardware['min_vram_mib'], 'GPU_MISMATCH'),
         (driver < (580, 65, 6) or observed['cuda'] != hardware['cuda'], 'DRIVER_CUDA_MISMATCH'),
-        # Isolated native acceptance has no production service/group restarts.
-        # Full deployment still requires >=6.9 and the actual pidfd group probe.
-        (kernel < ((6, 9) if session['scope'] == 'personal_first_run' else (6, 8)) or observed['python'] < [3, 11, 0], 'KERNEL_PYTHON_MISMATCH'),
+        # Kernel release alone does not describe available container capabilities.
+        (observed['python'] < [3, 11, 0], 'PYTHON_MISMATCH'),
         (observed['ram_available_bytes'] < hardware['min_ram_bytes'] or observed['cpu_cores'] < hardware['min_cpu_cores'], 'RAM_CPU_INSUFFICIENT'),
         (observed['free_bytes'] < max(result['minimum_free_bytes'], session['limits']['min_free_bytes']), 'INSUFFICIENT_DISK'),
         (bool(set(observed['gpu_pids']) - set(allowed_pids)), 'UNEXPECTED_GPU_PROCESS'),

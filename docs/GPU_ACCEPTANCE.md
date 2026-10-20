@@ -1,7 +1,7 @@
 # GPU acceptance — zakres prób i rzeczywiste dowody
 
 **Pierwsza sesja prywatnej aplikacji:** [Personal First Run](PERSONAL_FIRST_RUN.md).
-Linux>=6.9 z rzeczywistym PIDFD_SIGNAL_PROCESS_GROUP, RTX PRO6000 Blackwell96GB,
+Linux ze zwykłymi pidfd i czytelnym `/proc` (`process_identity.py support`), RTX PRO6000 Blackwell96GB,
 CUDA13.0, zweryfikowane cgroups/RAM/CPU, prywatny panel, dokładny v20 i Full wagi
 pozostają wymagane. Wspieramy ephemeral instance disk i jeden fizyczny store
 `COMFY_ROOT/models`. Local Volume jest potrzebny tylko dla świadomej retencji;

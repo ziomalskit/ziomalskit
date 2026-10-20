@@ -3,8 +3,8 @@
 **Bieżąca ścieżka Personal:** [Personal First Run](PERSONAL_FIRST_RUN.md) wspiera
 ephemeral, wspólny rzeczywisty `COMFY_ROOT/models` i brak retirement DavidAU.
 Poniższy retained-volume formularz oraz szerokie próby C są opcjonalnym wariantem
-diagnostycznym. Dla personal użyj `gpu_personal_session.example.json`, Linux>=6.9
-i rzeczywistego pidfd group probe; nie kopiuj wag ani nie przywracaj starej bramki.
+diagnostycznym. Dla personal użyj `gpu_personal_session.example.json`, Linux ze zwykłymi pidfd i /proc
+i rzeczywistego probe process-control; nie kopiuj wag ani nie przywracaj starej bramki.
 DavidAU9B został usunięty z aktywnego manifestu; GPU validation pozostaje pending.
 
 Status przygotowania: **runbook READY do review; rozpoczęcie kosztów BLOCKED**,
@@ -29,7 +29,7 @@ wag; rzeczywisty pierwszy test27B jest częścią Personal First Run, bez retire
 | Parametr | Wymaganie / co zapisać |
 | --- | --- |
 | GPU | Dokładnie jedna widoczna RTX PRO 6000 Blackwell 96 GB; zapisz edition, UUID, rzeczywiste `memory.total` i compute capability **12.0**. Ada 6000 nie spełnia wymagania. Nie podstawiaj innej karty. |
-| Kernel hosta | Linux **>=6.8 wyłącznie dla izolowanego Phase 1**; `6.8.0-142-generic` spełnia ten próg, 6.7 jest blokowany. Pełny deployment nadal wymaga **>=6.9 i rzeczywistego feature-probe `PIDFD_SIGNAL_PROCESS_GROUP`**. `uname -r` dotyczy hosta współdzielonego z kontenerem; obraz Ubuntu nie zapewnia wersji kernela. |
+| Kernel hosta | Linux 5.15/6.1/6.6/6.8 are compatibility targets. Normal deployment checks ordinary pidfd signalling and readable `/proc`, without a kernel-release gate. Only the optional terminal still needs Linux >=6.9 group signalling. `uname -r` describes the shared host kernel; a container image cannot upgrade it. |
 | Driver / CUDA | Kanoniczny plan tej fazy: CUDA **13.0 devel**, NVIDIA driver **>=580.65.06** jako konserwatywny baseline 13.0 GA. Zapisać pełne `nvcc --version`, wersję drivera i digest obrazu. Dla późniejszego update toolkitu sprawdzić jego własne wymaganie drivera; helper sprawdza major/minor i baseline, nie poświadcza zgodności wszystkich patch releases. |
 | Runtime | llama.cpp `60eeeb6082c1126bb8bc72902c83123cd056811b`, tag `b10472`; LLM node `65983de33681816f856db7e16767da906084c688`; build **CUDA arch 120**; receipts i SHA obu native binaries. Nie zmieniaj pinów. |
 | Python / narzędzia | Linux x86_64, Python >=3.11; proponowany Python 3.12. Preinstalowane Git, CMake, `nvcc`, compiler, `flock`, `findmnt`, GNU `timeout`, SSH i opcjonalnie `rsync`. Izolowane dwa venv. Installer nie instaluje apt ani Vast CLI. |
@@ -66,21 +66,17 @@ prześledził cały Phase 1 oraz źródła llama.cpp
 | C: ręczny `llama-cli` lub jeden loopback `llama-server` + `curl`; `check_model_completion` i `temporal` | Przypięty native engine korzysta z normalnych POSIX signals, wątków, plików/socketów i CUDA. Checker ładuje parser `compiler.py` bez ComfyUI i wywołuje wyłącznie walidację receiptów/final/timeline. Nie uruchamia produkcyjnego adaptera procesów, GPU lease, workerów ani restartów. |
 
 Nie znaleziono zależności tej ścieżki od Linux 6.9. Dlatego dopuszczamy
-**6.8 jako konserwatywny floor Phase 1**, przy zachowaniu wszystkich pozostałych
-bramek. Nie rozszerzamy zgody na starsze kernele. Wynik audytu kodu i testy CPU
+**Linux 5.15/6.1/6.6/6.8 jako cele zgodności**, przy zachowaniu wszystkich
+pozostałych bramek i kontroli możliwości hosta. Wynik audytu kodu i testy CPU
 nie poświadczają działającego drivera ani modelu na konkretnym hoście:
 rzeczywiste build/load/vision/EOS/VRAM dla 11 zatwierdzonych plików pozostają
 osobnymi GPU gates. CUDA 13.0 i driver 595.91.07 przekraczają obecny baseline,
 ale same wersje nie dowodzą zgodności hosta i jego drivera.
 
 Pełny deployment według [GPU_ACCEPTANCE.md](GPU_ACCEPTANCE.md) i
-[h3/README.md](../h3/README.md) nadal wymaga **Linux >=6.9** oraz działającej
-flagi `PIDFD_SIGNAL_PROCESS_GROUP` (4). Produkcyjne
-`h3/app/main.py::_require_restart_group_control()` i
-`h3/scripts/process_identity.py::require_group_control()` wykonują rzeczywisty
-`pidfd_send_signal(..., 0, ..., 4)`; sama deklaracja wersji nie wystarcza.
-Ich kod i sterowanie lifecycle pozostają niezmienione. Akceptacja
-6.8 w Phase 1 nie zezwala na uruchomienie produkcji na tym hoście.
+[h3/README.md](../h3/README.md) describes the shared ordinary-pidfd service
+control used by full deployment. Linux >=6.9 applies only to the optional terminal,
+which is disabled by default. Kernel targets are not claims of real host/GPU tests.
 
 ## 2. Czy można przygotować wagi bez drogiego GPU?
 

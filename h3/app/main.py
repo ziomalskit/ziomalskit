@@ -196,7 +196,7 @@ H3_PROMPT_PREFETCH = prompt_prefetch_target(os.getenv("H3_PROMPT_PREFETCH", "3")
 # detached descendants after its death. No runtime setting enables this feature.
 H3_ENABLE_TERMINAL = False
 
-from .terminal import PTYSession, SessionTokens, TOKEN_TTL_SECONDS, TERMINAL_PROTOCOL, bridge_terminal, websocket_ticket
+from .terminal import require_terminal_group_control, PTYSession, SessionTokens, TOKEN_TTL_SECONDS, TERMINAL_PROTOCOL, bridge_terminal, websocket_ticket
 
 terminal_tokens = SessionTokens()
 terminal_sessions: set[PTYSession] = set()
@@ -996,44 +996,43 @@ os.close(0)
 os.open(os.devnull, os.O_RDONLY)
 os.execvp(sys.argv[1], sys.argv[1:])
 """
-_PIDFD_SIGNAL_PROCESS_GROUP = 4
+# The same ownership implementation is used by service_ctl and command cleanup.
+import importlib.util as _import_util
+_process_spec = _import_util.spec_from_file_location('_aj_process_identity', ROOT / 'scripts/process_identity.py')
+_process_identity = _import_util.module_from_spec(_process_spec)
+_process_spec.loader.exec_module(_process_identity)
 
 
 def _require_restart_group_control() -> None:
-    """Check the atomic group primitive before launching a restart command."""
-    descriptor = os.pidfd_open(os.getpid())
-    primary = None
-    try:
-        try:
-            signal.pidfd_send_signal(descriptor, 0, None, _PIDFD_SIGNAL_PROCESS_GROUP)
-        except OSError as error:
-            # The flag is validated before group lookup. A controller which
-            # is not its group's leader has no PID-as-PGID to signal, so ESRCH
-            # also proves the primitive is supported without touching a peer.
-            if error.errno != errno.ESRCH:
-                raise RuntimeError("Safe service restart requires Linux pidfd process-group signalling (kernel >= 6.9)") from error
-    except BaseException as error:
-        primary = error
-        raise
-    finally:
-        try:
-            os.close(descriptor)
-        except BaseException as error:
-            if primary is None:
-                raise
-            primary.add_note(f"Restart capability descriptor close failed: {error!r}")
+    _process_identity.require_group_control()
 
 
-async def _cleanup_owned_restart(proc, descriptor: int | None, communication: asyncio.Task | None,
+async def _communicate_owned(proc, descriptor: int) -> tuple[bytes, bytes, int]:
+    """Drain pipes and observe exit without reaping the session anchor yet."""
+    proc.stdin.write(b'G')
+    proc.stdin.close()
+    # waitid(WNOWAIT) leaves our original child PID reserved, even if its
+    # command exits before descendants. Only cleanup may reap this Popen child.
+    def exited():
+        import select
+        poll = select.poll()
+        poll.register(descriptor, select.POLLIN)
+        poll.poll()
+        result = os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOWAIT)
+        return result.si_status if result.si_code == os.CLD_EXITED else -result.si_status
+    out, err, returncode = await asyncio.gather(asyncio.to_thread(proc.stdout.read),
+        asyncio.to_thread(proc.stderr.read), asyncio.to_thread(exited))
+    return out, err, returncode
+
+
+async def _cleanup_owned_restart(proc, descriptor, communication: asyncio.Task | None,
                                  cooperative_stop: bool = False) -> list[BaseException]:
     errors: list[BaseException] = []
 
     def send(sig: int) -> bool:
         try:
             if descriptor is not None:
-                # The fd identifies the original group even after its leader
-                # has exited. Never signal a possibly reused numeric PGID.
-                signal.pidfd_send_signal(descriptor, sig, None, _PIDFD_SIGNAL_PROCESS_GROUP)
+                descriptor.send(sig)
             elif sig == signal.SIGTERM:
                 proc.terminate()
             else:
@@ -1059,7 +1058,10 @@ async def _cleanup_owned_restart(proc, descriptor: int | None, communication: as
             # pipes through TERM->KILL confirmation (two bounded 5s attempts).
             await asyncio.wait_for(asyncio.shield(communication), timeout=12)
         else:
-            await asyncio.to_thread(proc.wait, timeout=2)
+            # Do not reap the leader until the last group membership capture.
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline and descriptor is not None and not descriptor.empty():
+                await asyncio.sleep(.02)
     except (subprocess.TimeoutExpired, asyncio.TimeoutError):
         pass
     except BaseException as error:
@@ -1069,15 +1071,36 @@ async def _cleanup_owned_restart(proc, descriptor: int | None, communication: as
     if not send(signal.SIGKILL):
         # A transient signalling error cannot consume the only KILL attempt.
         send(signal.SIGKILL)
-    try:
-        await asyncio.to_thread(proc.wait, timeout=5)
-    except BaseException as error:
-        errors.append(error)
+    if descriptor is not None:
+        try:
+            deadline = time.monotonic() + 5
+            signalled_count = len(descriptor.members)
+            while not descriptor.empty():
+                if len(descriptor.members) > signalled_count:
+                    # A child may fork between capture and KILL. Only newly
+                    # verified members justify another bounded signalling pass.
+                    send(signal.SIGKILL)
+                    signalled_count = len(descriptor.members)
+                if time.monotonic() >= deadline:
+                    raise RuntimeError('Owned command descendants did not exit; cleanup uncertain')
+                await asyncio.sleep(.02)
+        except BaseException as error:
+            errors.append(error)
+    # Observe status with WNOWAIT before wait() reaps the session anchor.
     if communication is not None:
         try:
             await asyncio.wait_for(asyncio.shield(communication), timeout=5)
         except BaseException as error:
             errors.append(error)
+    for _attempt in range(2):
+        try:
+            await asyncio.to_thread(proc.wait, timeout=5)
+            break
+        except OSError as error:
+            errors.append(error)  # Retry one transient local reaping error.
+        except BaseException as error:
+            errors.append(error)
+            break
     return errors
 
 
@@ -1087,6 +1110,8 @@ async def _run_owned_restart(command: list[str], *, preserve_success: bool = Fal
     proc = None
     descriptor = None
     communication = None
+    group = None
+    command_returncode = None
     primary = None
     try:
         # Popen is kept unreaped until synchronous pidfd capture. The gate
@@ -1095,15 +1120,16 @@ async def _run_owned_restart(command: list[str], *, preserve_success: bool = Fal
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 start_new_session=True, close_fds=True, env=environment)
         descriptor = os.pidfd_open(proc.pid)
-        communication = asyncio.create_task(asyncio.to_thread(proc.communicate, b"G"))
-        out, err = await asyncio.shield(communication)
-        return proc.returncode, out, err
+        group = _process_identity.OwnedGroup(proc.pid, descriptor)
+        communication = asyncio.create_task(_communicate_owned(proc, descriptor))
+        out, err, command_returncode = await asyncio.shield(communication)
+        return command_returncode, out, err
     except BaseException as error:
         primary = error
         raise
     finally:
         if proc is not None:
-            cleanup = asyncio.create_task(_cleanup_owned_restart(proc, descriptor, communication, cooperative_stop))
+            cleanup = asyncio.create_task(_cleanup_owned_restart(proc, group, communication, cooperative_stop))
             cleanup_cancellation = None
             while True:
                 try:
@@ -1123,11 +1149,14 @@ async def _run_owned_restart(command: list[str], *, preserve_success: bool = Fal
                     errors = [error]
                     break
             group_finished = False
-            if preserve_success and primary is None and proc.returncode == 0 and descriptor is not None:
+            if preserve_success and primary is None and command_returncode == 0 and group is not None:
                 try:
-                    signal.pidfd_send_signal(descriptor, 0, None, _PIDFD_SIGNAL_PROCESS_GROUP)
-                except ProcessLookupError:
-                    group_finished = True
+                    group_finished = group.empty()
+                except BaseException as error:
+                    errors.append(error)
+            if group is not None:
+                try:
+                    group.close()
                 except BaseException as error:
                     errors.append(error)
             for resource in (proc.stdin, proc.stdout, proc.stderr):
@@ -3019,6 +3048,10 @@ async def api_terminal_session():
     # launch a shell. The WebSocket independently validates/consumes the ticket.
     if not H3_ENABLE_TERMINAL or terminal_shutting_down:
         raise HTTPException(403, "Terminal is disabled")
+    try:
+        require_terminal_group_control()
+    except (OSError, RuntimeError):
+        raise HTTPException(503, 'Optional terminal unavailable: Linux >=6.9 group signalling required') from None
     if terminal_sessions:
         raise HTTPException(409, "A terminal session is already active")
     try:
@@ -3043,7 +3076,7 @@ async def api_terminal_websocket(websocket: WebSocket):
     if terminal_sessions:
         await websocket.close(code=1013)
         return
-    session = PTYSession(WORKSPACE, _require_restart_group_control)
+    session = PTYSession(WORKSPACE, require_terminal_group_control)
     terminal_sessions.add(session)  # No await before reserving the sole session.
     try:
         await websocket.accept(subprotocol=TERMINAL_PROTOCOL)

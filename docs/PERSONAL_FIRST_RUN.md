@@ -110,14 +110,13 @@ cd /workspace/ziomalskit
 test "$(git rev-parse HEAD)" = "$AJ_EXPECTED_SHA"
 test -z "$(git status --porcelain --untracked-files=normal)"
 python3 - <<'PY'
-import hashlib, platform
+import hashlib
 from pathlib import Path
 p=Path('h3/workflows/H3_v20_heretic_MASTER_DURATION_EXACT.json')
 assert p.stat().st_size == 3084071
 assert hashlib.sha256(p.read_bytes()).hexdigest() == '276621a1992a8b8da40d981a79417fd5eb3617b44166d890c8c82ffd8eb96222'
-assert tuple(map(int, platform.release().split('-')[0].split('.')[:2])) >= (6,9)
 from h3.scripts.process_identity import require_group_control
-require_group_control()  # Rzeczywisty PIDFD_SIGNAL_PROCESS_GROUP, nie tylko uname.
+require_group_control()  # Zwykłe pidfd + /proc; bez PIDFD_SIGNAL_PROCESS_GROUP.
 PY
 nvidia-smi --query-gpu=uuid,name,driver_version,memory.total,compute_cap --format=csv
 nvidia-smi --query-compute-apps=pid,used_gpu_memory --format=csv
@@ -323,7 +322,10 @@ TERM/KILL z `timeout --foreground` ogranicza własny proces pierwszej próby,
 billigu. Operator musi potwierdzić zakończenie własnego procesu i brak zajętego
 GPU przed kontynuacją. Nie sygnalizuj obcych PIDów. W niejasnej sytuacji STOP;
 po zabezpieczeniu wyników ręczny DESTROY. Produkcyjne usługi nadal używają
-istniejącego menedżera z Linux >=6.9 i rzeczywistym pidfd group probe.
+istniejącego menedżera ze zwykłymi pidfd i czytelnym `/proc`, sprawdzanymi
+przez `process_identity.py support`. Linux 5.15/6.1/6.6/6.8 to cele zgodności;
+nie oznacza to wykonania testów na tych kernelach. Terminal pozostaje niedostępny
+w produkcji i nie blokuje zwykłego deploymentu.
 
 ## Pełna instalacja i gotowość panelu
 

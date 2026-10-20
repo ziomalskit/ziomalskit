@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -192,7 +193,7 @@ class OperatorTests(unittest.TestCase):
             old=self.observed['mount'][key];self.observed['mount'][key]=value
             self.assertIn('PERSISTENT_MOUNT_CHANGED_OR_UNPROVEN',self.inspect()['blocked']);self.observed['mount'][key]=old
 
-    def test_linux_68_passes_only_isolated_preflight_with_all_other_requirements_met(self):
+    def test_linux_68_passes_isolated_preflight_with_all_other_requirements_met(self):
         self.synthetic_models()
         self.observed['kernel']='6.8.0-142-generic'
         self.observed['gpu']['driver']='595.91.07'
@@ -207,15 +208,16 @@ class OperatorTests(unittest.TestCase):
                     self.assertEqual(result['gpu_acceptance'],'NOT RUN')
                     if phase=='C':self.assertEqual(result['model_sha256_verification'],'VERIFIED')
 
-    def test_linux_67_is_blocked_before_model_runtime_verification_in_every_phase(self):
+    def test_python_floor_is_checked_before_model_runtime_verification_in_every_phase(self):
         self.synthetic_models()
-        self.observed['kernel']='6.7.12-generic'
-        with patch.object(models,'verify_models',side_effect=AssertionError('blocked kernel cannot verify runtime')) as verify:
+        self.observed['kernel']='5.15.0-generic'
+        self.observed['python']=[3,10,0]
+        with patch.object(models,'verify_models',side_effect=AssertionError('blocked Python cannot verify runtime')) as verify:
             for phase in ('A','B','C','D'):
                 with self.subTest(phase=phase):
                     result=self.inspect(phase,verify_models=True)
                     self.assertEqual(result['status'],'BLOCKED')
-                    self.assertIn('KERNEL_PYTHON_MISMATCH',result['blocked'])
+                    self.assertIn('PYTHON_MISMATCH',result['blocked'])
             verify.assert_not_called()
 
     def test_linux_69_still_passes_every_isolated_phase(self):
@@ -244,13 +246,13 @@ class OperatorTests(unittest.TestCase):
             with self.subTest(phase=phase),self.assertRaisesRegex(ValueError,'time/cost ceiling'):
                 operator.live_budget(self.session,phase,NOW,elapsed)
 
-    def test_wrong_gpu_driver_cuda_kernel_ram_cpu_and_services_never_authorize_probes(self):
+    def test_wrong_gpu_driver_cuda_python_ram_cpu_and_services_never_authorize_probes(self):
         self.observed['kernel']='6.8.0-142-generic'
         gpu_cases=[('name','NVIDIA RTX 6000 Ada'),('compute_cap','8.9'),('driver','579.99.99'),('total_mib',90000)]
         for key,value in gpu_cases:
             old=self.observed['gpu'][key];self.observed['gpu'][key]=value
             self.assertEqual(self.inspect()['status'],'BLOCKED');self.observed['gpu'][key]=old
-        for key,value in [('cuda','12.8'),('kernel','6.7.0'),('python',[3,10,0]),('cpu_cores',1),
+        for key,value in [('cuda','12.8'),('python',[3,10,0]),('cpu_cores',1),
                           ('ram_available_bytes',1),('production_ports',[8188]),('free_bytes',1)]:
             old=self.observed[key];self.observed[key]=value
             self.assertEqual(self.inspect()['status'],'BLOCKED');self.observed[key]=old
@@ -425,25 +427,20 @@ class OperatorTests(unittest.TestCase):
 
 
 class ProductionKernelBoundaryTests(unittest.TestCase):
-    def test_production_group_feature_probe_still_rejects_unsupported_kernel(self):
+    def test_production_uses_only_ordinary_pidfd_signalling(self):
         with load_controller() as controller:
-            for probe in (controller._require_restart_group_control,process_identity.require_group_control):
-                for error in (errno.EINVAL,errno.ENOSYS):
-                    with (self.subTest(probe=probe.__name__,error=error),
-                          patch.object(os,'pidfd_open',return_value=77),patch.object(os,'close'),
-                          patch.object(controller.signal,'pidfd_send_signal',side_effect=OSError(error,'unsupported')) as send):
-                        with self.assertRaisesRegex(RuntimeError,'6.9'):probe()
-                        send.assert_called_once_with(77,0,None,4)
+            for probe in (controller._require_restart_group_control, process_identity.require_group_control):
+                with (patch.object(os, 'pidfd_open', return_value=77), patch.object(os, 'close'),
+                      patch.object(signal, 'pidfd_send_signal') as send):
+                    probe()
+                    send.assert_called_once_with(77, 0)
 
-    def test_production_group_feature_probe_remains_required_even_when_supported(self):
+    def test_missing_ordinary_pidfd_capability_remains_blocking(self):
         with load_controller() as controller:
-            for probe in (controller._require_restart_group_control,process_identity.require_group_control):
-                for result in (None,OSError(errno.ESRCH,'not a group leader')):
-                    with (self.subTest(probe=probe.__name__,result=result),
-                          patch.object(os,'pidfd_open',return_value=77),patch.object(os,'close'),
-                          patch.object(controller.signal,'pidfd_send_signal',side_effect=result) as send):
+            for probe in (controller._require_restart_group_control, process_identity.require_group_control):
+                with patch.object(os, 'pidfd_open', side_effect=OSError(errno.ENOSYS, 'unsupported')):
+                    with self.assertRaises(OSError):
                         probe()
-                        send.assert_called_once_with(77,0,None,4)
 
 
 if __name__=='__main__':unittest.main()

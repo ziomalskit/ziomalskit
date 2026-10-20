@@ -424,7 +424,7 @@ raise SystemExit(m.main())
                 self.assertEqual(record.read_bytes(), original)
                 self.assertFalse(exited(descendant))
         finally:
-            signal.pidfd_send_signal(leader, signal.SIGKILL, None, identity.PIDFD_SIGNAL_PROCESS_GROUP)
+            signal.pidfd_send_signal(descendant, signal.SIGKILL)
             wait_for(lambda: exited(descendant))
 
     def test_05_proc_scan_cannot_prematurely_confirm_group_exit(self):

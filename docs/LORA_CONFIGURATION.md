@@ -110,7 +110,7 @@ zgodności na podstawie samego starego globalnego hasha rejestru. Powyższa
 zgodność zmian katalogu dotyczy jobów zapisanych przez nową implementację.
 
 Pełna produkcja nadal wymaga DavidAU follow-up po prawdziwym acceptance 27B,
-Linux >=6.9 i rzeczywistego PIDFD_SIGNAL_PROCESS_GROUP probe, właściwego GPU,
+Linuksa ze zwykłymi pidfd i czytelnym `/proc` (`process_identity.py support`), właściwego GPU,
 CUDA, cgroups, storage, admission, ownership i niezduplikowanych submission.
 Zmiana LoRA nie jest obejściem tych bramek. CPU nie potwierdza realnej zgodności
 LoRA z H3/10Eros. [Runbook GPU](GPU_PRODUCTION_SESSION.md) pozostaje obowiązujący.

@@ -163,7 +163,7 @@ if 'stop' in sys.argv:
                 await asyncio.gather(runner, return_exceptions=True)
             for fd in fixture.fds:
                 try:
-                    signal.pidfd_send_signal(fd, signal.SIGKILL, None, identity.PIDFD_SIGNAL_PROCESS_GROUP)
+                    signal.pidfd_send_signal(fd, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
             if owner_fd is not None:
@@ -213,7 +213,7 @@ if 'stop' in sys.argv:
         finally:
             for fd in fixture.fds:
                 try:
-                    signal.pidfd_send_signal(fd, signal.SIGKILL, None, identity.PIDFD_SIGNAL_PROCESS_GROUP)
+                    signal.pidfd_send_signal(fd, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
             if foreign.poll() is None:

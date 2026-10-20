@@ -18,8 +18,6 @@ import tempfile
 import time
 from types import SimpleNamespace
 
-PIDFD_SIGNAL_PROCESS_GROUP = 4
-
 
 def close_preserving(descriptor: int) -> None:
     primary = sys.exception()
@@ -32,17 +30,119 @@ def close_preserving(descriptor: int) -> None:
 
 
 def require_group_control() -> None:
+    """Probe the primitives used by normal service control, without a version gate."""
     require_pidfd()
-    fd = os.pidfd_open(os.getpid())
-    try:
+    if not hasattr(os, 'setsid') or not hasattr(os, 'getpgid'):
+        raise RuntimeError('Linux sessions and /proc are required')
+    group_stat(os.getpid())
+
+
+def group_stat(pid: int) -> tuple[int, int, int, str]:
+    text = Path(f'/proc/{pid}/stat').read_text()
+    fields = text[text.rindex(')') + 2:].split()
+    return int(fields[19]), int(fields[2]), int(fields[3]), fields[0]
+
+
+class OwnedGroup:
+    """Capture individual pidfds while a verified session member anchors ownership.
+
+    A pidfd alone does not reserve a numeric PGID on older kernels. Never signal
+    that number. A matching /proc birth identity (including an unreaped child)
+    anchors each membership scan; newly captured fds are checked on both sides.
+    Once all anchors are gone, surviving untracked members mean UNKNOWN.
+    """
+    def __init__(self, pid: int, descriptor: int):
+        self.pid = pid
+        self.members = {}
+        self.owned = set()
+        snapshot = group_stat(pid)
+        if snapshot[1:3] != (pid, pid):
+            raise IndeterminateIdentity('Service does not own a dedicated group/session')
+        signal.pidfd_send_signal(descriptor, 0)
+        if group_stat(pid)[:3] != snapshot[:3]:
+            raise IndeterminateIdentity('Group leader identity changed during capture')
+        self.members[pid] = (descriptor, snapshot[0])
+
+    def _anchored(self) -> bool:
+        for pid, (_fd, start) in self.members.items():
+            try:
+                if group_stat(pid)[:3] == (start, self.pid, self.pid):
+                    return True
+            except (FileNotFoundError, ProcessLookupError):
+                pass
+        return False
+
+    def refresh(self) -> None:
+        anchored = self._anchored()
+        candidates = group_members(self.pid)
+        if not anchored:
+            if candidates:
+                raise IndeterminateIdentity('Group ownership lost; surviving processes are uncertain')
+            return
+        captured = []
         try:
-            signal.pidfd_send_signal(fd, 0, None, PIDFD_SIGNAL_PROCESS_GROUP)
-        except OSError as error:
-            import errno
-            if error.errno != errno.ESRCH:
-                raise RuntimeError('Safe group control requires Linux >=6.9') from error
-    finally:
-        close_preserving(fd)
+            for entry in candidates:
+                pid = int(entry.name)
+                if pid in self.members:
+                    continue
+                fd = None
+                try:
+                    before = group_stat(pid)
+                    fd = os.pidfd_open(pid)
+                    after = group_stat(pid)
+                    if before[:3] != after[:3] or after[1:3] != (self.pid, self.pid):
+                        continue
+                    signal.pidfd_send_signal(fd, 0)
+                    captured.append((pid, fd, after[0]))
+                    fd = None
+                except (FileNotFoundError, ProcessLookupError):
+                    pass
+                finally:
+                    if fd is not None:
+                        os.close(fd)
+            if not self._anchored():
+                raise IndeterminateIdentity('Group anchor exited during membership capture')
+            for pid, fd, start in captured:
+                self.members[pid] = (fd, start)
+                self.owned.add(fd)
+            captured.clear()
+        finally:
+            for _pid, fd, _start in captured:
+                os.close(fd)
+
+    def send(self, sig: int) -> None:
+        self.refresh()
+        # Children first: capture their capabilities before TERM can exit the
+        # leader. Each later signal still addresses that exact process instance.
+        errors = []
+        ordered = sorted(self.members, key=lambda pid: pid == self.pid)
+        for pid in ordered:
+            try:
+                signal.pidfd_send_signal(self.members[pid][0], sig)
+            except ProcessLookupError:
+                pass
+            except OSError as error:
+                errors.append(error)
+        if errors:
+            raise ExceptionGroup('Owned process signalling failed', errors)
+
+    def empty(self) -> bool:
+        self.refresh()
+        poll = select.poll()
+        for fd, _start in self.members.values():
+            poll.register(fd, select.POLLIN)
+        return len(poll.poll(0)) == len(self.members) and not group_members(self.pid)
+
+    def close(self) -> None:
+        errors = []
+        for fd in self.owned:
+            try:
+                os.close(fd)
+            except OSError as error:
+                errors.append(error)
+        self.owned.clear()
+        if errors:
+            raise ExceptionGroup('Owned group descriptor close failed', errors)
 
 
 @contextmanager
@@ -136,7 +236,10 @@ def require_pidfd() -> None:
     if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
         raise RuntimeError("Linux pidfd support is required for safe service control")
     descriptor = os.pidfd_open(os.getpid())
-    os.close(descriptor)
+    try:
+        signal.pidfd_send_signal(descriptor, 0)
+    finally:
+        close_preserving(descriptor)
 
 
 def process_snapshot(pid: int) -> dict:
@@ -465,16 +568,17 @@ def stop_cancellation_window(*, keep_owner: bool):
 
 
 def stop_group(pid: int, descriptor: int, *, keep_owner: bool = False) -> None:
-    """Keep the original pidfd through leader death and descendant cleanup."""
-    with stop_cancellation_window(keep_owner=keep_owner) as cancelled:
-        _stop_group(pid, descriptor, cancelled, keep_owner=keep_owner)
+    """Retain captured process capabilities through leader death and cleanup."""
+    group = OwnedGroup(pid, descriptor)
+    try:
+        with stop_cancellation_window(keep_owner=keep_owner) as cancelled:
+            _stop_group(pid, group, cancelled, keep_owner=keep_owner)
+    finally:
+        group.close()
 
 
-def _stop_group(pid: int, descriptor: int, cancelled, *, keep_owner: bool) -> None:
+def _stop_group(pid: int, group: OwnedGroup, cancelled, *, keep_owner: bool) -> None:
     require_group_control()
-    snap = process_snapshot(pid)
-    if snap['pgid'] != pid or snap['sid'] != pid:
-        raise IndeterminateIdentity('Service does not own a dedicated group/session')
     # The panel needs time to finish cancellation-safe cleanup of its own CLI
     # sessions before escalation kills the controller itself.
     grace = float(os.environ.get('H3_SERVICE_TERM_TIMEOUT', '20'))
@@ -483,7 +587,7 @@ def _stop_group(pid: int, descriptor: int, cancelled, *, keep_owner: bool) -> No
     errors = []
     for sig, seconds in ((signal.SIGTERM, grace), (signal.SIGKILL, 5), (signal.SIGKILL, 5)):
         try:
-            signal.pidfd_send_signal(descriptor, sig, None, PIDFD_SIGNAL_PROCESS_GROUP)
+            group.send(sig)
         except ProcessLookupError:
             try:
                 if not group_members(pid):
@@ -500,25 +604,11 @@ def _stop_group(pid: int, descriptor: int, cancelled, *, keep_owner: bool) -> No
             if sig == signal.SIGTERM and cancelled():
                 break  # Escalate through this same descriptor, never a PGID.
             try:
-                members = group_members(pid)
+                finished = not group_members(pid) and group.empty()
             except BaseException as error:
                 errors.append(error)
-                break  # Retain the fd and still perform safe KILL cleanup.
-            if not members:
-                if sig == signal.SIGTERM:
-                    try:
-                        # A /proc enumeration can miss a child forked while
-                        # its leader exits. Only kernel-confirmed group absence
-                        # permits skipping KILL; a zombie-only group is harmless
-                        # to KILL through the same originally owned descriptor.
-                        signal.pidfd_send_signal(descriptor, 0, None, PIDFD_SIGNAL_PROCESS_GROUP)
-                    except ProcessLookupError:
-                        pass
-                    except BaseException as error:
-                        errors.append(error)
-                        break
-                    else:
-                        break
+                break  # Retain the fds and still perform safe KILL cleanup.
+            if finished:
                 if errors:
                     for error in errors[1:]:
                         errors[0].add_note(f'Group cleanup failed: {error!r}')
@@ -531,7 +621,7 @@ def _stop_group(pid: int, descriptor: int, cancelled, *, keep_owner: bool) -> No
         # Release inherited pipes so a cancelled controller can finish cleanup.
         while True:
             try:
-                if not group_members(pid):
+                if group.empty():
                     break
             except Exception:
                 pass
@@ -541,15 +631,15 @@ def _stop_group(pid: int, descriptor: int, cancelled, *, keep_owner: bool) -> No
                 except OSError:
                     pass
             try:
-                signal.pidfd_send_signal(descriptor, signal.SIGKILL, None, PIDFD_SIGNAL_PROCESS_GROUP)
-            except OSError:
+                group.send(signal.SIGKILL)
+            except Exception:
                 pass
             time.sleep(.1)
     if errors:
         for error in errors[1:]:
             errors[0].add_note(f'Group cleanup failed: {error!r}')
         raise errors[0]
-    if not group_members(pid):
+    if group.empty():
         return
     raise IndeterminateIdentity('Owned group has not exited; record retained')
 

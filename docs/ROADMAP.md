@@ -11,7 +11,7 @@ Step1/2 uses llmfan46 Mistral24B Q4_K_M(H3)/Q6_K(10Eros), matching BF16 projecto
 Step3/4 writers are Qwen3-14B Q4_K_M / Qwen3.5-27B Q5_K_M. The unused required
 DavidAU9B entry is removed; installation remains strictly pinned to source,
 revision,size,SHA256. No GPU acceptance is claimed. Real27B first inference must
-succeed before using10Eros autoprompting. Linux>=6.9 plus actual PIDFD group
+succeed before using10Eros autoprompting. Linux with ordinary pidfd signalling and readable /proc plus an actual process-control
 probe, Full models, exactv20, queue/access/lifecycle/frozen identities remain.
 First-session planning ceiling is $15/4h, conditional on a real approved quote.
 
