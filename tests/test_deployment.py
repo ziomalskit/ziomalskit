@@ -199,6 +199,7 @@ class DeploymentTests(unittest.TestCase):
             if arguments[1].endswith('/runtime_dependencies.py'):return ''
             if arguments[0]=='nvcc':return 'release 13.0, V13.0'
             if 'importlib.metadata' in arguments[-1]:return '1.21.0\n'
+            if arguments[-1] == preflight.SAGE_IMPORT_PROBE:return ''
             self.assertIn("torch.ones(1, device='cuda')",arguments[-1])
             return json.dumps({'cuda':'13.0','name':'RTX PRO 6000 Blackwell','capability':[12,0],'memory':96*1024**3})
         info={name:{} for name in ['LLMTextProcessor','BunnyH3ConditioningBridge','MinimaxH3LatentUpscaler3D',
@@ -215,6 +216,14 @@ class DeploymentTests(unittest.TestCase):
                 'http://127.0.0.1:9188/object_info','http://127.0.0.1:9189/object_info','http://127.0.0.1:9860/api/config'])
             checksums.write_text('{}')
             self.assertTrue(any('no trusted SHA256' in error for error in preflight.run_checks(environment)))
+            checksums.write_text(json.dumps({'models/LLM/model.gguf':{'sha256':hashlib.sha256(model.read_bytes()).hexdigest()}}))
+            def missing_extension(arguments, **kwargs):
+                if arguments[-1] == preflight.SAGE_IMPORT_PROBE:
+                    raise subprocess.CalledProcessError(1, arguments, stderr='missing or incompatible SageAttention')
+                return command(arguments, **kwargs)
+            with patch.object(preflight.subprocess, 'check_output', side_effect=missing_extension):
+                production = dict(environment, H3_ALLOW_DIAGNOSTIC_SUBMISSIONS='0')
+                self.assertTrue(any('SageAttention' in error for error in preflight.run_checks(production)))
 
     def inert_tools(self, package: Path, comfy: Path) -> dict[str,str]:
         """Stub pip, comfy-cli, git, nvcc, cmake; all writes stay in this tempfile."""

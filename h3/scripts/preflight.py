@@ -28,6 +28,13 @@ print(json.dumps({'cuda':torch.version.cuda, 'name':p.name, 'memory':p.total_mem
                   'capability':list(torch.cuda.get_device_capability(0))}))
 """
 
+# v20's selected Sage branch imports these lazily during node execution. A
+# registered class alone cannot prove the extension is present/ABI compatible.
+SAGE_IMPORT_PROBE = """from sageattention import sageattn
+from sageattention.core import (per_thread_int8_triton, per_warp_int8_cuda,
+    per_block_int8_triton, per_channel_fp8, get_cuda_arch_versions, attn_false)
+"""
+
 
 def service_urls(environment: dict[str, str]) -> dict[str, str]:
     return {
@@ -185,6 +192,9 @@ def run_checks(environment: dict[str, str] | None = None) -> list[str]:
         info = json.loads(subprocess.check_output([python, "-c", GPU_PROBE], text=True, stderr=subprocess.PIPE, timeout=60))
         validate_gpu(info, configured_cuda)
     check("CUDA kernel and target GPU", cuda)
+    if env.get("H3_ALLOW_DIAGNOSTIC_SUBMISSIONS") != "1":
+        check("v20 SageAttention imports", lambda: subprocess.check_output(
+            [python, "-c", SAGE_IMPORT_PROBE], text=True, stderr=subprocess.PIPE, timeout=30))
 
     def models():
         manifest = json.loads((panel / "config/models_manifest.json").read_text())

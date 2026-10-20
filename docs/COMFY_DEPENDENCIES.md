@@ -36,6 +36,18 @@ The added Git sources are:
 These are source selections, not a claim of completed GPU compatibility testing.
 The existing Bunny, essential-er, latent-upscaler and LLM pins remain unchanged.
 
+One critical platform limitation remains: v20 selects the SageAttention branch.
+The pinned KJNodes imports its compiled extension lazily; its requirements do not
+install SageAttention. A base image's SageAttention build therefore still needs
+explicit qualification against Blackwell, the selected CUDA/PyTorch and the APIs
+used at this KJNodes revision. This change does not guess a compatible version,
+install latest or introduce an untested native build path. Preflight now imports
+the exact required SageAttention APIs, so an absent or incompatible import is a
+blocker even when the node class is registered. Passing imports and catalog
+validation still cannot establish kernel execution compatibility or performance;
+that remains target acceptance. Do not treat these pins as a complete first-run
+GPU readiness claim or switch the workflow's attention choice silently.
+
 `h3/runtime-constraints.txt` pins the direct ComfyUI/node runtime requirements,
 the shared model Python stack and the CPU-tested panel dependency closure.
 `python_env.sh` exports the selected constraint file through `PIP_CONSTRAINT`,
