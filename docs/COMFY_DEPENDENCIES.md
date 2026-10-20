@@ -48,10 +48,15 @@ validation still cannot establish kernel execution compatibility or performance;
 that remains target acceptance. Do not treat these pins as a complete first-run
 GPU readiness claim or switch the workflow's attention choice silently.
 
-`h3/runtime-constraints.txt` pins the direct ComfyUI/node runtime requirements,
-the shared model Python stack and the CPU-tested panel dependency closure.
+`h3/runtime-constraints.txt` constrains 19 packages in the shared model/API stack,
+OpenCV/AV and the panel API. These affect model loading, node imports and video
+output; the panel choices reuse CPU-tested versions from `requirements/panel.lock`.
+Other direct and transitive requirements retain the bounds declared by the pinned
+upstream sources. They can still resolve different versions; this is deliberately
+a focused constraint set rather than dozens of speculative environment pins.
 `python_env.sh` exports the selected constraint file through `PIP_CONSTRAINT`,
-including CLI subprocesses and node lazy pip installs. A file URI handles install
+including CLI subprocesses and node lazy pip installs. `comfy-cli==1.21.0`
+remains explicit in provisioning and preflight. A file URI handles install
 paths containing spaces. Constraints select versions only when a requirement
 requests them; they do not install every optional package.
 
@@ -83,8 +88,10 @@ Missing imports, classes and changed schemas remain blockers. CPU checks and
 dependency metadata resolution do not replace those live checks.
 
 This is a plain pip constraint set, not a complete hash-locked OS/image/build
-environment: ancillary transitive dependencies, system tools and optional
-extensions are outside the lock. NVIDIA libraries follow the selected torch
+environment: remaining direct/transitive dependencies, system tools and
+additional extensions are outside the constraints. Fresh custom-node source
+selection is deterministic, and the constrained package versions are fixed on
+the reviewed platform, but the whole fresh environment is not fully locked. NVIDIA libraries follow the selected torch
 wheel's metadata rather than an unrelated machine's `pip freeze`.
 The canonical H3 v20 JSON and every model configuration are unchanged.
 
