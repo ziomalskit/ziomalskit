@@ -116,6 +116,24 @@ os.execv({sys.executable!r},[{sys.executable!r},*a])
             self.assertEqual(self.git(target, "rev-parse", "HEAD").strip(), spec["revision"])
             self.assertTrue(self.git(target, "branch", "--list").strip(), "existing branch was removed")
 
+    def test_unavailable_pin_never_installs_remote_head_or_replaces_a_good_checkout(self):
+        manifest = json.loads(self.manifest.read_text())
+        original = self.manifest.read_text()
+        manifest["workflow_git"][0]["revision"] = "f" * 40
+        for existing in (False, True):
+            self.manifest.write_text(json.dumps(manifest))
+            result = self.install()
+            self.assertNotEqual(result.returncode, 0)
+            target = self.node(self.specs[0])
+            if existing:
+                self.assertEqual(self.git(target, "rev-parse", "HEAD").strip(), self.specs[0]["revision"])
+                self.assertEqual((target / "marker").read_text(), "pinned\n")
+            else:
+                self.assertFalse(target.exists(), "unavailable pin published a different revision")
+                self.manifest.write_text(original)
+                result = self.install()
+                self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_local_tracked_staged_and_untracked_changes_are_preserved(self):
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
