@@ -66,7 +66,7 @@ class AdversarialPersistenceTests(unittest.IsolatedAsyncioTestCase):
     def start_workers(self):
         self.m.controller_started = True
         for service in ("prompt", "render"):
-            task = asyncio.create_task(getattr(self.m, service + "_worker")())
+            task = asyncio.create_task(getattr(self.m, service + "_worker")(), name=f"enospc-{service}")
             setattr(self.m, service + "_worker_task", task)
             self.tasks.append(task)
 
@@ -77,6 +77,65 @@ class AdversarialPersistenceTests(unittest.IsolatedAsyncioTestCase):
                     if task.done() and not task.cancelled():
                         task.result()
                 await asyncio.sleep(0.01)
+
+    def render_wait_diagnostics(self, calls):
+        fields = ("id", "status", "prompt_submission_state", "render_submission_state",
+                  "prompt_prompt_id", "render_prompt_id", "error", "persistence_warning")
+        def jobs(queue):
+            return [{key: job[key] for key in fields if key in job} for job in queue]
+        try:
+            durable = jobs(json.loads(self.m.QUEUE_FILE.read_text())["queue"])
+        except (OSError, ValueError, KeyError) as error:
+            durable = str(error)
+        workers = [{"name": task.get_name(), "done": task.done(), "cancelled": task.cancelled(),
+                    "stack": [f"{frame.f_code.co_name}:{frame.f_lineno}" for frame in task.get_stack(limit=3)]}
+                   for task in self.tasks]
+        return json.dumps({"queue": jobs(self.m.queue), "durable_queue": durable,
+                           "dispatches": calls, "workers": workers,
+                           "completed": sum(job["status"] == "completed" for job in self.m.queue),
+                           "persistence_error": self.m.queue_persistence_error,
+                           "recovering_services": sorted(self.m.recovering_services)}, default=str)
+
+    async def wait_for_durable_renders(self, expected, calls, persisted, *, stall_timeout=8):
+        # This is a sequential five-render scenario, not an eight-second batch
+        # benchmark. Each checkpoint needs a NEW completed job in RAM AND disk.
+        # No-op writes/other status changes cannot renew the stall deadline;
+        # at most expected * stall_timeout seconds are available in total.
+        for checkpoint in range(1, expected + 1):
+            try:
+                async with asyncio.timeout(stall_timeout):
+                    while True:
+                        for task in self.tasks:
+                            if task.done():
+                                if not task.cancelled():
+                                    try:
+                                        task.result()  # Surface worker faults immediately.
+                                    except Exception as error:
+                                        error.add_note(self.render_wait_diagnostics(calls))
+                                        raise
+                                self.fail("Worker stopped: " + self.render_wait_diagnostics(calls))
+                        completed = {job["id"] for job in self.m.queue if job["status"] == "completed"}
+                        durable = {job["id"] for job in json.loads(self.m.QUEUE_FILE.read_text())["queue"]
+                                   if job["status"] == "completed"}
+                        if len(completed) > expected:
+                            self.fail("Too many completed renders: " + self.render_wait_diagnostics(calls))
+                        if len(completed & durable) >= checkpoint:
+                            break
+                        # The observer runs synchronously AFTER the real atomic
+                        # write. Clear/read/wait has no intervening yield, so a
+                        # committed completion cannot be lost between checks.
+                        persisted.clear()
+                        notification = asyncio.create_task(persisted.wait())
+                        try:
+                            await asyncio.wait([notification, *self.tasks], return_when=asyncio.FIRST_COMPLETED)
+                        finally:
+                            notification.cancel()
+                            await asyncio.gather(notification, return_exceptions=True)
+            except TimeoutError as error:
+                raise TimeoutError(f"No durable render progress toward {checkpoint}/{expected} within "
+                                   f"{stall_timeout}s: {self.render_wait_diagnostics(calls)}") from error
+        self.assertEqual(sum(job["status"] == "completed" for job in self.m.queue), expected)
+        self.assertEqual(completed, durable, "Completed jobs must agree between RAM and durable state")
 
     def remote_boundaries(self):
         calls = []
@@ -104,6 +163,23 @@ class AdversarialPersistenceTests(unittest.IsolatedAsyncioTestCase):
         invoke = (lambda: self.m.approve(prior["id"], self.m.ApprovalRequest(final_prompt=production_fixture_texts(prior["context"],"approved edit")[1]))) if approval else (
             lambda: self.m.create_batches(self.request))
         calls, boundaries = self.remote_boundaries()
+        persisted = asyncio.Event()
+        blocked = {f"enospc-{service}": asyncio.Event() for service in ("prompt", "render")}
+        real_write = self.m._atomic_json_write
+        real_wait = self.m._wait_for_queue_persistence
+
+        def observed_write(path, payload):
+            real_write(path, payload)  # Keep fsync/replace and ENOSPC semantics.
+            if path == self.m.QUEUE_FILE:
+                persisted.set()
+
+        async def observed_wait():
+            if self.m.queue_persistence_error:
+                blocked[asyncio.current_task().get_name()].set()
+            return await real_wait()
+
+        boundaries.append(patch.object(self.m, "_atomic_json_write", side_effect=observed_write))
+        boundaries.append(patch.object(self.m, "_wait_for_queue_persistence", side_effect=observed_wait))
         for boundary in boundaries:
             boundary.start()
             self.addCleanup(boundary.stop)
@@ -119,7 +195,12 @@ class AdversarialPersistenceTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(self.m.state_diagnostics()["ready"])
             self.assertIsNone(self.m.pick_next_render_job())
             self.start_workers()
-            await asyncio.sleep(0.06)
+            try:
+                async with asyncio.timeout(8):
+                    await asyncio.gather(*(event.wait() for event in blocked.values()))
+            except TimeoutError as error:
+                raise TimeoutError("Workers did not reach persistence fence: " +
+                                   self.render_wait_diagnostics(calls)) from error
             self.assertEqual(calls, [], "failed requests must not submit even one new job")
             self.assertTrue(all(not task.done() for task in self.tasks))
             if permanent:
@@ -131,7 +212,7 @@ class AdversarialPersistenceTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(calls, [])
         await invoke()
         expected = 1 if approval else 5
-        await self.wait_until(lambda: sum(job["status"] == "completed" for job in self.m.queue) == expected)
+        await self.wait_for_durable_renders(expected, calls, persisted)
         renders = [pid for service, pid in calls if service == "render"]
         self.assertEqual(len(renders), expected)
         self.assertEqual(len(set(renders)), expected)
@@ -155,6 +236,36 @@ class AdversarialPersistenceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_approval_permanent_enospc_preserves_review_until_durable_retry(self):
         await self.failed_request_and_scheduler(approval=True, permanent=True)
+
+    async def test_render_wait_times_out_with_diagnostics_despite_noop_notifications(self):
+        self.review_job()
+        persisted = asyncio.Event()
+        async def noisy_but_stuck_worker():
+            while True:
+                persisted.set()
+                await asyncio.sleep(0)
+        worker = asyncio.create_task(noisy_but_stuck_worker(), name="stalled-render")
+        self.tasks.append(worker)
+        with self.assertRaises(TimeoutError) as error:
+            await self.wait_for_durable_renders(1, [("render", "known-id")], persisted, stall_timeout=0.03)
+        message = str(error.exception)
+        for field in ('1/1', 'prior-review', 'pending_review', 'durable_queue', 'stalled-render', 'known-id'):
+            self.assertIn(field, message)
+        self.assertFalse(worker.done())
+
+    async def test_render_wait_requires_persisted_completion_and_detects_dead_worker(self):
+        job = self.review_job()
+        job["status"] = "completed"  # RAM-only success must not satisfy the wait.
+        with self.assertRaisesRegex(TimeoutError, "No durable render progress"):
+            await self.wait_for_durable_renders(1, [], asyncio.Event(), stall_timeout=0.01)
+        async def failed_worker():
+            raise RuntimeError("worker broke")
+        worker = asyncio.create_task(failed_worker(), name="failed-render")
+        self.tasks.append(worker)
+        await asyncio.sleep(0)
+        with self.assertRaisesRegex(RuntimeError, "worker broke") as error:
+            await self.wait_for_durable_renders(1, [], asyncio.Event())
+        self.assertTrue(any('failed-render' in note for note in error.exception.__notes__))
 
     async def test_create_state_is_not_published_while_durable_commit_is_in_progress(self):
         real_write = self.m._atomic_json_write
