@@ -1,0 +1,27 @@
+# Focused constraints for the shared model/API stack, not a whole-machine freeze.
+# Pinned llama.cpp b10472 requires NumPy 1.26 and Transformers 4.57.6.
+# Hub/Tokenizers/Diffusers/Accelerate/PEFT/serialization were resolved with that pair.
+# OpenCV 4.11 supports NumPy 1.x; AV 17 is ComfyUI v0.38.0's declared baseline.
+# Panel/API pins reuse requirements/panel.lock versions already tested on CPU.
+# Remaining requirements retain the bounds in the pinned upstream sources.
+# Review these and the CUDA profiles explicitly when upgrading ComfyUI/nodes.
+numpy==1.26.4
+sageattention==2.2.0
+transformers==4.57.6
+tokenizers==0.22.2
+huggingface-hub==0.36.2
+safetensors==0.7.0
+sentencepiece==0.2.1
+protobuf==4.25.8
+diffusers==0.36.0
+accelerate==1.12.0
+peft==0.18.1
+opencv-python==4.11.0.86
+opencv-python-headless==4.11.0.86
+av==17.0.0
+fastapi==0.142.2
+uvicorn==0.54.0
+httpx==0.28.1
+python-multipart==0.0.32
+pydantic==2.13.5
+starlette==1.7.0

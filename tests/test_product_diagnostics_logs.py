@@ -37,7 +37,9 @@ class DiagnosticsTests(unittest.IsolatedAsyncioTestCase):
                              {"controller", "render", "prompt", "gpu", "vram", "storage", "disk", "queue", "prefetch", "vast", "models", "memory", "prompt_cache"})
             self.assertEqual(result["prefetch"], {"target": 3, "ready": 1, "preparing": 0, "buffer": 1})
             self.assertEqual(result["queue"]["pending_review"], 1)
-            self.assertTrue(result["models"]["provisional"])
+            self.assertFalse(result["models"]["provisional"])
+            self.assertEqual(result["models"]["pending_artifacts"], [])
+            self.assertEqual(result["models"]["gpu_validation"], "pending")
             self.assertEqual(result["vram"]["total_mb"], 98304)
             self.assertEqual(result["vast"]["remote_authorization"], "not_probed")
             for function in (save, save_control, vast, dispatch, restart):

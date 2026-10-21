@@ -114,7 +114,10 @@ def reuse_analysis(prompt: dict, texts: dict, catalog: dict, *, contract=None) -
     contract = _contract(contract)
     result = copy.deepcopy(prompt)
     replacements = {}
-    for field, title in ((field, contract["captures"][field]) for field in ANALYSIS_FIELDS):
+    fields = tuple(texts)
+    if set(fields) not in ({"visual_facts"}, set(ANALYSIS_FIELDS)):
+        raise WorkflowPreparationError("incomplete durable analysis")
+    for field, title in ((field, contract["captures"][field]) for field in fields):
         if not isinstance(texts.get(field), str) or not texts[field].strip():
             raise WorkflowPreparationError("incomplete durable analysis")
         matches = [node for node in result.values() if node.get("class_type") == "PreviewAny"
@@ -141,8 +144,9 @@ def reuse_analysis(prompt: dict, texts: dict, catalog: dict, *, contract=None) -
     retained = _ancestors(result, roots)
     result = {key: node for key, node in result.items() if key in retained}
     processors = [node for node in result.values() if node["class_type"] in {"LLMTextProcessor", "AJCompilerTextProcessor"}]
-    if len(processors) != 2:
-        raise WorkflowPreparationError("durable analysis must leave exactly Step 3 and Step 4")
+    expected = 2 if set(fields) == set(ANALYSIS_FIELDS) else 4
+    if len(processors) != expected:
+        raise WorkflowPreparationError("durable analysis left unexpected model dependencies")
     validate_api_prompt(result, catalog)
     return result
 

@@ -2,12 +2,14 @@
 
 Projekt przyjmuje **6 obrazów i opcjonalnie 1 plik audio**, analizuje referencje, przygotowuje 10 wariantów promptu i generuje wideo przez ComfyUI na GPU Vast.ai. Produkcyjne profile to wyłącznie **H3 Full** i **10Eros Full**, ze wspólną, dokładnie zachowaną logiką promptów **v20 Heretic**. Legacy INT8 pozostaje tylko jawną ścieżką diagnostyczną.
 
+**Draft PR #8: dwa profile LLM (14 października 2026).** Step 1/2 używa **llmfan46 Mistral Small 3.2 24B Instruct 2506 Ultra Uncensored Heretic**: Q4_K_M dla H3 Full, Q6_K dla 10Eros Full, z opublikowanym dla tego wariantu projektorem BF16. Writery to nadal Qwen3-14B Heretic Q4_K_M i Qwen3.5-27B Heretic Q5_K_M. Step 4 ma reasoning ON i budget odpowiednio **6144 / 8192**, z 8192 tokenami na final; Step 3 pozostaje OFF. Step 0 i jego cache są wspólne, cache Step 1/2 wiąże model, kwantyzację, projektor i instrukcje. Metadane Qwen3-14B zostały potwierdzone z immutable Git LFS commita. [Aktualny raport i izolowany bootstrap acceptance](docs/MODEL_ACCEPTANCE_BOOTSTRAP_2026-10-14.md) pozwala przygotować 11 zatwierdzonych modeli oraz native runtime bez uruchamiania usług/inferencji. Nieużywany DavidAU 9B usunięto z aktywnego manifestu; integralność aktualnych wag jest wymagana, ich GPU acceptance pozostaje pending.
+
 Draft PR #6 dodaje wybór **Autoprompt / Own final H3 prompt**. Autoprompt zachowuje
 10 kandydatów (5 auto + 5 review). Własny finalny prompt przechodzi lokalną
 walidację i trafia bez zmian do renderu: bez Prompt Workera, Step 0–4 i generowania
 LLM, po jednym renderze na batch. Referencje, audio, oba profile, LoRA, wszystkie
 render controls oraz duration/recovery pozostają aktywne. Ten tryb omija writer,
-ale **nie rozwiązuje provenance DavidAU 9B dla Autoprompt**. Szczegóły:
+a używany writer 10Eros to Qwen3.5-27B Q5_K_M. Szczegóły:
 [H3 prompt modes](h3/README.md#profiles-prompts-and-loras) i
 [workflow adapters](docs/WORKFLOW_ADAPTERS.md#prompt-sources-autoprompt-and-own-final-h3-prompt).
 
@@ -19,7 +21,7 @@ renderów, osobne ścieżki obrazu/audio oraz wąskie zakresy LoRA.
 
 **Poprawki Ultra w Draft PR #5:** [raport i dowody testowe](docs/PR5_ULTRA_FIXES_2026-10-09.md).
 Terminal pozostaje niedostępny w produkcji, również przy `H3_ENABLE_TERMINAL=1`.
-Rzeczywista walidacja pochodzenia/build/load modelu DavidAU 9B nadal blokuje produkcję; GPU/live acceptance pozostaje pending.
+GPU/live acceptance nadal pozostaje pending. Bieżąca instalacja używa wyłącznie modeli z aktywnego, zweryfikowanego manifestu.
 
 **Stan po audycie CPU/runtime, 8 października 2026:** wszystkie znane merge-blocking problemy wykryte w STEP 1–3 i cross-step zostały naprawione, niezależnie zweryfikowane i scalone do `main` w PR #1. Końcowy merge commit to `4ea3fdd1b9d41e2475c52ed5f705b52af35df5b0`.
 
@@ -41,20 +43,21 @@ Live Logs i opcjonalnego terminala. [Raport CPU i self-review](docs/CPU_PRODUCT_
 opisuje dokładne testowane źródła, izolację środowiska testowego i ograniczenia
 weryfikacji CPU. GPU/live acceptance nadal jest pending.
 
-**Migracja modeli:** [raport i ograniczenia](docs/MODEL_MIGRATION_2026-10-09.md).
-`make setup` PASS, `make test` **439 PASS + 16 HTTP checks**, `make audit`
-**439 PASS**, focused migration checks **81 PASS**; zero failures/errors/skips.
-17 artefaktów ma niezależnie sprawdzone immutable revisions, dokładne rozmiary
-i SHA256. Pełne metadata źródłowego 9B BF16 writera nadal blokuje zamrożenie
-całego manifestu; provisioning i production preflight zatrzymują się na tym
-braku. To nie jest jeszcze stan gotowy do końcowej sesji GPU. Nie wykonano
-realnych działań Vast ani inference/renderowania GPU.
-
-Kolejność: **zamknięcie provenance 9B -> provisioning/preflight -> jedna
-skonsolidowana sesja Vast/GPU**. Szczegóły profili, pamięci, persistent storage,
-LoRA i tokenów jednorazowych: [h3/README.md](h3/README.md).
+**Personal / Ephemeral Deployment:** [aktualny runbook](docs/PERSONAL_FIRST_RUN.md).
+Jedna osoba, telefon, dysk instancji `/workspace`, jeden store wag, domyślne19
+artefaktów278009016136B. Local Volume i23rendery nie są wymagane. Budżet pierwszej
+sesji <=$15/4h wymaga realnej oferty, przepustowości i kosztorysu. Minimalna
+rzeczywista próba27B poprzedza autoprompt10Eros; potem dwa pojedyncze rendery,
+pobranie MP4 i ręczny DESTROY. Wagi można instalować przed GPU acceptance;
+nie ma obowiązkowej procedury DavidAU retirement. [Pełne Gate1–6](docs/GPU_PRODUCTION_SESSION.md)
+pozostają opcjonalną diagnostyką. Starsze datowane raporty opisują historię,
+nie aktualne wymaganie volume, DavidAU ani dwóch store.
 
 ## Od czego zacząć
+
+[Poprawki F1–F4 w PR #8](docs/BUGFIX_F1_F4_2026-10-14.md) dodają trwałą bramkę
+kosztową, natywne potwierdzenie EOS dla Step 0–3 oraz atomową publikację uploadów
+i GGUF. Modele i v20 pozostają zachowane; GPU acceptance nadal pending.
 
 1. [Roadmap produktu i aktualny scope](docs/ROADMAP.md) — kanoniczny plan dalszych etapów i rzeczy świadomie odłożonych.
 2. [CPU feature acceptance i self-review](docs/CPU_PRODUCT_ACCEPTANCE_2026-10-09.md) — stan finalnego feature set na gałęzi PR; [baseline z 8 października](docs/FINAL_CPU_ACCEPTANCE_2026-10-08.md) opisuje wcześniejszy stan po merge.
@@ -93,20 +96,13 @@ cd h3
 bash INSTALL_ON_VAST.sh
 ```
 
-Installer pobiera i weryfikuje zamrożone artefakty na persistent volume oraz
-pozostawia `H3_ALLOW_SUBMISSIONS=0`. Dopóki provenance 9B jest niekompletne,
-instalacja zatrzymuje się przed pobieraniem wag. Po zamknięciu tego blokera:
-
-```bash
-bash <PANEL_ROOT>/scripts/preflight.sh
-bash <PANEL_ROOT>/scripts/smoke_test.sh
-```
-
-Nie uruchamiaj pełnego batcha jako pierwszego testu GPU. Po preflight/smoke
-wykonaj kontrolowany prompt-only acceptance, potem pojedyncze rendery Full
-i przełączenie H3 → 10Eros → H3. Full/BF16 H3 ma historyczne zgłoszenia czarnych
-klatek na niektórych konfiguracjach ComfyUI/Blackwell; CPU nie dowodzi naprawy.
-Szczegóły są w [docs/GPU_ACCEPTANCE.md](docs/GPU_ACCEPTANCE.md).
+Installer weryfikuje wszystkie źródła/revisions/size/SHA256, pobiera brakujące
+wagi i pozostawia `H3_ALLOW_SUBMISSIONS=0`. Domyślny ephemeral dysk nie daje
+retencji po DESTROY. Zweryfikowany Local Volume jest wymagany wyłącznie dla
+funkcji keep-data. Przed płatną pracą wykonaj preflight/smoke i rzeczywistą
+próbę bieżącego writera według [Personal First Run](docs/PERSONAL_FIRST_RUN.md).
+Nie używaj normalnego batcha jako testu jednego renderu: tworzy5auto-renderów.
+Full/BF16 na Blackwell, realne MP4 i VRAM nadal wymagają sprawdzenia na GPU.
 
 ## Układ repozytorium
 
@@ -124,6 +120,6 @@ Szczegóły są w [docs/GPU_ACCEPTANCE.md](docs/GPU_ACCEPTANCE.md).
 
 ## Zasada kosztowa
 
-Przed pierwszym płatnym renderem wymagane są: poprawny persistent volume, poprawne modele i custom nodes, oba ComfyUI workers, panel, `preflight.sh` i `smoke_test.sh`.
+Przed pierwszym płatnym renderem wymagane są: zweryfikowany dysk instancji z zapasem miejsca, poprawne modele i custom nodes, oba ComfyUI workers, panel, `preflight.sh` i `smoke_test.sh`.
 
 Prompt-only acceptance ma być wykonany bez uruchamiania pełnego panelowego batcha renderów. Dopiero po nim uruchamiamy jeden kontrolowany render i weryfikujemy wynik w `/history` oraz plik wideo.

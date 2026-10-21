@@ -219,12 +219,12 @@ class ManualRenderProvenanceTests(unittest.IsolatedAsyncioTestCase):
         await self.m.verify_production_files(job, "render")
         self.assertFalse((self.m.COMFY_MODELS_DIR / "LLM").exists())
 
-    async def test_teneros_manual_verifies_renderer_without_davidau_provenance_being_resolved(self):
+    async def test_teneros_manual_verifies_renderer_without_any_llm_files(self):
         manifest = self.fixture_manifest()
         job = await self.job(profile="10eros_full")
         await self.m.verify_production_files(job, "render")
-        self.assertEqual(manifest["status"], "blocked_source_provenance")
-        self.assertEqual(manifest["pending_artifacts"][0]["id"], "10eros-writer")
+        self.assertEqual(manifest["status"], "production_pinned_gpu_pending")
+        self.assertEqual(manifest["pending_artifacts"], [])
         self.assertFalse((self.m.COMFY_MODELS_DIR / "LLM").exists())
 
     async def test_autoprompt_keeps_complete_manifest_blocker_and_does_not_inherit_exception(self):

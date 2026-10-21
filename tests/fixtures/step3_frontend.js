@@ -103,6 +103,20 @@ const scenarios={
  async jobs_failure(){
   const h=load(()=>response({},500));h.run("lastJobs=[{id:'retained',status:'completed'}]");
   await assert.rejects(h.run('refresh()'));assert.equal(h.run('lastJobs[0].id'),'retained');
+ },
+ async cost_hold(){
+  const h=load(()=>response(snapshot('boot:1',{cost_guard_usd:5,cost_hold:true,cost_hold_reason:'telemetry unavailable'})));
+  await h.run('refreshVast()');
+  assert.equal(h.element('costHold').textContent,'NEW DISPATCHES PAUSED: telemetry unavailable');
+  assert.equal(h.element('vastPlan').textContent,'Shutdown plan: none');
+ },
+ async cost_resume(){
+  const h=load((url,options)=>options?response({ok:true,control_token:'boot:2'}):response(snapshot('boot:2',{cost_guard_usd:5,cost_hold:false})));
+  h.run("lifecycleToken='boot:1';refresh=async()=>{}");
+  await h.run("vastAction('resume_cost_guard')");
+  const request=JSON.parse(h.requests.find(r=>r.options).options.body);
+  assert.equal(request.action,'resume_cost_guard');assert.equal(request.control_token,'boot:1');
+  assert.equal(h.element('costHold').textContent,'');
  }
 };
 scenarios[process.argv[3]]().catch(e=>{console.error(e);process.exitCode=1});

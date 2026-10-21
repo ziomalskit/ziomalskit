@@ -132,7 +132,7 @@ def ensure_generated(root: Path, item: dict, toolchain: Path, *, python=sys.exec
             if set(index.get("weight_map", {}).values()) != shards:
                 raise ValueError("source shard index differs from pinned hashes")
         estimate = sum(source["size_bytes"] for source in recipe["source_files"] if source["path"].endswith(".safetensors")) * 11 // 10
-        if shutil.disk_usage(root).free < estimate * 2:
+        if shutil.disk_usage(root).free < estimate:
             raise ValueError("insufficient persistent disk space for BF16 output staging and installation")
         with parent_directory(root, staging_relative, create=True) as (directory, filename):
             try:
@@ -188,5 +188,6 @@ def remove_build_output(root: Path, relative: str) -> None:
                 os.fsync(directory)
             except FileNotFoundError:
                 pass
+            os.fsync(directory)
     except FileNotFoundError:
         pass

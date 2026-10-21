@@ -1,7 +1,9 @@
 {
   "bundled_backend_classes": [
     "AJAnalysisText",
+    "AJPromptTextProcessor",
     "AJCompilerTextProcessor",
+    "AJGatedCompilerTextProcessor",
     "AJFrozenDuration",
     "AJCreativeTimelineGuard",
     "AJFinalPromptTimeGuard",
@@ -10,7 +12,7 @@
     "AJVideoBoundary"
   ],
   "bundled_backend_source": "custom_nodes/aj_production",
-  "strategy": "install from workflow metadata with comfy-cli first; explicit IDs are fallback/reference",
+  "strategy": "Install only the reviewed Git revisions below; registry IDs and mixed workflow versions are reference metadata.",
   "registry_ids_seen_in_workflow": [
     "comfyui-kjnodes",
     "comfyui-easy-use",
@@ -25,9 +27,9 @@
     "comfyui-minimax-h3-latent-upscaler"
   ],
   "notes": [
-    "Primary dependency path is comfy node install-deps --workflow.",
-    "Nodes lacking reliable cnr_id metadata receive explicit Git fallbacks.",
-    "Preflight validates actual /object_info before any paid render."
+    "No registry/latest node discovery runs during provisioning.",
+    "workflow_git selects one reviewed revision per package; mixed v20 metadata is not an environment lock.",
+    "Preflight validates source pins and actual /object_info; smoke validates both profiles against the live catalog without submitting prompts."
   ],
   "explicit_fallback_git": [
     {
@@ -47,6 +49,56 @@
       "repo": "https://github.com/altoiddealer/comfyui_essential-er.git",
       "folder": "comfyui_essential-er",
       "revision": "efe28abad7918f9a260c1cbc4f4c584dd1406d15"
+    }
+  ],
+  "workflow_git": [
+    {
+      "node_class": "MiniMaxChunkFeedForward",
+      "repo": "https://github.com/kijai/ComfyUI-KJNodes.git",
+      "folder": "ComfyUI-KJNodes",
+      "revision": "3f20054214fec9f9234fd3841ae6f1e4287948f6"
+    },
+    {
+      "node_class": "easy anythingIndexSwitch",
+      "repo": "https://github.com/altoiddealer/ComfyUI-Easy-Use-alt.git",
+      "folder": "ComfyUI-Easy-Use-alt",
+      "revision": "450b1ce4ce43b2280521c87f5fa388a898fb2ad2"
+    },
+    {
+      "node_class": "Power Lora Loader (rgthree)",
+      "repo": "https://github.com/rgthree/rgthree-comfy.git",
+      "folder": "rgthree-comfy",
+      "revision": "2c5342a8cb0eaecaabf61435a5f37dd594c510ba"
+    },
+    {
+      "node_class": "MiniMaxH3RefModsLoader",
+      "repo": "https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod.git",
+      "folder": "ComfyUI-MiniMaxH3Mod",
+      "revision": "6131c1f62c612a074d6aac8435c26ffa19c00563"
+    },
+    {
+      "node_class": "VHS_LoadVideo",
+      "repo": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git",
+      "folder": "ComfyUI-VideoHelperSuite",
+      "revision": "4d907bee61e92c2e65af3bd6383a4e4d356126d1"
+    },
+    {
+      "node_class": "SpectrumApplyMiniMaxH3",
+      "repo": "https://github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3.git",
+      "folder": "ComfyUI-Spectrum-MiniMax-H3",
+      "revision": "beb32dd210ef9e95520453107f158241d4f2ecf3"
+    },
+    {
+      "node_class": "JWDatetimeString",
+      "repo": "https://github.com/jamesWalker55/comfyui-various.git",
+      "folder": "comfyui-various",
+      "revision": "5bd85aaf7616878471469c4ec7e11bbd0cef3bf2"
+    },
+    {
+      "node_class": "Bool-🔬",
+      "repo": "https://github.com/theUpsider/ComfyUI-Logic.git",
+      "folder": "ComfyUI-Logic",
+      "revision": "214cfba933291be224156d37bc30c25742076b44"
     }
   ]
 }

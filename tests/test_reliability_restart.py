@@ -104,7 +104,7 @@ class RestartReliabilityTests(unittest.IsolatedAsyncioTestCase):
                     release.touch()
                     await asyncio.to_thread(fixture.tearDown)
 
-    async def test_reaped_leader_and_term_ignoring_descendant_use_original_pidfd_group(self):
+    async def test_exited_unreaped_leader_and_term_ignoring_descendant_are_cleaned(self):
         with load_controller() as m, tempfile.TemporaryDirectory(prefix="aj-restart-descendant-") as temporary:
             root = Path(temporary)
             ready = root / "ready"
@@ -129,7 +129,13 @@ class RestartReliabilityTests(unittest.IsolatedAsyncioTestCase):
                     runner = asyncio.create_task(m._run_owned_restart([sys.executable, "-c", code]))
                     await until(ready.exists)
                     descendant_fd = os.pidfd_open(int(descendant.read_text()))
-                    self.assertEqual(await asyncio.to_thread(spawned[0].wait, timeout=5), 0)
+                    # Popen ownership includes leaving the leader unreaped until cleanup.
+                    leader_fd = os.pidfd_open(spawned[0].pid)
+                    try:
+                        poll = select.poll(); poll.register(leader_fd, select.POLLIN)
+                        await until(lambda: bool(poll.poll(0)))
+                    finally:
+                        os.close(leader_fd)
                     runner.cancel()
                     with self.assertRaises(asyncio.CancelledError):
                         await runner
@@ -181,11 +187,11 @@ class RestartReliabilityTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(any(repr(failed_kill) in note for note in raised.exception.__notes__))
                 self.assertEqual(signals.count(signal.SIGKILL), 2)
 
-    async def test_unsupported_group_signalling_fails_before_any_spawn(self):
+    async def test_unsupported_ordinary_pidfd_signalling_fails_before_any_spawn(self):
         with load_controller() as m, \
              patch.object(m.signal, "pidfd_send_signal", side_effect=OSError(errno.EINVAL, "unsupported group flag")), \
              patch.object(m.subprocess, "Popen") as spawn:
-            with self.assertRaisesRegex(RuntimeError, "kernel >= 6.9"):
+            with self.assertRaises(OSError):
                 await m.restart_local_service("render")
             spawn.assert_not_called()
 

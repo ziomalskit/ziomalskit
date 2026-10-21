@@ -104,7 +104,9 @@ asyncio.run(rec())
 # G. Provisioning/service-test contracts exist.
 prov=(ROOT/'scripts/provision.sh').read_text(); svc=(ROOT/'scripts/service_ctl.sh').read_text(); smoke=(ROOT/'scripts/smoke_test.py').read_text()
 assert 'comfy-cli==1.21.0' in prov and '--version 0.38.0' in prov
-assert '--skip-manager' not in prov
+assert '--skip-manager' in prov
+assert 'node install-deps' not in prov
+assert 'install_fallback_nodes.sh' in prov
 assert 'COMFY_PYTHON=$COMFY_PYTHON' in prov
 assert '${COMFY_PYTHON:-$PYTHON_BIN}' in svc
 assert '"workflow","validate","--workflow"' in smoke

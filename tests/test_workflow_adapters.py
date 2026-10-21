@@ -121,6 +121,13 @@ class CompositionParityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         with load_controller() as m:
+            # The independent PR #5 golden fixture used all three H3 defaults.
+            # Exercise that historical selection explicitly; do not normalize
+            # away LoRA changes or regenerate its received graph hashes.
+            registry = m.registry_json(m.LORA_REGISTRY)
+            for identifier in ("mysticxxx-v4", "movement-v1"):
+                registry[identifier]["defaults"]["h3_full"]["enabled"] = True
+            m.LORA_REGISTRY = m.immutable_registry(registry)
             cls.graphs = parity_graphs(m)
         cls.fixture = json.loads((ROOT / "tests/fixtures/v20_pr5_parity.json").read_text())
 
@@ -129,7 +136,7 @@ class CompositionParityTests(unittest.TestCase):
         for key, expected in self.fixture["digests"].items():
             if predicate(key):
                 with self.subTest(graph=key):
-                    self.assertEqual(graph_digest(self.graphs[key]), expected)
+                    self.assertEqual(graph_digest(self.graphs[key], previous_llm_routes=True), expected)
 
     def test_default_composition_canonical_json_equivalent_to_pr5(self):
         self.check(lambda key: key.endswith("/composition"))
@@ -142,3 +149,14 @@ class CompositionParityTests(unittest.TestCase):
 
     def test_cached_analysis_api_canonical_json_equivalent_to_pr5(self):
         self.check(lambda key: key.endswith("/cached-api"))
+
+    def test_parity_normalization_does_not_hide_budget_or_unrelated_writer_drift(self):
+        for name in ('h3_full','10eros_full'):
+            graph=self.graphs[name+'/silent/prompt/api']
+            expected=graph_digest(graph,previous_llm_routes=True)
+            for change in ({'max_tokens':1},{'ctx_size':29184},{'reasoning':'off'},
+                           {'extra_args':'--reasoning-format deepseek --reasoning-budget 5120'},
+                           {'temperature':0.12345},{'prompt':'changed v20 instruction'}):
+                with self.subTest(profile=name,change=change):
+                    other=copy.deepcopy(graph);other['2551:2640:4275']['inputs'].update(change)
+                    self.assertNotEqual(graph_digest(other,previous_llm_routes=True),expected)

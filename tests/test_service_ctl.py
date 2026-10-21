@@ -26,6 +26,11 @@ class ServiceControlTests(unittest.TestCase):
         (self.panel / "scripts").mkdir(parents=True)
         for name in ("service_ctl.sh", "python_env.sh", "process_identity.py"):
             shutil.copy2(ROOT / "h3/scripts" / name, self.panel / "scripts" / name)
+        shutil.copy2(ROOT / "h3/scripts/runtime_dependencies.py", self.panel / "scripts/runtime_dependencies.py")
+        # Service/native installers inherit the same reviewed pip constraints.
+        for constraints in (ROOT / "h3").glob("*constraints*.txt"):
+            shutil.copy2(constraints, self.panel / constraints.name)
+        shutil.copy2(ROOT / "h3/scripts/runtime_config.py", self.panel / "scripts/runtime_config.py")
         self.comfy = self.base / "ComfyUI"
         self.comfy.mkdir()
         prefix = self.base / "env"
@@ -36,7 +41,7 @@ import json,os,signal,sys,time
 from http.server import HTTPServer,BaseHTTPRequestHandler
 from pathlib import Path
 a=sys.argv[1:]
-if a and a[0].endswith('/process_identity.py'):
+if a and a[0].endswith(('/process_identity.py', '/runtime_dependencies.py')):
  os.execv({sys.executable!r},[{sys.executable!r},*a])
 if a and a[0]=='-c':
  print({str(prefix)!r});sys.exit(0)

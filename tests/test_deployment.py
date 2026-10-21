@@ -196,8 +196,10 @@ class DeploymentTests(unittest.TestCase):
                      'H3_MODEL_CHECKSUMS_FILE':str(checksums),'RENDER_PORT':'9188','PROMPT_PORT':'9189','H3_PANEL_PORT':'9860'}
         def command(arguments, **kwargs):
             if arguments[0]=='git':return runtime_config.COMFY_COMMIT+'\n'
+            if arguments[1].endswith('/runtime_dependencies.py'):return ''
             if arguments[0]=='nvcc':return 'release 13.0, V13.0'
             if 'importlib.metadata' in arguments[-1]:return '1.21.0\n'
+            if arguments[1].endswith('/sageattention_runtime.py'):return ''
             self.assertIn("torch.ones(1, device='cuda')",arguments[-1])
             return json.dumps({'cuda':'13.0','name':'RTX PRO 6000 Blackwell','capability':[12,0],'memory':96*1024**3})
         info={name:{} for name in ['LLMTextProcessor','BunnyH3ConditioningBridge','MinimaxH3LatentUpscaler3D',
@@ -214,6 +216,14 @@ class DeploymentTests(unittest.TestCase):
                 'http://127.0.0.1:9188/object_info','http://127.0.0.1:9189/object_info','http://127.0.0.1:9860/api/config'])
             checksums.write_text('{}')
             self.assertTrue(any('no trusted SHA256' in error for error in preflight.run_checks(environment)))
+            checksums.write_text(json.dumps({'models/LLM/model.gguf':{'sha256':hashlib.sha256(model.read_bytes()).hexdigest()}}))
+            def missing_extension(arguments, **kwargs):
+                if arguments[1].endswith('/sageattention_runtime.py'):
+                    raise subprocess.CalledProcessError(1, arguments, stderr='missing or incompatible SageAttention')
+                return command(arguments, **kwargs)
+            with patch.object(preflight.subprocess, 'check_output', side_effect=missing_extension):
+                production = dict(environment, H3_ALLOW_DIAGNOSTIC_SUBMISSIONS='0')
+                self.assertTrue(any('SageAttention' in error for error in preflight.run_checks(production)))
 
     def inert_tools(self, package: Path, comfy: Path) -> dict[str,str]:
         """Stub pip, comfy-cli, git, nvcc, cmake; all writes stay in this tempfile."""
@@ -225,13 +235,19 @@ from pathlib import Path
 a=sys.argv[1:]
 def record():
  with open(os.environ['TEST_COMMAND_LOG'],'a') as h:h.write(json.dumps(a)+'\\n')
-if a[:2]==['-m','pip']:record();sys.exit(0)
+if a[:2]==['-m','pip']:
+ record()
+ if os.environ.get('TEST_DEPENDENCY_FAIL')=='1' and '-r' in a and a[a.index('-r')+1].endswith('/requirements.txt'):sys.exit(7)
+ sys.exit(0)
+if a and a[0].endswith('/runtime_dependencies.py') and a[1]=='verify':record();sys.exit(0)
+if a and a[0].endswith('/sageattention_runtime.py'):
+ record();sys.exit(9 if os.environ.get('TEST_SAGE_FAIL')=='1' else 0)
+if a and a[0].endswith('/provision_models.py') and '--plan' not in a:record()
 if a[:2]==['-m','comfy_cli']:
  record()
  workspace=next(x.split('=',1)[1] for x in a if x.startswith('--workspace='))
  if 'install' in a:
   root=Path(workspace);root.mkdir(parents=True,exist_ok=True);(root/'main.py').write_text('# inert ComfyUI')
- if 'install-deps' in a and os.environ.get('TEST_DEPENDENCY_FAIL')=='1':sys.exit(7)
  sys.exit(0)
 if a and a[0]=='-c' and 'print(sys.prefix)' in a[1]:print({str(prefix)!r});sys.exit(0)
 if a and a[0]=='-c' and 'import torch' in a[1]:sys.exit(0)
@@ -305,7 +321,15 @@ if '--build' in a:
         cli=[command for command in commands if command[:2]==['-m','comfy_cli']]
         self.assertTrue(cli)
         self.assertTrue(all('--workspace='+str(comfy) in command for command in cli))
-        self.assertNotIn('--restore',next(command for command in cli if 'install' in command))
+        install = next(command for command in cli if 'install' in command)
+        self.assertNotIn('--restore',install)
+        self.assertIn('--skip-manager',install)
+        self.assertIn('0.38.0',install)
+        self.assertFalse(any('install-deps' in command for command in cli))
+        self.assertTrue(any(command[0].endswith('/runtime_dependencies.py') and command[1]=='verify' for command in commands))
+        sage_index = next(i for i, a in enumerate(commands) if a[0].endswith('/sageattention_runtime.py'))
+        model_index = next(i for i, a in enumerate(commands) if a[0].endswith('/provision_models.py'))
+        self.assertLess(sage_index, model_index)
         configured=runtime_config.read_env(package/'runtime.env')
         self.assertEqual(configured['COMFY_PYTHON'],str(self.base/'selected-env/bin/python'))
         self.assertEqual(configured['COMFY_PYTHON'],configured['PYTHON_BIN'])
@@ -368,6 +392,29 @@ if '--build' in a:
         self.assertNotEqual(result.returncode,0)
         self.assertEqual((comfy/'main.py').read_text(),'user file')
         self.assertFalse((package/'service-started').exists())
+
+    def test_sage_failure_blocks_models_and_services_and_dependencies_only_stops_early(self):
+        package, comfy, environment = self.provision_fixture()
+        wrapper = package / 'INSTALL_ON_VAST.sh'
+        for action in ([], ['--dependencies-only']):
+            with self.subTest(action=action):
+                result = subprocess.run(['bash', str(wrapper), *action],
+                    env=dict(environment, TEST_SAGE_FAIL='1'), text=True, capture_output=True)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertFalse((package / 'service-started').exists())
+                self.assertFalse((package / 'runtime.env').exists())
+                self.assertFalse((comfy / 'models/.downloads').exists())
+        result = subprocess.run(['bash', str(wrapper), '--dependencies-only'],
+                                env=environment, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('MiniMax Sage CUDA kernel verified', result.stdout)
+        self.assertFalse((package / 'service-started').exists())
+        self.assertFalse((package / 'runtime.env').exists())
+        commands = [json.loads(line) for line in (self.base / 'commands.jsonl').read_text().splitlines()]
+        sage = [a for a in commands if a[0].endswith('/sageattention_runtime.py')]
+        self.assertEqual(len(sage), 3)
+        self.assertTrue(all(a[1] == 'install' and a[2] == str(comfy) for a in sage))
+        self.assertFalse(any(a[0].endswith('/provision_models.py') for a in commands))
 
     def test_llama_setup_verifies_pinned_binary_and_reuses_bounded_build(self):
         package=self.base/'panel'

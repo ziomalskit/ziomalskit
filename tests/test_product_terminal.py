@@ -272,7 +272,7 @@ class TerminalCleanupTests(unittest.IsolatedAsyncioTestCase):
         self.fixture = load_controller()
         self.m = self.fixture.__enter__()
         self.m.WORKSPACE.mkdir()
-        self.session = self.m.PTYSession(self.m.WORKSPACE, self.m._require_restart_group_control)
+        self.session = self.m.PTYSession(self.m.WORKSPACE, self.m.require_terminal_group_control)
         self.session.start()
         await self.session.ready()
 

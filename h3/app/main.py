@@ -26,8 +26,8 @@ MASTER = WORKFLOWS / "VAST_H3_MASTER_NATIVE_INT8_96GB.json"
 PROMPT_ONLY = WORKFLOWS / "VAST_H3_PROMPT_ONLY_STAGE2.json"
 MAP = json.loads((CONFIG / "VAST_H3_API_MAP.json").read_text(encoding="utf-8"))
 from .production import (read_profiles, read_loras, read_bridge, resolve_loras, PROFILE_LABELS, functional_policy,
-                         immutable_registry, registry_json, registry_identity)
-from .analysis_cache import AnalysisCache, prompt_admission
+                         immutable_registry, registry_json, lora_execution_identity)
+from .analysis_cache import AnalysisCache, prompt_admission, model_identity
 from .workflow_adapters import get_adapter as _get_adapter, IDENTITY_FIELDS
 from .request_identity import request_fingerprints
 from .render_settings import RenderSettings
@@ -37,6 +37,7 @@ from .prompt_modes import (PROMPT_MODES, freeze_prompt_source, validate_prompt_f
                            validate_job_prompt_source, final_prompt_for_render, validate_render_prompt,
                            manual_recovery_service)
 from .redaction import redact
+from .uploads import store_upload
 
 PRODUCTION = read_profiles(CONFIG / "production_profiles.json")
 _registry_document = json.loads((CONFIG / "lora_registry.json").read_text())
@@ -66,20 +67,24 @@ def job_profile(job: dict) -> str:
         raise ValueError("persisted writer runtime changed; explicit reconciliation is required")
     if identity.get("manifest_identity") != manifest_identity(profile):
         raise ValueError("persisted model provenance changed; explicit reconciliation is required")
+    current_analysis = profile_analysis_identities(profile)
+    if any(identity.get(key) != value for key, value in current_analysis.items()):
+        raise ValueError("persisted analysis provenance changed or missing; explicit reconciliation is required")
     validate_duration(job["context"])
     if job["context"]["duration_seconds"] != job["context"]["requested_duration_seconds"]:
         raise ValueError("persisted requested duration differs from job context")
-    if job["context"].get("lora_registry_identity") != registry_identity(LORA_REGISTRY, CONDITIONING_BRIDGE):
-        raise ValueError("persisted functional LoRA registry identity changed or missing; explicit reconciliation is required")
+    get_adapter(job["context"].get("workflow_id"), root=ROOT).validate_job(job["context"], PRODUCTION["profiles"][profile])
     lora_identity = job["context"].get("lora_identity")
     if lora_identity is not None and not isinstance(lora_identity, dict):
         raise ValueError("persisted LoRA filename identity is malformed; reconciliation required")
-    if lora_identity is not None and any(key not in LORA_REGISTRY or LORA_REGISTRY[key]["filename"] != value for key, value in lora_identity.items()):
+    active_loras = [row for row in job["context"].get("loras", []) if isinstance(row, dict) and row.get("enabled") is True]
+    if lora_identity is not None and any(row["id"] not in LORA_REGISTRY or
+            lora_identity.get(row["id"]) != LORA_REGISTRY[row["id"]]["filename"] for row in active_loras):
         raise ValueError("persisted LoRA routing changed; explicit reconciliation is required")
     bridge = job["context"].get("conditioning_bridge")
-    if bridge is not None and (not isinstance(bridge, dict) or bridge.get("id") != CONDITIONING_BRIDGE["id"] or bridge.get("filename") != CONDITIONING_BRIDGE["filename"]):
+    if bridge is not None and (not isinstance(bridge, dict) or bridge.get("enabled") and
+            (bridge.get("id") != CONDITIONING_BRIDGE["id"] or bridge.get("filename") != CONDITIONING_BRIDGE["filename"])):
         raise ValueError("persisted conditioning bridge routing changed")
-    get_adapter(job["context"].get("workflow_id"), root=ROOT).validate_job(job["context"], PRODUCTION["profiles"][profile])
     validate_job_prompt_source(job)
     return profile
 
@@ -87,14 +92,27 @@ def job_profile(job: dict) -> str:
 def profile_identity(profile: str) -> dict:
     return copy.deepcopy({**{key: PRODUCTION["profiles"][profile][key] for key in MODEL_FIELDS},
                           **functional_policy(PRODUCTION["profiles"][profile]),
+                          **profile_analysis_identities(profile),
                           "writer_stages": PRODUCTION["profiles"][profile]["writer_stages"],
                           "writer_runtime": PRODUCTION["writer_runtime"], "manifest_identity": manifest_identity(profile)})
+
+
+def profile_analysis_identities(profile: str) -> dict:
+    manifest = json.loads((CONFIG / "models_manifest.json").read_text())
+    visual_ids = {"joycaption", "joycaption-mmproj", "verifier", "verifier-mmproj", "gemma", "gemma-mmproj"}
+    visual = {item["destination"] for item in manifest["artifacts"] if item["id"] in visual_ids}
+    if len(visual) != len(visual_ids):
+        raise ValueError("Step 0 provenance missing")
+    policy = PRODUCTION["profiles"][profile]
+    return {"step0_identity": model_identity(manifest, visual, PRODUCTION["writer_runtime"]),
+            "analysis_identity": model_identity(manifest, {"LLM/" + policy[key] for key in
+                ("analysis_model", "analysis_mmproj")}, PRODUCTION["writer_runtime"])}
 
 
 def manifest_identity(profile: str, *, document=None) -> str:
     manifest = json.loads((CONFIG / "models_manifest.json").read_text()) if document is None else document
     facts = ("provider", "repository", "revision", "repository_path", "destination", "size_bytes", "sha256", "generation",
-             "source_repository", "source_revision", "observed_source_revision", "llama_cpp_revision", "converter_revision", "converter_sha256")
+             "source_repository", "source_revision", "observed_source_revision", "observed_sha256", "observed_size_bytes", "llama_cpp_revision", "converter_revision", "converter_sha256")
     entries = [item for item in [*manifest["artifacts"], *manifest.get("pending_artifacts", [])]
                if item["required"] and (profile in item["profiles"] or "shared" in item["profiles"])]
     # GPU-validation flags and human diagnostics do not change artifact identity.
@@ -111,11 +129,17 @@ def job_workflow_adapter(job: dict):
     return get_adapter(job["context"]["workflow_id"], root=ROOT)
 
 
-def workflow_context(profile: str, render_settings=None) -> dict:
+def workflow_context(profile: str, render_settings=None, loras=None) -> dict:
     adapter = get_adapter(PRODUCTION["profiles"][profile]["workflow_id"], root=ROOT)
     adapter.render_capabilities()  # Verify anchors and canonical defaults before freezing.
     context = {**adapter.identity(), "render_settings": adapter.resolve_render_settings(render_settings, profile=profile),
-               "lora_registry_identity": registry_identity(LORA_REGISTRY, CONDITIONING_BRIDGE)}
+               "loras": resolve_loras(LORA_REGISTRY, profile, loras),
+               "conditioning_bridge": {"id": CONDITIONING_BRIDGE["id"], "filename": CONDITIONING_BRIDGE["filename"],
+                                       **CONDITIONING_BRIDGE["defaults"][profile]}}
+    if sum(row["enabled"] for row in context["loras"]) > adapter.descriptor["lora_slots"]:
+        raise ValueError("LoRA slot capacity exceeded")
+    context["lora_registry_identity"] = lora_execution_identity(LORA_REGISTRY, CONDITIONING_BRIDGE, profile,
+        context["loras"], context["render_settings"], context["conditioning_bridge"])
     context["workflow_render_identity"] = adapter.render_identity(context, context["render_settings"])
     return context
 
@@ -172,7 +196,7 @@ H3_PROMPT_PREFETCH = prompt_prefetch_target(os.getenv("H3_PROMPT_PREFETCH", "3")
 # detached descendants after its death. No runtime setting enables this feature.
 H3_ENABLE_TERMINAL = False
 
-from .terminal import PTYSession, SessionTokens, TOKEN_TTL_SECONDS, TERMINAL_PROTOCOL, bridge_terminal, websocket_ticket
+from .terminal import require_terminal_group_control, PTYSession, SessionTokens, TOKEN_TTL_SECONDS, TERMINAL_PROTOCOL, bridge_terminal, websocket_ticket
 
 terminal_tokens = SessionTokens()
 terminal_sessions: set[PTYSession] = set()
@@ -306,6 +330,8 @@ service_restart_locks = {service: asyncio.Lock() for service in ("prompt", "rend
 service_maintenance: dict[str, str] = {}
 service_maintenance_epochs = {service: 0 for service in ("prompt", "render")}
 LIFECYCLE_CONTROL_EPOCH = uuid.uuid4().hex
+COST_TELEMETRY_MAX_AGE = 15.0
+cost_observation: dict | None = None
 state_load_error: str | None = None
 queue_persistence_error: str | None = None
 queue_persistence_epoch = 0
@@ -410,6 +436,7 @@ def state_diagnostics() -> dict[str, Any]:
     if vast_control.get("plan") in {"action_failed", "action_interrupted", "blocked_unsafe_persistence"}:
         lifecycle_error = lifecycle_error or vast_control.get("reason") or "Lifecycle requires manual reconciliation"
     workers, worker_error = _worker_health()
+    cost_error = cost_guard_error()
     return redact({
         "ready": not (state_load_error or queue_persistence_error or lifecycle_error or worker_error or quarantined_execution_ids()),
         "reconciliation_jobs": quarantined_execution_ids(),
@@ -418,6 +445,8 @@ def state_diagnostics() -> dict[str, Any]:
         "worker_error": worker_error,
         "workers": workers,
         "lifecycle_error": lifecycle_error,
+        "cost_guard_error": cost_error,
+        "dispatch_ready": not (cost_error or state_load_error or queue_persistence_error or lifecycle_error or worker_error or quarantined_execution_ids()),
         "service_maintenance": dict(service_maintenance),
     })
 
@@ -429,6 +458,8 @@ def load_vast_control() -> dict[str, Any]:
         "plan": "none",
         "idle_minutes": 0,
         "cost_guard_usd": 0.0,
+        "cost_hold": False,
+        "cost_hold_reason": None,
         "armed_at": None,
         "reason": None,
         "last_action": None,
@@ -453,6 +484,11 @@ def load_vast_control() -> dict[str, Any]:
             if key in data and (not isinstance(data[key], (int, float)) or isinstance(data[key], bool) or not math.isfinite(data[key]) or data[key] < 0):
                 raise ValueError(f"invalid lifecycle field: {key}")
         default.update(redact(data))
+        if type(default['cost_hold']) is not bool or (default['cost_hold_reason'] is not None and not isinstance(default['cost_hold_reason'], str)):
+            raise ValueError('invalid durable cost hold')
+        if default['cost_guard_usd'] > 0:
+            default.update(cost_hold=True, cost_hold_reason=default['cost_hold_reason'] or
+                           'Controller restarted; verify session cost and explicitly resume dispatches')
         if type(default["control_generation"]) is not int or default["control_generation"] < 0:
             raise ValueError("invalid lifecycle control generation")
         if "armed_generation" in data and data["armed_generation"] is not None and (
@@ -523,6 +559,78 @@ def save_vast_control() -> None:
         vast_control.update({"plan": "action_failed", "reason": "Lifecycle state write failed; manual reconciliation required",
                              "persistence_error": repr(error)})
         raise
+
+
+def _persist_cost_control() -> None:
+    """A cost fence must never replace a more important lifecycle plan."""
+    if vast_control_load_error:
+        raise RuntimeError(vast_control_load_error)
+    try:
+        vast_control.pop('cost_hold_persistence_error', None)
+        _atomic_json_write(VAST_CONTROL_FILE, vast_control)
+    except Exception as error:
+        vast_control.update(cost_hold=True, cost_hold_reason='Cost control write failed; verify storage and explicitly resume',
+                            cost_hold_persistence_error=redact(repr(error)))
+        raise
+
+
+def _hold_cost(reason: str) -> None:
+    if vast_control.get('cost_hold') and vast_control.get('cost_hold_reason') == reason:
+        return
+    vast_control.update(cost_hold=True, cost_hold_reason=reason)
+    try:
+        _persist_cost_control()
+    except Exception:
+        # The in-memory hold is authoritative even during ENOSPC/EIO.
+        pass
+
+
+def _current_cost() -> float | None:
+    if cost_observation is None or not 0 <= time.monotonic() - cost_observation['at'] <= COST_TELEMETRY_MAX_AGE:
+        return None
+    if cost_observation['limit'] != vast_control.get('cost_guard_usd'):
+        return None
+    estimate = cost_observation['estimate']
+    price = cost_observation.get('hourly_usd')
+    if price is not None:
+        estimate = max(estimate, price * max(0, time.time() - SESSION_STARTED_AT) / 3600)
+    return estimate if math.isfinite(estimate) and estimate >= 0 else None
+
+
+def cost_guard_error() -> str | None:
+    if float(vast_control.get('cost_guard_usd') or 0) <= 0:
+        return None
+    estimate = _current_cost()
+    if estimate is None:
+        _hold_cost('Session cost unavailable or stale; new dispatches blocked. Verify telemetry and explicitly resume')
+    elif estimate >= vast_control['cost_guard_usd']:
+        _hold_cost('Session cost limit reached; new dispatches blocked')
+    return vast_control.get('cost_hold_reason') if vast_control.get('cost_hold') else None
+
+
+async def refresh_cost_observation() -> bool:
+    global cost_observation
+    limit = float(vast_control.get('cost_guard_usd') or 0)
+    generation = vast_control['control_generation']
+    started = time.monotonic()
+    try:
+        status = await vast_instance_status()
+        estimate, price = status.get('estimated_session_compute_usd'), status.get('hourly_usd')
+        valid = (type(estimate) in (int, float) and math.isfinite(estimate) and estimate >= 0
+                 and (price is None or type(price) in (int, float) and math.isfinite(price) and price >= 0))
+    except Exception:
+        valid, estimate, price = False, None, None
+    if generation != vast_control['control_generation'] or limit != vast_control.get('cost_guard_usd'):
+        return False  # delayed telemetry cannot override a newer user decision
+    cost_observation = {'at': started, 'limit': limit, 'estimate': estimate, 'hourly_usd': price} if valid else None
+    cost_guard_error()
+    return _current_cost() is not None and _current_cost() < limit
+
+
+def assert_cost_guard() -> None:
+    error = cost_guard_error()
+    if error:
+        raise SubmissionDeferred(error)
 
 
 def _record_queue_persistence_failure(error: Exception) -> None:
@@ -888,44 +996,43 @@ os.close(0)
 os.open(os.devnull, os.O_RDONLY)
 os.execvp(sys.argv[1], sys.argv[1:])
 """
-_PIDFD_SIGNAL_PROCESS_GROUP = 4
+# The same ownership implementation is used by service_ctl and command cleanup.
+import importlib.util as _import_util
+_process_spec = _import_util.spec_from_file_location('_aj_process_identity', ROOT / 'scripts/process_identity.py')
+_process_identity = _import_util.module_from_spec(_process_spec)
+_process_spec.loader.exec_module(_process_identity)
 
 
 def _require_restart_group_control() -> None:
-    """Check the atomic group primitive before launching a restart command."""
-    descriptor = os.pidfd_open(os.getpid())
-    primary = None
-    try:
-        try:
-            signal.pidfd_send_signal(descriptor, 0, None, _PIDFD_SIGNAL_PROCESS_GROUP)
-        except OSError as error:
-            # The flag is validated before group lookup. A controller which
-            # is not its group's leader has no PID-as-PGID to signal, so ESRCH
-            # also proves the primitive is supported without touching a peer.
-            if error.errno != errno.ESRCH:
-                raise RuntimeError("Safe service restart requires Linux pidfd process-group signalling (kernel >= 6.9)") from error
-    except BaseException as error:
-        primary = error
-        raise
-    finally:
-        try:
-            os.close(descriptor)
-        except BaseException as error:
-            if primary is None:
-                raise
-            primary.add_note(f"Restart capability descriptor close failed: {error!r}")
+    _process_identity.require_group_control()
 
 
-async def _cleanup_owned_restart(proc, descriptor: int | None, communication: asyncio.Task | None,
+async def _communicate_owned(proc, descriptor: int) -> tuple[bytes, bytes, int]:
+    """Drain pipes and observe exit without reaping the session anchor yet."""
+    proc.stdin.write(b'G')
+    proc.stdin.close()
+    # waitid(WNOWAIT) leaves our original child PID reserved, even if its
+    # command exits before descendants. Only cleanup may reap this Popen child.
+    def exited():
+        import select
+        poll = select.poll()
+        poll.register(descriptor, select.POLLIN)
+        poll.poll()
+        result = os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOWAIT)
+        return result.si_status if result.si_code == os.CLD_EXITED else -result.si_status
+    out, err, returncode = await asyncio.gather(asyncio.to_thread(proc.stdout.read),
+        asyncio.to_thread(proc.stderr.read), asyncio.to_thread(exited))
+    return out, err, returncode
+
+
+async def _cleanup_owned_restart(proc, descriptor, communication: asyncio.Task | None,
                                  cooperative_stop: bool = False) -> list[BaseException]:
     errors: list[BaseException] = []
 
     def send(sig: int) -> bool:
         try:
             if descriptor is not None:
-                # The fd identifies the original group even after its leader
-                # has exited. Never signal a possibly reused numeric PGID.
-                signal.pidfd_send_signal(descriptor, sig, None, _PIDFD_SIGNAL_PROCESS_GROUP)
+                descriptor.send(sig)
             elif sig == signal.SIGTERM:
                 proc.terminate()
             else:
@@ -951,7 +1058,10 @@ async def _cleanup_owned_restart(proc, descriptor: int | None, communication: as
             # pipes through TERM->KILL confirmation (two bounded 5s attempts).
             await asyncio.wait_for(asyncio.shield(communication), timeout=12)
         else:
-            await asyncio.to_thread(proc.wait, timeout=2)
+            # Do not reap the leader until the last group membership capture.
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline and descriptor is not None and not descriptor.empty():
+                await asyncio.sleep(.02)
     except (subprocess.TimeoutExpired, asyncio.TimeoutError):
         pass
     except BaseException as error:
@@ -961,15 +1071,36 @@ async def _cleanup_owned_restart(proc, descriptor: int | None, communication: as
     if not send(signal.SIGKILL):
         # A transient signalling error cannot consume the only KILL attempt.
         send(signal.SIGKILL)
-    try:
-        await asyncio.to_thread(proc.wait, timeout=5)
-    except BaseException as error:
-        errors.append(error)
+    if descriptor is not None:
+        try:
+            deadline = time.monotonic() + 5
+            signalled_count = len(descriptor.members)
+            while not descriptor.empty():
+                if len(descriptor.members) > signalled_count:
+                    # A child may fork between capture and KILL. Only newly
+                    # verified members justify another bounded signalling pass.
+                    send(signal.SIGKILL)
+                    signalled_count = len(descriptor.members)
+                if time.monotonic() >= deadline:
+                    raise RuntimeError('Owned command descendants did not exit; cleanup uncertain')
+                await asyncio.sleep(.02)
+        except BaseException as error:
+            errors.append(error)
+    # Observe status with WNOWAIT before wait() reaps the session anchor.
     if communication is not None:
         try:
             await asyncio.wait_for(asyncio.shield(communication), timeout=5)
         except BaseException as error:
             errors.append(error)
+    for _attempt in range(2):
+        try:
+            await asyncio.to_thread(proc.wait, timeout=5)
+            break
+        except OSError as error:
+            errors.append(error)  # Retry one transient local reaping error.
+        except BaseException as error:
+            errors.append(error)
+            break
     return errors
 
 
@@ -979,6 +1110,8 @@ async def _run_owned_restart(command: list[str], *, preserve_success: bool = Fal
     proc = None
     descriptor = None
     communication = None
+    group = None
+    command_returncode = None
     primary = None
     try:
         # Popen is kept unreaped until synchronous pidfd capture. The gate
@@ -987,15 +1120,16 @@ async def _run_owned_restart(command: list[str], *, preserve_success: bool = Fal
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 start_new_session=True, close_fds=True, env=environment)
         descriptor = os.pidfd_open(proc.pid)
-        communication = asyncio.create_task(asyncio.to_thread(proc.communicate, b"G"))
-        out, err = await asyncio.shield(communication)
-        return proc.returncode, out, err
+        group = _process_identity.OwnedGroup(proc.pid, descriptor)
+        communication = asyncio.create_task(_communicate_owned(proc, descriptor))
+        out, err, command_returncode = await asyncio.shield(communication)
+        return command_returncode, out, err
     except BaseException as error:
         primary = error
         raise
     finally:
         if proc is not None:
-            cleanup = asyncio.create_task(_cleanup_owned_restart(proc, descriptor, communication, cooperative_stop))
+            cleanup = asyncio.create_task(_cleanup_owned_restart(proc, group, communication, cooperative_stop))
             cleanup_cancellation = None
             while True:
                 try:
@@ -1015,11 +1149,14 @@ async def _run_owned_restart(command: list[str], *, preserve_success: bool = Fal
                     errors = [error]
                     break
             group_finished = False
-            if preserve_success and primary is None and proc.returncode == 0 and descriptor is not None:
+            if preserve_success and primary is None and command_returncode == 0 and group is not None:
                 try:
-                    signal.pidfd_send_signal(descriptor, 0, None, _PIDFD_SIGNAL_PROCESS_GROUP)
-                except ProcessLookupError:
-                    group_finished = True
+                    group_finished = group.empty()
+                except BaseException as error:
+                    errors.append(error)
+            if group is not None:
+                try:
+                    group.close()
                 except BaseException as error:
                     errors.append(error)
             for resource in (proc.stdin, proc.stdout, proc.stderr):
@@ -1270,6 +1407,18 @@ def _apply_history_outcome(job: dict, service: str, entry: dict) -> bool:
     outcome = _history_outcome(entry)
     if outcome is None:
         return False
+    if service == "prompt" and job.get("profile") in PROFILE_LABELS:
+        # A terminal writer failure must not discard independently completed
+        # analysis. Bind the captured graph before retaining even partial Step 0.
+        try:
+            adapter = job_workflow_adapter(job)
+            adapter.validate_final_graph(_prompt_graph_from_history(entry), job["context"], phase="prompt")
+            analysis = extract_prompt_texts(entry, capture=adapter.capture_contract(), analysis_only=True)
+            batch = batch_for_job(job)
+            if batch is not None:
+                analysis_cache.record(job, batch, analysis, execution_epoch=job.get("prompt_cache_epoch", ""))
+        except (ValueError, KeyError, TypeError):
+            pass
     if outcome == "error":
         job["status"] = "cancelled" if job.get("cancel_requested") else (
             f"{service}_stuck_skipped" if job.get(f"{service}_cancel_reason") == "timeout" else f"{service}_failed"
@@ -1353,7 +1502,7 @@ def _title_for_api_node(node: dict) -> str:
     return str(node.get("class_type", ""))
 
 
-def extract_prompt_texts(entry: dict, *, capture=None) -> dict[str, str | None]:
+def extract_prompt_texts(entry: dict, *, capture=None, analysis_only=False) -> dict[str, str | None]:
     outputs = entry.get("outputs") or {}
     graph = _prompt_graph_from_history(entry)
     capture = MAP["prompt_capture"] if capture is None else capture
@@ -1364,6 +1513,8 @@ def extract_prompt_texts(entry: dict, *, capture=None) -> dict[str, str | None]:
         capture["step3_creative_plan_title"]: "creative_plan",
         capture["step4_final_prompt_title"]: "final_h3_prompt",
     }
+    if analysis_only:
+        wanted = {title: field for title, field in wanted.items() if field in {"visual_facts", "expanded_intent", "reference_map"}}
     result = {v: None for v in wanted.values()}
     sources = {title: [] for title in wanted}
     for node_id, node in graph.items():
@@ -1383,6 +1534,8 @@ def extract_prompt_texts(entry: dict, *, capture=None) -> dict[str, str | None]:
             raise ValueError(f"Unexpected prompt capture type: {title}")
         out = outputs.get(node_id)
         if not isinstance(out, dict) or "text" not in out or out["text"] is None:
+            if analysis_only:
+                continue
             raise ValueError(f"Missing prompt capture output: {title}")
         raw = out["text"]
         value = "\n".join(str(x) for x in raw) if isinstance(raw, list) else str(raw)
@@ -1390,6 +1543,8 @@ def extract_prompt_texts(entry: dict, *, capture=None) -> dict[str, str | None]:
 
     # Conversion normally preserves the top-level PreviewAny id. Use it as a
     # final-prompt fallback if subgraph title metadata was not retained.
+    if analysis_only:
+        return result
     fallback_id = str(capture.get("fallback_top_level_final_node_id", ""))
     if not sources[capture["step4_final_prompt_title"]] and fallback_id:
         node = graph.get(fallback_id)
@@ -1662,9 +1817,9 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
             validate_render_prompt(job, approved)
         else:
             batch = batch_for_job(job)
-            job["prompt_kind"] = analysis_cache.classify(job, batch)
+            job["prompt_kind"] = analysis_cache.classify(job, batch, records=batches)
             if job["prompt_kind"] != "cold_analysis":
-                analysis_texts = batch["analysis"]["texts"]
+                analysis_texts = analysis_cache.texts(job, batch, records=batches)
         prepared, mapping = adapter.install_runtime_guards(prepared, catalog, job["context"],
                                                          phase=service, analysis_texts=analysis_texts)
         adapter.validate_final_graph(prepared, job["context"], phase=service)
@@ -1707,6 +1862,7 @@ def assert_manual_render_phase(job: dict, service: str) -> None:
 
 async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
     assert_manual_render_phase(job, service)
+    assert_cost_guard()
     if state_load_error or queue_persistence_error or vast_control_load_error or (controller_started and _worker_health()[1]):
         raise RuntimeError("Stored controller state is unavailable; submission is blocked")
     if not submissions_allowed():
@@ -1727,7 +1883,7 @@ async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
         await refresh_prompt_epoch()
         cache_epoch = analysis_cache.epoch
         job["prompt_cache_epoch"] = cache_epoch
-        job["prompt_kind"] = analysis_cache.classify(job, batch_for_job(job))
+        job["prompt_kind"] = analysis_cache.classify(job, batch_for_job(job), records=batches)
     if production and service == "render":
         # Only the Render Worker owns this idle render process. Clear cached CPU
         # model objects at each new render/profile boundary, before preparation.
@@ -1759,6 +1915,7 @@ async def _submit_workflow(job: dict, workflow: Path, service: str) -> str:
         raise SubmissionCancelled("job cancelled during preparation")
     if lifecycle_dispatch_blocked() or vast_control.get("plan") == "stop_after_current":
         raise SubmissionDeferred("shutdown armed during preparation")
+    assert_cost_guard()
     if service == "prompt" and job.get("review_required") and vast_control.get("plan") in {"stop_after_queue", "destroy_after_queue_keep_data"}:
         raise SubmissionSkippedForShutdown("unsubmitted review prompt skipped while draining queue")
     if service == "prompt" and prompt_prefetch_status()["ready"] >= H3_PROMPT_PREFETCH:
@@ -1816,7 +1973,7 @@ async def submit_and_watch(job: dict, workflow: Path, service: str, approved_pro
     job[f"{service}_submission_state"] = "preparing"
     if job.get("profile") in PROFILE_LABELS:
         if service == "prompt":
-            job["prompt_kind"] = analysis_cache.classify(job, batch_for_job(job))
+            job["prompt_kind"] = analysis_cache.classify(job, batch_for_job(job), records=batches)
         else:
             job["render_phase"] = "conditioning"
     try:
@@ -2115,6 +2272,7 @@ async def vast_instance_status() -> dict[str, Any]:
         "gpu": gpu,
         "state": state_diagnostics(),
     }
+    base['plan'] = dict(vast_control)  # diagnostics may have durably closed a stale-cost fence
     if not iid:
         base["error"] = "No CONTAINER_ID/VAST_CONTAINERLABEL found"
         return base
@@ -2139,8 +2297,8 @@ async def vast_instance_status() -> dict[str, Any]:
         }
         dph = next((data[key] for key in ("dph_total", "dph_base", "price") if data.get(key) is not None), None)
         try:
-            dph = float(dph) if dph is not None else None
-            if dph is not None and not math.isfinite(dph):
+            dph = float(dph) if dph is not None and not isinstance(dph, bool) else None
+            if dph is not None and (not math.isfinite(dph) or dph < 0):
                 dph = None
         except Exception:
             dph = None
@@ -2292,9 +2450,9 @@ async def vast_guard_worker() -> None:
                     _schedule_instance_action("stop")
 
             guard = float(vast_control.get("cost_guard_usd") or 0)
-            if guard > 0 and vast_control.get("plan") in ("none", None):
-                st = await vast_instance_status()
-                est = st.get("estimated_session_compute_usd")
+            if guard > 0:
+                await refresh_cost_observation()
+                est = _current_cost()
                 if est is not None and est >= guard and vast_control.get("plan") in ("none", None) and not lifecycle_dispatch_blocked():
                     vast_control["plan"] = "stop_after_current"
                     vast_control["armed_generation"] = queue_persistence_epoch
@@ -2429,8 +2587,10 @@ def phase_admission(job: dict, service: str) -> tuple[bool, str]:
         if service_work_active("prompt") or service_recovering("prompt"):
             return False, "conditioning window waits for the active Prompt Worker to settle"
         return True, "exclusive render conditioning window"
+    if active_render_policy() is None and any(other.get("status") in {"render_queued_review", "render_queued_auto"} for other in queue):
+        return False, "ready render has priority over new LLM preparation"
     free = overlap_telemetry["free_vram_mb"] if time.monotonic() - overlap_telemetry["sampled_at"] <= 3 else None
-    return prompt_admission(prompt_kind=analysis_cache.classify(job, batch_for_job(job)),
+    return prompt_admission(prompt_kind=analysis_cache.classify(job, batch_for_job(job), records=batches),
         prompt_profile=job_profile(job), active_render=active_render_policy(), profiles=PRODUCTION,
         prompt_policy=job["context"]["profile_identity"], free_vram_mb=free)
 
@@ -2443,6 +2603,8 @@ def assert_phase_admission(job: dict, service: str) -> None:
 
 
 def pick_next_prompt_job() -> dict | None:
+    if cost_guard_error():
+        return None
     if "prompt" in service_maintenance or lifecycle_dispatch_blocked() or service_recovering("prompt"):
         return None
     if service_work_active("prompt") or prompt_prefetch_status()["buffer"] >= H3_PROMPT_PREFETCH:
@@ -2476,6 +2638,8 @@ def pick_next_prompt_job() -> dict | None:
 
 
 def pick_next_render_job() -> dict | None:
+    if cost_guard_error():
+        return None
     if "render" in service_maintenance or lifecycle_dispatch_blocked() or service_recovering("render") or vast_control.get("plan") == "stop_after_current":
         return None
     if service_work_active("render"):
@@ -2884,6 +3048,10 @@ async def api_terminal_session():
     # launch a shell. The WebSocket independently validates/consumes the ticket.
     if not H3_ENABLE_TERMINAL or terminal_shutting_down:
         raise HTTPException(403, "Terminal is disabled")
+    try:
+        require_terminal_group_control()
+    except (OSError, RuntimeError):
+        raise HTTPException(503, 'Optional terminal unavailable: Linux >=6.9 group signalling required') from None
     if terminal_sessions:
         raise HTTPException(409, "A terminal session is already active")
     try:
@@ -2908,7 +3076,7 @@ async def api_terminal_websocket(websocket: WebSocket):
     if terminal_sessions:
         await websocket.close(code=1013)
         return
-    session = PTYSession(WORKSPACE, _require_restart_group_control)
+    session = PTYSession(WORKSPACE, require_terminal_group_control)
     terminal_sessions.add(session)  # No await before reserving the sole session.
     try:
         await websocket.accept(subprotocol=TERMINAL_PROTOCOL)
@@ -2932,8 +3100,9 @@ async def api_terminal_websocket(websocket: WebSocket):
 
 @app.post("/api/vast/action")
 async def api_vast_action(req: VastActionRequest, request: Request = None):
+    global cost_observation
     action = req.action
-    if action not in {"cancel_plan", "set_idle_timer", "set_cost_guard", "stop_after_current", "stop_after_queue", "destroy_after_queue_keep_data", "stop_now", "destroy_now"}:
+    if action not in {"cancel_plan", "set_idle_timer", "set_cost_guard", "resume_cost_guard", "stop_after_current", "stop_after_queue", "destroy_after_queue_keep_data", "stop_now", "destroy_now"}:
         raise HTTPException(400, f"Unknown Vast action: {action}")
 
     if action == "stop_now" and req.confirm != "STOP":
@@ -2969,7 +3138,25 @@ async def api_vast_action(req: VastActionRequest, request: Request = None):
 
     if action == "set_cost_guard":
         vast_control["cost_guard_usd"] = float(req.cost_guard_usd or 0)
-        save_lifecycle_decision()
+        cost_observation = None
+        vast_control.update(cost_hold=vast_control['cost_guard_usd'] > 0, cost_hold_reason=
+                            'Cost guard enabled or changed; verify telemetry and explicitly resume' if vast_control['cost_guard_usd'] > 0 else None)
+        vast_control['control_generation'] += 1
+        _persist_cost_control()
+        return lifecycle_decision_response(plan=dict(vast_control))
+
+    if action == 'resume_cost_guard':
+        if vast_control.get('cost_guard_usd', 0) <= 0:
+            raise HTTPException(409, 'Session cost guard is disabled')
+        generation = vast_control['control_generation']
+        valid = await refresh_cost_observation()
+        if generation != vast_control['control_generation'] or lifecycle_dispatch_blocked():
+            raise HTTPException(409, 'Controls changed during verification; refresh and make a new decision')
+        if not valid:
+            raise HTTPException(409, 'Reliable, fresh session cost below the active limit is required')
+        vast_control.update(cost_hold=False, cost_hold_reason=None)
+        vast_control['control_generation'] += 1
+        _persist_cost_control()
         return lifecycle_decision_response(plan=dict(vast_control))
 
     if action == "stop_after_current":
@@ -3030,14 +3217,8 @@ async def api_restart_service(service: str):
 
 @app.post("/api/upload")
 async def upload(file: UploadFile = File(...)):
-    COMFY_INPUT_DIR.mkdir(parents=True, exist_ok=True)
-    safe = Path(file.filename or "upload.bin").name
-    target = COMFY_INPUT_DIR / safe
-    if target.exists():
-        target = COMFY_INPUT_DIR / f"{target.stem}_{uuid.uuid4().hex[:8]}{target.suffix}"
-    with target.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
-    return {"filename": target.name}
+    name = store_upload(COMFY_INPUT_DIR, file.filename, file.file)
+    return {"filename": name}
 
 
 @app.post("/api/batches")
@@ -3073,7 +3254,8 @@ async def create_batches(req: BatchRequest):
         if req.profile and req.model is not None and req.model != req.profile:
             raise HTTPException(400, "conflicting profile identifiers")
         try:
-            frozen_workflow = workflow_context(selected_profile, req.render_settings.model_dump(exclude_unset=True))
+            frozen_workflow = workflow_context(selected_profile, req.render_settings.model_dump(exclude_unset=True),
+                                               [row.model_dump() for row in req.loras])
         except ValueError as error:
             raise HTTPException(400, str(error)) from error
         pictures, audio = validate_requested_assets(req)

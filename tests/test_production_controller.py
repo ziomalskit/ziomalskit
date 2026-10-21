@@ -44,7 +44,7 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         job = {"id": "other-render", "profile": profile, "render_phase": phase, "status": "render_running",
                "context": {"profile_identity": self.m.profile_identity(profile)}}
         self.m.queue.append(job)
-        self.m.overlap_telemetry.update(free_vram_mb=40000, sampled_at=time.monotonic())
+        self.m.overlap_telemetry.update(free_vram_mb=65536, sampled_at=time.monotonic())
         return job
 
     def transport(self, callback=None):
@@ -186,7 +186,9 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         recovered=self.m.find_job(job["id"])
         self.assertEqual(recovered["status"],"recovery_prompt")
         after=await self.prepared_prompt(recovered)
-        self.assertEqual(after["2551:2640:4275"]["inputs"]["max_tokens"],12352)
+        self.assertEqual(after["2551:2640:4275"]["inputs"]["max_tokens"],16448)
+        self.assertEqual(after["2551:2640:4275"]["inputs"]["ctx_size"],36864)
+        self.assertEqual(after["2551:2640:4275"]["inputs"]["extra_args"],"--reasoning-format deepseek --reasoning-budget 8192")
         self.assertEqual(after["aj_frozen_duration"]["inputs"],{"legal_frame_count":481,"effective_duration_seconds":20.04})
         self.assertTrue(self.m._apply_history_outcome(recovered,"prompt",self.guarded_history(graph,CANONICAL,FINAL)))
         self.assertEqual(recovered["status"],"render_queued_auto")
@@ -240,13 +242,18 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         job=await self.batch()
         manifest=self.m.CONFIG/"models_manifest.json"
         data=json.loads(manifest.read_text())
-        writer=next(item for item in data["artifacts"] if item["destination"].endswith("Qwen3.5-4B-Heretic-Q8_0.gguf"))
+        writer=next(item for item in data["artifacts"] if item["id"]=="h3-writer-replacement")
+        self.assertEqual(writer["destination"],"LLM/"+self.m.PRODUCTION["profiles"]["h3_full"]["writer"])
+        self.assertEqual(writer["provenance_status"],"verified_source_metadata")
+        # A verified source changes the authoritative checksum, not a pending
+        # observation. Keep checking that an already saved job is fenced.
         writer["sha256"]="a"*64
         manifest.write_text(json.dumps(data))
         with self.assertRaisesRegex(ValueError,"model provenance changed"):self.m.production_workflow(job)
         self.req=self.req.model_copy(update={"request_id":__import__("uuid").uuid4()})
         first=len(self.m.queue);await self.batch("10eros_full");eros=self.m.queue[first]
-        data["pending_artifacts"][0]["converter_sha256"]="b"*64
+        writer27=next(item for item in data["artifacts"] if item["id"]=="10eros-writer-replacement")
+        writer27["revision"]="b"*40
         manifest.write_text(json.dumps(data))
         with self.assertRaisesRegex(ValueError,"model provenance changed"):self.m.production_workflow(eros)
 
@@ -334,16 +341,14 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         path = self.m.patch_workflow(job, self.m.production_workflow(job))
         nodes = {node["id"]: node for node in json.loads(path.read_text())["nodes"]}
         rows = [row for row in nodes[6164]["widgets_values"] if isinstance(row, dict) and row.get("on")]
-        self.assertEqual({row["lora"]: row["strength"] for row in rows}, {
-            "HMBreastsV2.safetensors": 1, "MysticXXX_MMH3-V4-ref2va.safetensors": .6,
-            "movement_h3_lora_v1_500.safetensors": .5})
+        self.assertEqual({row["lora"]: row["strength"] for row in rows}, {"HMBreastsV2.safetensors": 1})
         self.assertTrue(nodes[7362]["widgets_values_named"]["enabled"])
         self.assertEqual(nodes[7362]["widgets_values_named"]["alpha"], .1)
         # A new generation may resolve new defaults, but queued selections do
         # not change. Functional filename drift instead fences the old job.
         with load_controller(source=self.m.ROOT, production_probes=True) as restarted:
             self.assertEqual(restarted.job_profile(job), "h3_full")
-        next(row for row in registry["loras"] if row["id"] == "movement-v1")["filename"] = "other.safetensors"
+        next(row for row in registry["loras"] if row["id"] == "hm-breasts-v2")["filename"] = "other.safetensors"
         registry_path.write_text(json.dumps(registry))
         with load_controller(source=self.m.ROOT, production_probes=True) as restarted:
             with self.assertRaisesRegex(ValueError, "functional LoRA registry identity changed"):
@@ -374,9 +379,11 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         active.update(render_phase="sampling", status="recovery_render")
         self.assertFalse(self.m.phase_admission(job, "prompt")[0])
 
-    async def test_10eros_cold_overlap_requires_fresh_measured_headroom(self):
+    async def test_10eros_writer_overlap_requires_fresh_measured_headroom(self):
         job = await self.batch("10eros_full")
         self.render_active("10eros_full")
+        self.assertFalse(self.m.phase_admission(job, "prompt")[0])
+        self.warm(job)
         self.assertTrue(self.m.phase_admission(job, "prompt")[0])
         self.m.overlap_telemetry["sampled_at"] -= 4
         self.assertFalse(self.m.phase_admission(job, "prompt")[0])
@@ -458,7 +465,7 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         verdict = {"data": {"valid": True, "error_count": 0}}
         with transport, patch.object(self.m, "run_cli_envelope", AsyncMock(return_value=verdict)):
             prepared = await self.m._prepare_workflow_api(path, "prompt", preview_envelope={"data": {"status": "preview", "prompt": converted}})
-        models = [node["inputs"]["model"] for node in prepared.values() if node["class_type"] in {"LLMTextProcessor", "AJCompilerTextProcessor"}]
+        models = [node["inputs"]["model"] for node in prepared.values() if node["class_type"] in {"LLMTextProcessor", "AJPromptTextProcessor", "AJCompilerTextProcessor", "AJGatedCompilerTextProcessor"}]
         self.assertEqual(models, [self.m.PRODUCTION["profiles"]["10eros_full"]["writer"]] * 2)
         self.assertEqual(job["prompt_kind"], "durable_text")
         self.assertEqual(calls, [("GET", 8189, "/object_info")])
@@ -487,7 +494,7 @@ class ProductionControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([(p["id"], p["label"]) for p in config["profiles"]], [("h3_full", "H3 Full"), ("10eros_full", "10Eros Full")])
         self.assertTrue(all("id" in value and "defaults" in value for value in config["loras"]))
         self.assertEqual(result["production"]["gpu_validation"], "pending")
-        self.assertEqual(result["models"]["manifest_status"], "blocked_source_provenance")
+        self.assertEqual(result["models"]["manifest_status"], "production_pinned_gpu_pending")
         self.assertEqual(self.m.QUEUE_FILE.read_bytes(), before)
 
     async def test_inline_extra_cut_is_rejected_through_guard_approval_recovery_and_render_preparation(self):

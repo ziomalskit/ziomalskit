@@ -25,7 +25,19 @@ ensure_git_node(){
        [[ -z "$(find "$target" -mindepth 1 -maxdepth 1 ! -name .git -print -quit 8>&-)" ]]; then
       legacy=1
     elif [[ -n "$(git -C "$target" status --porcelain --untracked-files=all 8>&-)" ]]; then
-      echo "Local changes preserved; reconcile them before installing pinned node: $target" >&2; exit 1
+      # setup_linux_llama.sh owns exactly one deterministic, unstaged Linux
+      # selector patch. A normal production reinstall must preserve that patch.
+      # No other node, revision, local edit or staged/untracked file is exempt.
+      if [[ "$folder" != "ComfyUI-LLM-text-processor" ]] || ! "$COMFY_PYTHON" - "$PANEL_ROOT/scripts" "$target" "$revision" <<'PYOWNED' 8>&-
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from patch_llama_binary import verify_owned_patch
+verify_owned_patch(Path(sys.argv[2]), sys.argv[3])
+PYOWNED
+      then
+        echo "Local changes preserved; reconcile them before installing pinned node: $target" >&2; exit 1
+      fi
     fi
   fi
   if [[ ! -e "$target" || "$legacy" == 1 ]]; then
@@ -58,11 +70,12 @@ PYCOMMIT
   fi
 }
 
-# A cached /object_info cannot establish provenance. Always enforce the pins.
+# A cached /object_info cannot establish provenance. Install the complete pin set.
 specs="$("$COMFY_PYTHON" - "$PANEL_ROOT/config/custom_nodes_manifest.json" <<'PY'
 import json,re,sys
 from pathlib import Path
-for item in json.loads(Path(sys.argv[1]).read_text())['explicit_fallback_git']:
+manifest=json.loads(Path(sys.argv[1]).read_text())
+for item in manifest['workflow_git'] + manifest['explicit_fallback_git']:
     if not re.fullmatch(r'[0-9a-f]{40}',item['revision']) or not re.fullmatch(r'[A-Za-z0-9_-][A-Za-z0-9_.-]*',item['folder']):
         raise SystemExit('Invalid pinned fallback specification')
     fields=[item[key] for key in ('node_class','repo','folder','revision')]

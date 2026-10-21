@@ -1,12 +1,19 @@
 # AJ / H3 Ref2Video — product roadmap
 
-Status: PR #4 is merged at `bfcc2bb22ff9691fda924fe17bd060a7e131c2e2`.
-Its offline feature set and full CPU regression/audit are **PASS**:
-[9 October evidence and safety review](CPU_PRODUCT_ACCEPTANCE_2026-10-09.md).
-Production selection is **H3 Full + 10Eros Full with exact v20 Heretic**.
-Complete 9B writer source provenance remains blocked, so the migration is not
-ready for GPU acceptance. See [model migration evidence](MODEL_MIGRATION_2026-10-09.md).
-GPU/live Vast acceptance remains **pending**.
+Current deployment target is [Personal First Run](PERSONAL_FIRST_RUN.md):
+one private phone UI, ephemeral instance disk, one shared verified models store,
+H3 Full +10Eros Full, two initial renders and manual provider destroy. Local
+Volume and23renders are not prerequisites. Keep-data destroy still requires
+real verified retained storage. Full [Gate1–6](GPU_PRODUCTION_SESSION.md) remains
+optional diagnostics, with honest NOT RUN for omitted tests.
+
+Step1/2 uses llmfan46 Mistral24B Q4_K_M(H3)/Q6_K(10Eros), matching BF16 projector.
+Step3/4 writers are Qwen3-14B Q4_K_M / Qwen3.5-27B Q5_K_M. The unused required
+DavidAU9B entry is removed; installation remains strictly pinned to source,
+revision,size,SHA256. No GPU acceptance is claimed. Real27B first inference must
+succeed before using10Eros autoprompting. Linux with ordinary pidfd signalling and readable /proc plus an actual process-control
+probe, Full models, exactv20, queue/access/lifecycle/frozen identities remain.
+First-session planning ceiling is $15/4h, conditional on a real approved quote.
 
 ## Product goal
 
@@ -34,13 +41,20 @@ behavior. No live/GPU acceptance PASS has been recorded.
 - **Parallel only**, with bounded prompt prefetch, default `H3_PROMPT_PREFETCH=3`.
 - Exactly six images and at most one audio reference.
 - Completed jobs expose canonical video outputs and a direct **OPEN MP4** link.
-- Retained Vast Local Volume is the durability boundary across compute destruction.
+- Ephemeral disk is supported; a real retained Local Volume is needed only when retaining data across compute destruction.
 - Only `h3_full` / **H3 Full** and `10eros_full` / **10Eros Full** are normal
   production profiles. H3 Full is the runtime default. Each batch/job freezes its
   profile, model route, LoRA selection and bridge settings before publication.
+- Per-job LoRA toggles/strength and supported render controls need no rebuild,
+  provisioning or repeat of unrelated GPU gates. H3 defaults: HM 1.0 ON,
+  MysticXXX 0.6 OFF, Movement 0.5 OFF; 10Eros optional LoRA OFF. Frozen jobs bind
+  used LoRA provenance and ordered selections, so catalog additions do not
+  invalidate unrelated queued jobs. See [configuration operations](LORA_CONFIGURATION.md).
 - The canonical prompt is the exact v20 attachment; no v21/v22 prompt revisions.
-- The production manifest pins 17 artifacts; complete 9B source metadata is
-  still missing. Provisioning/preflight fail closed rather than substitute a quant.
+- The production manifest pins 22 verified-source artifacts and retains the
+  required DavidAU pending gate. Normal provisioning/preflight fail closed;
+  a separate native acceptance entry point admits only 11 explicitly approved
+  LLM GGUFs, never arbitrary pending or substitute artifacts.
 - Terminal is unavailable in supported production deployments. `H3_ENABLE_TERMINAL=1`
   cannot enable it: supervisor death does not guarantee detached-child cleanup.
   The default remains `0`; containment stays in place until ownership is reliable.
@@ -183,7 +197,9 @@ bound to that schedule, and controller/recovery/render checks fail closed. The
 90-second-plan → 20.040-second-timeline regression is covered offline. See
 [finalization evidence](PR5_FINALIZATION_2026-10-09.md) for limits and validation.
 
-H3 uses the 4B Heretic Q8_0 writer. 10Eros requires deterministic BF16 GGUF
+The following model choice records PR #5 before PR #8. Current dual-profile
+routes and the separate acceptance path are specified at the top of this roadmap.
+At that earlier stage, H3 uses the 4B Heretic Q8_0 writer. 10Eros requires deterministic BF16 GGUF
 conversion from the canonical DavidAU 9B source using the unchanged pinned
 llama.cpp. The converter contains Qwen3.5 support, but full source shard/config/
 tokenizer metadata and exact source compatibility have not been verified.
@@ -191,9 +207,9 @@ Resolve that blocker before freezing the recipe or running provisioning; never
 substitute the public IQ4_XS/Q4 build. External LoRAs require explicit local
 checksum enrollment when trustworthy upstream provenance is unavailable.
 
-H3 cold Step 0–2 waits while Full H3 samples. Cached/durable analysis permits
-the small writer with measured headroom. 10Eros permits analysis overlap only
-with measured headroom. Conditioning/decoding/recovery close the overlap window;
+Both current profiles keep cold Step 0–2 out of sampling. Cached/durable analysis
+permits the profile writer only with measured headroom; larger Step 4 contexts
+remain GPU acceptance hypotheses. Conditioning/decoding/recovery close the overlap window;
 one heavy render owns the renderer. Limits remain GPU benchmark hypotheses.
 
 ## Phase 4 — one consolidated Vast/GPU acceptance session (pending)
@@ -216,8 +232,7 @@ Order inside the single rented session:
    using evidence; scheduling remains Parallel only.
 7. Exercise the full ten-candidate flow, automatic/review priority, queue draining,
    worker/controller restart, cancellation, watchdog and uncertain submission.
-8. Check diagnostics/logs on the real layout and optional terminal over the chosen
-   private connection if deliberately enabled.
+8. Check diagnostics/logs on the real layout; production Terminal stays disabled.
 9. Verify STOP AFTER CURRENT, STOP AFTER QUEUE, guards and live lifecycle behavior.
    Keep-data destroy requires the exact provider attachment proof and protected
    paths. Verify retention and compatible reattachment/bootstrap after compute

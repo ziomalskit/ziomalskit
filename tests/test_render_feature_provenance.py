@@ -16,7 +16,7 @@ class SecondPassLoraProvenanceTests(unittest.IsolatedAsyncioTestCase):
     job = recovery.RenderFeatureRecoveryTests.job
 
     def model_health(self):
-        # Isolate the LoRA gate from the unrelated pending DavidAU manifest.
+        # Isolate LoRA-only cases from the full production model bundle.
         # Production metadata is untouched; LoRA verification/enrollment is real.
         artifacts = importlib.import_module(self.m.__package__ + '.artifacts')
         return patch.object(artifacts, 'validate_manifest', return_value={})
@@ -108,13 +108,19 @@ class SecondPassLoraProvenanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(verify.call_count, 1)
         self.assertEqual(verify.call_args.args[1], 'loras/' + self.m.LORA_REGISTRY['movement-v1']['filename'])
 
-    async def test_unchanged_davidau_manifest_blocker_still_fences_second_lora_selection(self):
+    async def test_unresolved_required_artifact_still_fences_second_lora_selection(self):
+        manifest = self.m.CONFIG / 'models_manifest.json'
+        value = json.loads(manifest.read_text())
+        value['pending_artifacts'] = [dict(id='cpu-unresolved-required', required=True,
+            profiles=['10eros_full'], provider='generated', destination='LLM/cpu-unresolved.gguf',
+            status='blocked_source_metadata', reason='Synthetic unresolved CPU fixture')]
+        manifest.write_text(json.dumps(value))
         self.lora_file('movement-v1')
         self.enroll('movement-v1')
         job = await self.selected('movement-v1')
         artifacts = importlib.import_module(self.m.__package__ + '.artifacts')
         health = importlib.import_module(self.m.__package__ + '.model_health')
-        # Real manifest validation still rejects the existing provenance blocker,
+        # Real manifest validation still rejects unresolved required provenance,
         # even if subsequent health checks would otherwise report healthy files.
         with patch.object(health, 'artifact_health', return_value={'status': 'verified_file'}), \
              patch.object(artifacts, 'verify_file', wraps=artifacts.verify_file) as verify, \

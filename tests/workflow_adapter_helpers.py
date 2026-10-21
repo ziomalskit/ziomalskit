@@ -8,8 +8,54 @@ from tests.test_workflows import exact_convert
 from tests.test_temporal_contract import CANONICAL, FINAL
 
 
-def graph_digest(document):
+def graph_digest(document, *, previous_llm_routes=False):
     document = copy.deepcopy(document)
+    if previous_llm_routes:
+        # Keep the received PR #5 hashes intact. Only the explicitly requested
+        # model/projector substitutions, exact new Step 4 budgets and per-LLM
+        # gates are normalized. Received hashes are never regenerated.
+        # Every other graph byte/edge/setting still has to match that baseline.
+        # Exact new routes and gate controls are independently asserted in
+        # test_dual_llm_profiles and test_gpu_phase_gate.
+        replacements = {
+            "Mistral-Small-3.2-24B-Instruct-2506-ultra-uncensored-heretic-Q4_K_M.gguf": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.f16.gguf",
+            "Mistral-Small-3.2-24B-Instruct-2506-ultra-uncensored-heretic-Q6_K.gguf": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.f16.gguf",
+            "Mistral-Small-3.2-24B-Instruct-2506-mmproj-BF16.gguf": "Gemma-4-E4B-IT-ABLITERATED-UNCENSORED-PHILADELPHIA-CLASS.mmproj-f16.gguf",
+            "Qwen3-14B-heretic.Q4_K_M.gguf": "Qwen3.5-4B-Heretic-Q8_0.gguf",
+            "Qwen3.5-27B-heretic.Q5_K_M.gguf": "Qwen3.5-9B-F451-AND-TRI-Polar-Ultra-Pro-Writer-Uncensored-Heretic-BF16.gguf",
+        }
+        budgets = (
+            (14400, 32768, "--reasoning-format deepseek --reasoning-budget 6144"),
+            (16448, 36864, "--reasoning-format deepseek --reasoning-budget 8192"),
+        )
+        def normalize_step4(inputs, positional=None):
+            keys = ("max_tokens", "ctx_size", "extra_args")
+            if tuple(inputs.get(key) for key in keys) in budgets:
+                for key, old in zip(keys, (12352, 29184, "--reasoning-format deepseek --reasoning-budget 4096")):
+                    if positional is not None:
+                        index = list(inputs).index(key)
+                        # A broken UI positional mirror must still fail parity.
+                        if positional[index] == inputs[key]:
+                            positional[index] = old
+                    inputs[key] = old
+        def normalize(value):
+            if isinstance(value, str):
+                return replacements.get(value, value)
+            if isinstance(value, list):
+                return [normalize(item) for item in value]
+            if isinstance(value, dict):
+                value = {key: normalize(item) for key, item in value.items()}
+                if value.get("type") == "AJCompilerTextProcessor" and value.get("id") == 4275:
+                    normalize_step4(value["widgets_values_named"], value["widgets_values"])
+                if value.get("class_type") == "AJGatedCompilerTextProcessor":
+                    normalize_step4(value["inputs"])
+                if value.get("class_type") in {"AJPromptTextProcessor", "AJGatedCompilerTextProcessor"}:
+                    value["class_type"] = "LLMTextProcessor" if value["class_type"] == "AJPromptTextProcessor" else "AJCompilerTextProcessor"
+                    value["inputs"].pop("aj_headroom_mb")
+                    value["inputs"].pop("aj_allow_sampling")
+                return value
+            return value
+        document = normalize(document)
     metadata = document.get("extra", {}).get("aj_production")
     if metadata:
         document["extra"]["aj_production"] = {key: metadata[key] for key in

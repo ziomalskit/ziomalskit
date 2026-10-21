@@ -205,7 +205,7 @@ from pathlib import Path
 a=sys.argv[1:]
 def publish(path):
  tmp=path.with_name(path.name+'.'+str(os.getpid()));tmp.write_text(str(os.getpid()));os.replace(tmp,path)
-if a and a[0].endswith('/process_identity.py'):os.execv({sys.executable!r},[{sys.executable!r},*a])
+if a and a[0].endswith(('/process_identity.py', '/runtime_dependencies.py')):os.execv({sys.executable!r},[{sys.executable!r},*a])
 if a and a[0]=='-c':print({str(prefix)!r});sys.exit(0)
 mode={mode!r}
 if mode=='descendant':
@@ -301,6 +301,8 @@ while True:
         self.ready.unlink()
         new_panel, new_comfy = self.f.base / 'new-panel', self.f.base / 'new-comfy'
         shutil.copytree(self.f.panel / 'scripts', new_panel / 'scripts')
+        for constraints in self.f.panel.glob('*constraints*.txt'):
+            shutil.copy2(constraints, new_panel / constraints.name)
         new_comfy.mkdir()
         self.f.environment.pop('PID_DIR')
         self.f.environment.update(PANEL_ROOT=str(new_panel), COMFY_ROOT=str(new_comfy), RENDER_PORT=str(port()))
@@ -424,7 +426,7 @@ raise SystemExit(m.main())
                 self.assertEqual(record.read_bytes(), original)
                 self.assertFalse(exited(descendant))
         finally:
-            signal.pidfd_send_signal(leader, signal.SIGKILL, None, identity.PIDFD_SIGNAL_PROCESS_GROUP)
+            signal.pidfd_send_signal(descendant, signal.SIGKILL)
             wait_for(lambda: exited(descendant))
 
     def test_05_proc_scan_cannot_prematurely_confirm_group_exit(self):

@@ -1,21 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
 set +x
+[[ "$#" -le 1 && ( "$#" == 0 || "$1" == --dependencies-only ) ]] || {
+  echo 'Usage: provision.sh [--dependencies-only]' >&2; exit 2;
+}
 # Download credentials are scoped to the download subprocess only.
+unset AJ_DOWNLOAD_HF_TOKEN
 AJ_DOWNLOAD_HF_TOKEN="${HF_TOKEN:-}"
 unset HF_TOKEN HUGGING_FACE_HUB_TOKEN HF_HUB_TOKEN
 
 PACKAGE_DIR="${PACKAGE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 DATA_ROOT="${H3_PERSISTENT_ROOT:-${WORKSPACE:-/workspace}}"
 WORKSPACE="$DATA_ROOT"
+# Ephemeral is an honest default. A real retained volume still needs its proof.
+export H3_PERSISTENT_ROOT="$DATA_ROOT" H3_PERSISTENCE_MODE="${H3_PERSISTENCE_MODE:-ephemeral}"
+export PIP_NO_CACHE_DIR="${PIP_NO_CACHE_DIR:-1}"
+export HF_HOME="${HF_HOME:-${WORKSPACE:-/workspace}/.cache/huggingface}"
 COMFY_ROOT="${COMFY_ROOT:-$DATA_ROOT/ComfyUI}"
 PANEL_ROOT="${PANEL_ROOT:-$DATA_ROOT/H3_VAST_MOBILE}"
 PID_DIR="${PID_DIR:-$DATA_ROOT/.h3-service-pids}"
 H3_CUDA_VERSION="${H3_CUDA_VERSION:-13.0}"
 case "$H3_CUDA_VERSION" in 12.8|12.9|13.0) ;; *) echo "Supported CUDA selection: 12.8, 12.9, 13.0" >&2; exit 1;; esac
 mkdir -p "$DATA_ROOT"
+export H3_INSTALL_TIMING_FILE="${H3_INSTALL_TIMING_FILE:-$DATA_ROOT/install-timings.jsonl}"
+AJ_TIMING_PYTHON="${PYTHON_BIN:-$(command -v python3)}"
+AJ_ENV_STAGE="$("$AJ_TIMING_PYTHON" "$PACKAGE_DIR/scripts/install_timing.py" begin environment)"
 source "$PACKAGE_DIR/scripts/python_env.sh"
 h3_select_python
+"$COMFY_PYTHON" "$PACKAGE_DIR/scripts/install_timing.py" end "$AJ_ENV_STAGE" completed
+h3_timed() { "$COMFY_PYTHON" "$PACKAGE_DIR/scripts/install_timing.py" run "$@"; }
 export PACKAGE_DIR DATA_ROOT WORKSPACE COMFY_ROOT PANEL_ROOT PID_DIR H3_CUDA_VERSION
 
 # Fail before package/model installation when canonical provenance is blocked.
@@ -25,33 +38,35 @@ export PACKAGE_DIR DATA_ROOT WORKSPACE COMFY_ROOT PANEL_ROOT PID_DIR H3_CUDA_VER
 echo "Preparing H3 with Python $COMFY_PYTHON and ComfyUI $COMFY_ROOT"
 if [[ "${H3_SKIP_SYSTEM_PACKAGES:-0}" != 1 ]] && command -v apt-get >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update -y
-  apt-get install -y --no-install-recommends build-essential cmake ninja-build git curl ca-certificates pkg-config
+  h3_timed system_package_index apt-get update -y
+  h3_timed system_packages apt-get install -y --no-install-recommends build-essential cmake ninja-build git curl ca-certificates pkg-config
 fi
-"$COMFY_PYTHON" -m pip install "comfy-cli==1.21.0"
+h3_timed python_dependencies "$COMFY_PYTHON" -m pip install "comfy-cli==1.21.0"
 
 if [[ "${H3_INSTALL_VAST_CLI:-1}" == 1 ]] && ! command -v vastai >/dev/null 2>&1; then
   # Official HTTPS installer; preserve TLS validation. Never supply credentials here.
   curl -fsSL https://vast.ai/install.sh | bash
 fi
 
+AJ_COMFY_STAGE="$("$COMFY_PYTHON" "$PACKAGE_DIR/scripts/install_timing.py" begin comfy_install)"
 COMFY_COMMIT="$("$COMFY_PYTHON" "$PACKAGE_DIR/scripts/runtime_config.py" constant COMFY_COMMIT)"
 if [[ -f "$COMFY_ROOT/main.py" ]]; then
   [[ "$(git -C "$COMFY_ROOT" rev-parse HEAD)" == "$COMFY_COMMIT" ]] || {
     echo "Existing ComfyUI differs from pinned v0.38.0; select a clean COMFY_ROOT" >&2; exit 1;
   }
-  h3_comfy --skip-prompt --workspace="$COMFY_ROOT" install --restore --version 0.38.0 --nvidia --cuda-version "$H3_CUDA_VERSION"
+  h3_comfy --skip-prompt --workspace="$COMFY_ROOT" install --restore --version 0.38.0 --skip-manager --nvidia --cuda-version "$H3_CUDA_VERSION"
 else
-  h3_comfy --skip-prompt --workspace="$COMFY_ROOT" install --version 0.38.0 --nvidia --cuda-version "$H3_CUDA_VERSION"
+  h3_comfy --skip-prompt --workspace="$COMFY_ROOT" install --version 0.38.0 --skip-manager --nvidia --cuda-version "$H3_CUDA_VERSION"
 fi
 [[ "$(git -C "$COMFY_ROOT" rev-parse HEAD)" == "$COMFY_COMMIT" ]] || {
   echo "Installed ComfyUI commit does not match verified v0.38.0" >&2; exit 1;
 }
+"$COMFY_PYTHON" "$PACKAGE_DIR/scripts/install_timing.py" end "$AJ_COMFY_STAGE" completed
 "$COMFY_PYTHON" -c 'import torch; print("ComfyUI dependencies installed; CUDA readiness remains a separate check")'
 
 "$COMFY_PYTHON" "$PACKAGE_DIR/scripts/deployment.py" "$PACKAGE_DIR" "$PANEL_ROOT"
 
-"$COMFY_PYTHON" -m pip install -r "$PANEL_ROOT/requirements.txt"
+h3_timed python_dependencies "$COMFY_PYTHON" -m pip install -r "$PANEL_ROOT/requirements.txt"
 mkdir -p "$COMFY_ROOT/input" "$COMFY_ROOT/output" \
   "$COMFY_ROOT/temp-render" "$COMFY_ROOT/temp-prompt" \
   "$COMFY_ROOT/user-render" "$COMFY_ROOT/user-prompt" \
@@ -60,23 +75,32 @@ mkdir -p "$COMFY_ROOT/input" "$COMFY_ROOT/output" \
   "$COMFY_ROOT/models/loras" "$COMFY_ROOT/models/latent_upscale_models" \
   "$COMFY_ROOT/models/semantic_bridge"
 h3_comfy --skip-prompt --workspace="$COMFY_ROOT" set-default "$COMFY_ROOT"
-# Do not downgrade a failed dependency installation to a successful provision.
-h3_comfy --skip-prompt --workspace="$COMFY_ROOT" node install-deps \
-  --workflow="$PANEL_ROOT/workflows/H3_v20_heretic_MASTER_DURATION_EXACT.json" --uv-compile
-bash "$PANEL_ROOT/scripts/install_fallback_nodes.sh"
+AJ_NODES_STAGE="$("$COMFY_PYTHON" "$PACKAGE_DIR/scripts/install_timing.py" begin comfy_configuration)"
+# No registry discovery: mixed workflow metadata is not a reproducible lock.
+h3_timed comfy_custom_nodes bash "$PANEL_ROOT/scripts/install_fallback_nodes.sh"
 "$COMFY_PYTHON" "$PANEL_ROOT/scripts/install_owned_nodes.py" \
   "$PANEL_ROOT/custom_nodes/aj_production" "$COMFY_ROOT/custom_nodes"
-bash "$PANEL_ROOT/scripts/setup_linux_llama.sh"
+"$COMFY_PYTHON" "$PACKAGE_DIR/scripts/install_timing.py" end "$AJ_NODES_STAGE" completed
+h3_timed llama_build bash "$PANEL_ROOT/scripts/setup_linux_llama.sh"
 
 AJ_LLAMA_SOURCE="${H3_BUILD_ROOT:-$DATA_ROOT/.h3-build}/llama.cpp-$("$COMFY_PYTHON" "$PANEL_ROOT/scripts/runtime_config.py" constant LLAMA_TAG)"
-"$COMFY_PYTHON" -m pip install -r "$AJ_LLAMA_SOURCE/requirements/requirements-convert_hf_to_gguf.txt"
+h3_timed python_dependencies "$COMFY_PYTHON" -m pip install -r "$AJ_LLAMA_SOURCE/requirements/requirements-convert_hf_to_gguf.txt"
+# Mandatory v20 backend: compile/reuse and execute its small real CUDA probe
+# before ANY model transfer (including the optional first-run GGUF preparation).
+h3_timed sageattention "$COMFY_PYTHON" "$PANEL_ROOT/scripts/sageattention_runtime.py" install \
+  "$COMFY_ROOT" "${H3_BUILD_ROOT:-$DATA_ROOT/.h3-build}" "$H3_CUDA_VERSION"
+if [[ "${1:-}" == --dependencies-only ]]; then
+  echo 'Dependencies and MiniMax Sage CUDA kernel verified; no model transfer or service startup.'
+  exit 0
+fi
 AJ_DOWNLOAD_VENV="$DATA_ROOT/.aj-download-venv"
 if [[ ! -x "$AJ_DOWNLOAD_VENV/bin/python" ]]; then "$COMFY_PYTHON" -m venv "$AJ_DOWNLOAD_VENV"; fi
-"$AJ_DOWNLOAD_VENV/bin/python" -m pip install -r "$PANEL_ROOT/download-requirements.txt"
-HF_TOKEN="$AJ_DOWNLOAD_HF_TOKEN" "$AJ_DOWNLOAD_VENV/bin/python" "$PANEL_ROOT/scripts/provision_models.py" \
+PIP_CONSTRAINT= "$AJ_DOWNLOAD_VENV/bin/python" -m pip install -r "$PANEL_ROOT/download-requirements.txt"
+HF_TOKEN="$AJ_DOWNLOAD_HF_TOKEN" h3_timed models_provision "$AJ_DOWNLOAD_VENV/bin/python" "$PANEL_ROOT/scripts/provision_models.py" \
   --manifest "$PANEL_ROOT/config/models_manifest.json" --models-root "$COMFY_ROOT/models" --toolchain "$AJ_LLAMA_SOURCE"
 unset AJ_DOWNLOAD_HF_TOKEN HF_TOKEN
 "$COMFY_PYTHON" -m pip check
+"$COMFY_PYTHON" "$PANEL_ROOT/scripts/runtime_dependencies.py" verify "$PANEL_ROOT" "$COMFY_ROOT" "$H3_CUDA_VERSION"
 
 "$COMFY_PYTHON" - "$COMFY_ROOT/input" <<'PY'
 from pathlib import Path

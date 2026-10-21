@@ -290,7 +290,7 @@ class PreflightControllerTests(unittest.TestCase):
                      patch.object(preflight, "verify_llama"), \
                      patch.object(preflight, "validate_gpu"), \
                      patch.object(preflight, "model_requirements", return_value=[]), \
-                     patch.object(preflight.subprocess, "check_output", side_effect=[preflight.COMFY_COMMIT, "1.21.0", "release 13.0", "{}"]), \
+                     patch.object(preflight.subprocess, "check_output", side_effect=[preflight.COMFY_COMMIT, "1.21.0", "", "release 13.0", "{}"]), \
                      patch.object(preflight.json, "loads", return_value={}), \
                      patch("pathlib.Path.read_text", return_value="{}"), contextlib.redirect_stdout(io.StringIO()):
                     errors = preflight.run_checks()

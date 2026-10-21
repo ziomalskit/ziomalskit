@@ -29,6 +29,19 @@ MAX_INPUT_BYTES = 16 * 1024
 PIDFD_SIGNAL_PROCESS_GROUP = 4
 
 
+def require_terminal_group_control() -> None:
+    """Optional terminal keeps its existing atomic group cleanup guarantee."""
+    descriptor = os.pidfd_open(os.getpid())
+    try:
+        try:
+            signal.pidfd_send_signal(descriptor, 0, None, PIDFD_SIGNAL_PROCESS_GROUP)
+        except OSError as error:
+            if error.errno != errno.ESRCH:
+                raise RuntimeError('Optional terminal unavailable: Linux >=6.9 group signalling required') from error
+    finally:
+        os.close(descriptor)
+
+
 class SessionTokens:
     def __init__(self, *, clock=time.monotonic, ttl=TOKEN_TTL_SECONDS, max_pending=32):
         self.clock, self.ttl, self.max_pending = clock, ttl, max_pending

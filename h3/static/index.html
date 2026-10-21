@@ -46,6 +46,7 @@ a{color:#9ecbff}
     <div class="metric"><span class="tiny">Storage</span><b id="vastDisk">—</b><span id="vastPersist" class="tiny">—</span></div>
   </div>
   <div style="margin-top:10px" class="tiny" id="vastPlan">Shutdown plan: none</div>
+  <div class="tiny" id="costHold" role="status"></div>
   <div class="vastactions">
     <button class="secondary" data-lifecycle-control onclick="vastAction('stop_after_current')">STOP AFTER CURRENT</button>
     <button class="secondary" data-lifecycle-control onclick="vastAction('stop_after_queue')">STOP AFTER QUEUE</button>
@@ -59,6 +60,8 @@ a{color:#9ecbff}
       <div><label>Session cost guard $ (0=off)</label><input id="costGuard" type="number" value="0" min="0" step="0.25" oninput="guardEdited()"></div>
     </div>
     <button class="secondary" data-lifecycle-control onclick="saveGuards()">SAVE GUARDS</button>
+    <button class="secondary" id="resumeCostBtn" data-lifecycle-control onclick="vastAction('resume_cost_guard')">VERIFY COST & RESUME DISPATCHES</button>
+    <div class="tiny">Estimates this controller session; does not cap the total Vast bill. Unknown cost pauses new jobs. Running work continues.</div>
   </details>
   <details>
     <summary>Danger zone</summary>
@@ -625,7 +628,8 @@ async function refresh(){
 
 function lifecycleButtonState(){
   for(const button of document.querySelectorAll?.('[data-lifecycle-control]')||[]){
-    button.disabled=lifecycleInFlight || (button.id==='destroyKeepBtn' && !backendVast?.persistence?.safe_for_destroy_keep_data);
+    button.disabled=lifecycleInFlight || (button.id==='destroyKeepBtn' && !backendVast?.persistence?.safe_for_destroy_keep_data)
+      || (button.id==='resumeCostBtn' && !(backendVast?.plan?.cost_guard_usd>0));
   }
 }
 async function performVastAction(action,extra,token){
@@ -718,6 +722,7 @@ async function refreshVast(){
     document.getElementById('destroyKeepBtn').disabled=lifecycleInFlight || !p.safe_for_destroy_keep_data;
     document.getElementById('destroyKeepBtn').title=p.safe_for_destroy_keep_data?'':'Configure H3_PERSISTENT_ROOT on a separate mounted Vast volume first';
     let plan=s.plan||{};
+    document.getElementById('costHold').textContent=plan.cost_hold?'NEW DISPATCHES PAUSED: '+(plan.cost_hold_reason||'verify session cost and explicitly resume'):'';
     document.getElementById('vastPlan').textContent='Shutdown plan: '+(plan.plan||'none')+(plan.reason?' • '+plan.reason:'');
     const editing=guardsDirty || ['idleMin','costGuard'].some(id=>document.activeElement===document.getElementById(id));
     if(!editing){

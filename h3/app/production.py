@@ -47,6 +47,45 @@ def registry_identity(registry, bridge=None):
                                     separators=(",", ":"), allow_nan=False).encode()).hexdigest()
 
 
+def lora_execution_identity(registry, bridge, profile, settings, render_settings, bridge_setting):
+    """Bind ordered frozen selections and only the resources they execute.
+
+    Inactive rows remain frozen UI values, not dependencies on today's catalog.
+    All execution and verification still use the same trusted startup snapshot.
+    """
+    if not isinstance(settings, list) or not isinstance(bridge_setting, dict):
+        raise ValueError("persisted LoRA selection/bridge missing; reconciliation required")
+    first = resolve_loras(registry, profile, settings, frozen=True, ids_only=True)
+    second_active = render_settings["second_pass_enabled"]
+    second = resolve_loras(registry, profile, render_settings["second_pass_loras"],
+                           frozen=True, ids_only=True, active=second_active)
+    strength = bridge_setting.get("strength")
+    if (type(bridge_setting.get("enabled")) is not bool or type(strength) not in (int, float)
+            or not math.isfinite(strength) or not -2 <= strength <= 2):
+        raise ValueError("invalid frozen conditioning bridge settings")
+    if bridge_setting["enabled"] and any(bridge_setting.get(key) != bridge[key] for key in ("id", "filename")):
+        raise ValueError("persisted conditioning bridge routing changed")
+    selected = {row["id"] for row in first if row["enabled"]}
+    selected.update(row["id"] for row in second if second_active and row["enabled"])
+    # Other profiles and presentation/evidence annotations do not route this
+    # job. Actual used source, filename, hash, bounds and compatibility do.
+    resources = {}
+    for identifier in selected:
+        entry = registry_json(registry[identifier])
+        entry.pop("metadata_evidence", None)
+        entry["compatibility"] = {profile: entry["compatibility"][profile]}
+        resources[identifier] = entry
+    used_bridge = registry_json(bridge) if bridge_setting["enabled"] else None
+    if used_bridge is not None:
+        used_bridge.pop("metadata_evidence", None)
+    identity = {"schema_version": 1, "profile": profile, "loras": first,
+                "second_pass_loras": second, "second_pass_enabled": second_active,
+                "conditioning_bridge": bridge_setting,
+                "resources": registry_identity(resources, used_bridge)}
+    return hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False,
+                                    separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
 def functional_policy(profile: dict) -> dict:
     if not isinstance(profile, dict):
         raise ValueError("persisted functional profile policy is malformed; reconciliation required")
@@ -123,8 +162,10 @@ def read_profiles(path: Path) -> dict:
         from .workflow_adapters import REGISTRY
         if profile.get("workflow_id") not in REGISTRY:
             raise ValueError("production profile requires a trusted workflow adapter")
-        for field in ("render_template", "checkpoint", "writer", "encoder", "video_vae", "audio_vae"):
+        for field in ("render_template", "checkpoint", "writer", "encoder", "video_vae", "audio_vae", "analysis_model", "analysis_mmproj"):
             relative_path(profile[field])
+        if any("/" in profile[field] or not profile[field].endswith(".gguf") for field in ("writer", "analysis_model", "analysis_mmproj")):
+            raise ValueError("profile LLM routes require registered GGUF basenames")
         if any(word in profile["checkpoint"].lower() for word in ("int8", "w4a8", "turbo", "quant")):
             raise ValueError("legacy checkpoint cannot be a production profile")
         policy = profile.get("memory_policy", {})
@@ -180,7 +221,7 @@ def read_loras(path: Path, *, document=None) -> dict[str, dict]:
 
 
 def resolve_loras(registry: dict, profile: str, settings: list[dict] | None, *, frozen=False,
-                  ids_only=False, supplied_only=False) -> list[dict]:
+                  ids_only=False, supplied_only=False, active=True) -> list[dict]:
     if profile not in PROFILE_LABELS:
         raise ValueError("unknown production profile")
     result = {identifier: {"id": identifier, **entry["defaults"][profile]} for identifier, entry in registry.items()}
@@ -190,22 +231,27 @@ def resolve_loras(registry: dict, profile: str, settings: list[dict] | None, *, 
     # defaults must never reorder or add disabled rows to a persisted selection.
     seen = set()
     for setting in settings or []:
+        if not isinstance(setting, dict):
+            raise ValueError("invalid LoRA settings")
         # Only explicit registered identifiers/legacy canonical names are accepted.
         # No basename normalization can transform an untrusted path into an ID.
         value = setting.get("id", setting.get("name"))
-        identifier = value if value in registry else None if ids_only else next((key for key, item in registry.items() if item["filename"] == value), None)
+        inactive = frozen and (setting.get("enabled") is False or not active)
+        identifier = value if isinstance(value, str) and value in registry else None if ids_only else next((key for key, item in registry.items() if item["filename"] == value), None)
+        if inactive and isinstance(value, str) and IDENTIFIER.fullmatch(value):
+            identifier = value
         if identifier is None:
             raise ValueError("unknown LoRA identifier")
         if identifier in seen:
             raise ValueError("duplicate LoRA settings")
         seen.add(identifier)
-        entry = registry[identifier]
+        entry = registry.get(identifier)
         strength = setting.get("strength")
         if (type(setting.get("enabled")) is not bool or type(strength) not in (int, float) or
-                not entry["strength_range"][0] <= strength <= entry["strength_range"][1] or
-                type(strength) is float and not math.isfinite(strength)):
+                not math.isfinite(strength) or
+                (not inactive and not entry["strength_range"][0] <= strength <= entry["strength_range"][1])):
             raise ValueError("LoRA strength outside registry bounds")
-        if setting["enabled"] and entry["compatibility"][profile] == "incompatible":
+        if not inactive and setting["enabled"] and entry["compatibility"][profile] == "incompatible":
             raise ValueError("LoRA incompatible with this profile")
         result[identifier] = {"id": identifier, "enabled": setting["enabled"], "strength": float(strength)}
     return list(result.values())

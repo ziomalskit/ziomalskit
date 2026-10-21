@@ -18,7 +18,7 @@ Musi potwierdzić:
 - Linux llama-cli;
 - oba Comfy services;
 - authenticated panel;
-- runtime na Linuxie obsługującym wymagane pidfd process-group signalling.
+- runtime na Linuxie obsługującym zwykłe pidfd signalling i /proc (process_identity.py support).
 
 ## 2. Conversion smoke test — NO REAL RENDER
 

@@ -5,7 +5,7 @@ import copy
 import re
 from .temporal import final_answer
 
-MODEL_FIELDS = ("checkpoint", "writer", "compiler", "encoder", "video_vae", "audio_vae")
+MODEL_FIELDS = ("checkpoint", "writer", "compiler", "encoder", "video_vae", "audio_vae", "analysis_model", "analysis_mmproj")
 STAGE_NODES = {"step3": "2551:2640:2445", "step4": "2551:2640:4275"}
 SECTIONS = ("subject_definitions", "summary", "retention_analysis", "detailed_description",
             "overall_soundscape", "non_diegetic_music")
@@ -37,6 +37,9 @@ def stage_routes(profile: dict) -> dict:
     result = copy.deepcopy(profile["writer_stages"])
     for stage, policy in result.items():
         policy["model"] = GEMMA if stage == "step4" and profile["compiler"] == "shared_gemma" else profile["writer"]
+        overlap = profile["overlap_policy"]
+        policy["aj_headroom_mb"] = max(overlap["writer_headroom_mb"], overlap["analysis_headroom_mb"]) if stage == "step4" and profile["compiler"] == "shared_gemma" else overlap["writer_headroom_mb"]
+        policy["aj_allow_sampling"] = True
     return result
 
 
@@ -57,7 +60,8 @@ def validate_writer_graph(prompt: dict, routes: dict, *, contract=None) -> None:
         inputs = node.get("inputs", {})
         expected = {key: policy[key] for key in ("model", "reasoning", "max_tokens", "ctx_size")}
         expected.update(mmproj="none", enable_processing=True, extra_args=native_extra_args(policy))
-        expected_class = "LLMTextProcessor" if stage == "step3" else "AJCompilerTextProcessor"
+        expected.update({key: policy[key] for key in ("aj_headroom_mb", "aj_allow_sampling")})
+        expected_class = "AJPromptTextProcessor" if stage == "step3" else "AJGatedCompilerTextProcessor"
         if node.get("class_type") != expected_class or any(inputs.get(key) != value for key, value in expected.items()):
             raise ValueError("converted writer differs from persisted stage policy")
         for consumer in prompt.values():

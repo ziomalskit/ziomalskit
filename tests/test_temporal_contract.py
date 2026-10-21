@@ -8,7 +8,7 @@ from h3.app.temporal import (duration_identity, validate_duration, normalize_pla
                              final_timeline, FRAME_EXPRESSION, LENGTH_EXPRESSION)
 from h3.app.v20 import all_nodes, verified_baseline, BASELINE_FILE
 from h3.app.production_api import frozen_duration, temporal_guards, validate_temporal_graph
-from h3.app.writer_policy import stage_routes, validate_writer_graph, validate_stages
+from h3.app.writer_policy import stage_routes, validate_writer_graph, validate_stages, native_extra_args
 from tests.test_production_api import production_catalog
 from tests import test_production_api as api_fixture
 
@@ -134,7 +134,9 @@ class WriterAndTemporalGraphTests(unittest.TestCase):
     def setUpClass(cls):api_fixture.ProductionAPITests.setUpClass()
     def graph(self,profile="h3_full"):
         fixture=api_fixture.ProductionAPITests()
-        return temporal_guards(frozen_duration(fixture.convert(profile,"prompt"),duration_identity(20),fixture.catalog),fixture.catalog)
+        from h3.app.workflow_adapters import get_adapter
+        context={**duration_identity(20), "profile_identity": fixture.profiles["profiles"][profile]}
+        return get_adapter("h3_v20").install_runtime_guards(fixture.convert(profile,"prompt"),fixture.catalog,context,phase="prompt")[0]
 
     def test_guarded_plan_is_the_only_step_four_path_and_both_captures_are_guarded(self):
         for profile in ("h3_full","10eros_full"):
@@ -158,13 +160,43 @@ class WriterAndTemporalGraphTests(unittest.TestCase):
         with self.assertRaises(ValueError):validate_temporal_graph(graph,duration_identity(20))
 
     def test_stage_specific_native_budget_reserves_final_answer_and_input_allowance(self):
-        for profile in api_fixture.ProductionAPITests.profiles["profiles"].values():
+        for name, budget, total, context in (("h3_full",6144,14400,32768),("10eros_full",8192,16448,36864)):
+            profile=api_fixture.ProductionAPITests.profiles["profiles"][name]
             routes=stage_routes(profile)
+            self.assertEqual(profile['writer_stages']['step3'],dict(reasoning='off',reasoning_budget=0,
+                max_tokens=8192,ctx_size=24576,final_answer_tokens=8192,framing_tokens=0))
+            self.assertEqual(profile['writer_stages']['step4'],dict(reasoning='on',reasoning_budget=budget,
+                max_tokens=total,ctx_size=context,final_answer_tokens=8192,framing_tokens=64))
             self.assertEqual(routes["step3"]["reasoning"],"off")
             self.assertEqual(routes["step4"]["reasoning"],"on")
             self.assertEqual(routes["step3"]["model"],routes["step4"]["model"])
             self.assertEqual(routes["step4"]["max_tokens"]-routes["step4"]["reasoning_budget"]-routes["step4"]["framing_tokens"],8192)
             self.assertGreaterEqual(routes["step4"]["ctx_size"]-routes["step4"]["max_tokens"],16384)
+            graph=self.graph(name)
+            for stage,identifier in (('step3','2551:2640:2445'),('step4','2551:2640:4275')):
+                self.assertEqual(graph[identifier]['inputs']['extra_args'],native_extra_args(routes[stage]))
+                self.assertEqual(graph[identifier]['inputs']['ctx_size'],routes[stage]['ctx_size'])
+                self.assertEqual(graph[identifier]['inputs']['max_tokens'],routes[stage]['max_tokens'])
+
+    def test_new_step_four_native_controls_cannot_be_overridden_or_underbudgeted(self):
+        for name in ('h3_full','10eros_full'):
+            policy=api_fixture.ProductionAPITests.profiles['profiles'][name]
+            for change in ({'reasoning':'off'},{'max_tokens':policy['writer_stages']['step4']['max_tokens']-1},
+                           {'ctx_size':24576},{'extra_args':'--reasoning-format none --reasoning-budget 8192'},
+                           {'extra_args':'--reasoning-format deepseek --reasoning-budget 4096'}):
+                with self.subTest(profile=name,change=change):
+                    graph=self.graph(name);graph['2551:2640:4275']['inputs'].update(change)
+                    with self.assertRaises(ValueError):validate_writer_graph(graph,stage_routes(policy))
+
+    def test_new_reasoning_context_budgets_fail_closed_at_each_boundary(self):
+        for profile in api_fixture.ProductionAPITests.profiles['profiles'].values():
+            original=profile['writer_stages'];policy=original['step4']
+            for change in ({'max_tokens':policy['max_tokens']-1},{'ctx_size':policy['max_tokens']+16383},
+                           {'reasoning_budget':True},{'reasoning_budget':16385},{'final_answer_tokens':8191},
+                           {'framing_tokens':63},{'ctx_size':1048577}):
+                with self.subTest(change=change):
+                    candidate=copy.deepcopy(original);candidate['step4'].update(change)
+                    with self.assertRaises(ValueError):validate_stages(candidate)
 
     def test_starved_or_unbounded_reasoning_configuration_is_rejected(self):
         stages=api_fixture.ProductionAPITests.profiles["profiles"]["h3_full"]["writer_stages"]

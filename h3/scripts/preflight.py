@@ -130,9 +130,15 @@ def cpu_invariants(panel: Path, *, allow_pending=False) -> dict:
         if not allow_pending and profile["writer"] not in filenames:
             raise ValueError("production writer is absent from frozen manifest")
     for item in [*registry.values(), bridge]:
-        if item["provenance_status"] == "verified_source":
+        if item["provenance_status"] == "verified_source" and any(value["enabled"] for value in item["defaults"].values()):
             matches = [entry for entry in entries.values() if Path(entry["destination"]).name == item["filename"]]
-            if len(matches) != 1 or any(matches[0][key] != item[key] for key in ("revision", "repository_path", "size_bytes", "sha256")) or matches[0]["repository"] != item["source"]["repository"]:
+            # The validated registry is sufficient provenance for an added
+            # optional LoRA. If the stack manifest also owns this destination,
+            # the two authorities must agree before default activation.
+            # The pinned Bunny bridge is not an extensible PowerLoRA slot.
+            if item is bridge and len(matches) != 1:
+                raise ValueError("registered LoRA provenance differs from production manifest")
+            if matches and (len(matches) != 1 or any(matches[0][key] != item[key] for key in ("revision", "repository_path", "size_bytes", "sha256")) or matches[0]["repository"] != item["source"]["repository"]):
                 raise ValueError("registered LoRA provenance differs from production manifest")
     runtime = panel / "runtime.env"
     if runtime.exists():
@@ -167,6 +173,8 @@ def run_checks(environment: dict[str, str] | None = None) -> list[str]:
         cli = subprocess.check_output([python, "-c", "import importlib.metadata; print(importlib.metadata.version('comfy-cli'))"], text=True).strip()
         if cli != "1.21.0":
             raise ValueError("comfy-cli must be 1.21.0 in the selected Python")
+        subprocess.check_output([python, str(panel / "scripts/runtime_dependencies.py"),
+                                 "verify", str(panel), str(comfy), configured_cuda], text=True)
     check("pinned versions", versions)
 
     def cuda():
@@ -177,6 +185,10 @@ def run_checks(environment: dict[str, str] | None = None) -> list[str]:
         info = json.loads(subprocess.check_output([python, "-c", GPU_PROBE], text=True, stderr=subprocess.PIPE, timeout=60))
         validate_gpu(info, configured_cuda)
     check("CUDA kernel and target GPU", cuda)
+    if env.get("H3_ALLOW_DIAGNOSTIC_SUBMISSIONS") != "1":
+        check("v20 SageAttention source/ABI and MiniMax CUDA kernel", lambda: subprocess.check_output(
+            [python, str(panel / "scripts/sageattention_runtime.py"), "verify", str(comfy), configured_cuda],
+            text=True, timeout=120))
 
     def models():
         manifest = json.loads((panel / "config/models_manifest.json").read_text())
@@ -194,7 +206,8 @@ def run_checks(environment: dict[str, str] | None = None) -> list[str]:
                 if any(default["enabled"] for default in entry["defaults"].values()) and lora_health(
                     comfy / "models", identifier, entry, bridge=entry is bridge, full_hash=True)["installation"] != "verified_file":
                     raise ValueError("default LoRA/bridge requires exact integrity verification")
-            verify_bridge_files(comfy / "models", comfy, bridge, bridge)
+            if any(default["enabled"] for default in bridge["defaults"].values()):
+                verify_bridge_files(comfy / "models", comfy, bridge, bridge)
             return
         if env.get("H3_ALLOW_DIAGNOSTIC_SUBMISSIONS") != "1":
             raise ValueError("legacy manifest requires explicit diagnostic mode")
