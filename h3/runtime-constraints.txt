@@ -6,6 +6,7 @@
 # Remaining requirements retain the bounds in the pinned upstream sources.
 # Review these and the CUDA profiles explicitly when upgrading ComfyUI/nodes.
 numpy==1.26.4
+sageattention==2.2.0
 transformers==4.57.6
 tokenizers==0.22.2
 huggingface-hub==0.36.2

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 set +x
+[[ "$#" -le 1 && ( "$#" == 0 || "$1" == --dependencies-only ) ]] || {
+  echo 'Usage: provision.sh [--dependencies-only]' >&2; exit 2;
+}
 # Download credentials are scoped to the download subprocess only.
 unset AJ_DOWNLOAD_HF_TOKEN
 AJ_DOWNLOAD_HF_TOKEN="${HF_TOKEN:-}"
@@ -82,6 +85,14 @@ h3_timed llama_build bash "$PANEL_ROOT/scripts/setup_linux_llama.sh"
 
 AJ_LLAMA_SOURCE="${H3_BUILD_ROOT:-$DATA_ROOT/.h3-build}/llama.cpp-$("$COMFY_PYTHON" "$PANEL_ROOT/scripts/runtime_config.py" constant LLAMA_TAG)"
 h3_timed python_dependencies "$COMFY_PYTHON" -m pip install -r "$AJ_LLAMA_SOURCE/requirements/requirements-convert_hf_to_gguf.txt"
+# Mandatory v20 backend: compile/reuse and execute its small real CUDA probe
+# before ANY model transfer (including the optional first-run GGUF preparation).
+h3_timed sageattention "$COMFY_PYTHON" "$PANEL_ROOT/scripts/sageattention_runtime.py" install \
+  "$COMFY_ROOT" "${H3_BUILD_ROOT:-$DATA_ROOT/.h3-build}" "$H3_CUDA_VERSION"
+if [[ "${1:-}" == --dependencies-only ]]; then
+  echo 'Dependencies and MiniMax Sage CUDA kernel verified; no model transfer or service startup.'
+  exit 0
+fi
 AJ_DOWNLOAD_VENV="$DATA_ROOT/.aj-download-venv"
 if [[ ! -x "$AJ_DOWNLOAD_VENV/bin/python" ]]; then "$COMFY_PYTHON" -m venv "$AJ_DOWNLOAD_VENV"; fi
 PIP_CONSTRAINT= "$AJ_DOWNLOAD_VENV/bin/python" -m pip install -r "$PANEL_ROOT/download-requirements.txt"

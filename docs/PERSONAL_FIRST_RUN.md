@@ -273,11 +273,21 @@ AJ_GRACE_S=$(python3 -c 'import json,os; print(json.load(open(os.environ["AJ_SES
 IFS= read -r -s -p 'HF token (puste dla publicznych źródeł): ' AJ_ONE_TIME_HF
 printf '\n'
 HF_TOKEN="$AJ_ONE_TIME_HF" timeout --foreground --signal=TERM --kill-after="${AJ_GRACE_S}s" "${AJ_INSTALL_S}s" \
-  python3 h3/scripts/install_timing.py run native_prepare -- bash h3/INSTALL_MODEL_ACCEPTANCE.sh --install
+  python3 h3/scripts/install_timing.py run native_prepare -- bash -ec '
+    H3_INSTALL_VAST_CLI=0 bash h3/INSTALL_ON_VAST.sh --dependencies-only
+    exec bash h3/INSTALL_MODEL_ACCEPTANCE.sh --install
+  '
 unset AJ_ONE_TIME_HF HF_TOKEN
 ```
 
-`--install` nie uruchamia inferencji ani usług. Tworzy mały osobny runtime i
+Pierwszy etap `--dependencies-only` przygotowuje produkcyjny shared Python,
+przypięte ComfyUI/nodes/native oraz SageAttention i sprawdza prawdziwy mały
+kernel MiniMax **przed jakimkolwiek transferem wag**. Błąd zatrzymuje całość.
+Wszystko mieści się w powyższym wspólnym limicie czasu i nadzorze billingu;
+nie rozpoczynaj tej instalacji wcześniej poza nadzorowanym oknem.
+[Źródła, ABI, idempotency i zakres testu](SAGEATTENTION.md).
+
+Następne `--install` nie uruchamia inferencji ani usług. Tworzy mały osobny runtime i
 oddzielne dowody; **wagi zapisuje bezpośrednio do `COMFY_ROOT/models`**. Build
 llama.cpp na `H3_BUILD_ROOT` ma ten sam pin/receipts i zostanie ponownie użyty
 przez pełny installer; binaria vendor są małymi zwykłymi plikami, nie wagami.

@@ -36,19 +36,18 @@ The added Git sources are:
 These are source selections, not a claim of completed GPU compatibility testing.
 The existing Bunny, essential-er, latent-upscaler and LLM pins remain unchanged.
 
-One critical platform limitation remains: v20 selects the SageAttention branch.
+The v20 workflow requires SageAttention.
 The pinned KJNodes imports its compiled extension lazily; its requirements do not
 install SageAttention. A base image's SageAttention build therefore still needs
 explicit qualification against Blackwell, the selected CUDA/PyTorch and the APIs
-used at this KJNodes revision. This change does not guess a compatible version,
-install latest or introduce an untested native build path. Preflight now imports
-the exact required SageAttention APIs, so an absent or incompatible import is a
-blocker even when the node class is registered. Passing imports and catalog
-validation still cannot establish kernel execution compatibility or performance;
-that remains target acceptance. Do not treat these pins as a complete first-run
-GPU readiness claim or switch the workflow's attention choice silently.
+used at this KJNodes revision. AJ now owns that installation: the official v2.2.0
+source is fixed at `eb615cf6cf4d221338033340ee2de1c37fbdba4a`, built with the
+existing torch/CUDA and kernel-tested **before model downloads**. Preflight
+checks source/build receipts, installed file hashes, ABI and the actual KJ
+MiniMax function on small tensors. [Build evidence and acceptance limits](SAGEATTENTION.md).
+The real GPU smoke remains NOT RUN offline; it must pass on the target.
 
-`h3/runtime-constraints.txt` constrains 19 packages in the shared model/API stack,
+`h3/runtime-constraints.txt` constrains the previous 19 packages plus SageAttention in the shared model/API stack,
 OpenCV/AV and the panel API. These affect model loading, node imports and video
 output; the panel choices reuse CPU-tested versions from `requirements/panel.lock`.
 Other direct and transitive requirements retain the bounds declared by the pinned

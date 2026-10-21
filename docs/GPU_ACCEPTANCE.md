@@ -15,6 +15,7 @@ manifestu. GPU pozostaje pending. Rzeczywisty pierwszy minimalny test27B musi
 się udać przed użyciem10Eros autoprompt; jego błąd zatrzymuje tę ścieżkę.
 
 Plan Personal: zatwierdzona prawdziwa oferta <=$15/4h → readonly preflight →
+przypięte dependencies/build Sage i mały test kernela MiniMax →
 11GGUF na wspólnym store/native build → minimalna rzeczywista próba27B → pełny
 installer z reuse, dwa ComfyUI workery i panel → preflight/smoke → pojedynczy
 krótki H3 Full i10Eros Full manual render → sprawdzenie/pobranie MP4 z telefonu →
