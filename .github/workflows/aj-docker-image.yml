@@ -1,0 +1,168 @@
+name: AJ Docker image build (free GitHub runner)
+
+# Limited to this experimental branch. Does not touch PR #8 or run on forks.
+on:
+  push:
+    branches:
+      - feat/optional-vast-docker
+    paths:
+      - .github/workflows/aj-docker-image.yml
+      - h3/docker/**
+      - h3/scripts/**
+      - h3/INSTALL_ON_VAST.sh
+      - h3/*requirements*.txt
+      - h3/*constraints*.txt
+      - h3/config/custom_nodes_manifest.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: aj-docker-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.repository == 'ziomalskit/ziomalskit' && github.ref == 'refs/heads/feat/optional-vast-docker'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+    steps:
+      - name: Checkout exact commit (no credentials retained)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify source branch and remove unused runner SDKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo 'Initial free disk:'
+          df -h /
+          # Runner image sizes change. Measure each run and remove SDKs
+          # unrelated to the CUDA/Linux x86_64 image build.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/local/share/powershell \
+            /opt/hostedtoolcache /usr/local/.ghcup /opt/ghc /usr/share/swift /usr/local/share/boost
+          sudo docker system prune -af --volumes
+          # Native CUDA compilation can spike above physical RAM. Reserve swap
+          # on this disposable runner without changing its existing swap devices.
+          if (( $(free -b | awk '/^Swap:/ {print $2}') < 8589934592 )); then
+            sudo fallocate -l 8G /aj-build.swap
+            sudo chmod 600 /aj-build.swap
+            sudo mkswap /aj-build.swap
+            sudo swapon /aj-build.swap
+          fi
+          echo 'Free disk after cleanup:'
+          df -h /
+          free -h
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          buildkitd-config-inline: |
+            [worker.oci]
+              max-parallelism = 1
+
+      - name: Login to GHCR using ephemeral workflow token
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build pinned AJ image and publish only after build success
+        id: build
+        shell: bash
+        env:
+          IMAGE: ghcr.io/ziomalskit/aj-vast
+          DOCKER_BUILDKIT: '1'
+          BUILDKIT_PROGRESS: plain
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          umask 077
+          context="$(mktemp -d "$RUNNER_TEMP/aj-context.XXXXXX")"
+          trap 'rm -rf "$context"' EXIT
+          # Track-only archive excludes untracked weights, credentials and uploads.
+          git archive "$GITHUB_SHA" h3 | tar -xf - -C "$context"
+          test -f "$context/h3/docker/Dockerfile"
+          tag="sha-${GITHUB_SHA:0:12}"
+          mkdir -p "$RUNNER_TEMP/aj-evidence"
+          echo "Building $IMAGE:$tag"
+          docker buildx build \
+            --platform linux/amd64 \
+            --build-arg "AJ_REVISION=$GITHUB_SHA" \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --provenance=false \
+            --sbom=false \
+            --tag "$IMAGE:$tag" \
+            --metadata-file "$RUNNER_TEMP/aj-evidence/build-metadata.json" \
+            --push \
+            --file "$context/h3/docker/Dockerfile" "$context" 2>&1 | tee "$RUNNER_TEMP/aj-evidence/build.log"
+          digest="$(jq -r '."containerimage.digest" // empty' "$RUNNER_TEMP/aj-evidence/build-metadata.json")"
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] || { echo 'No trusted published digest'; exit 1; }
+          python3 h3/docker/verify-registry.py "$IMAGE" "$tag" "$digest" "$GITHUB_SHA" \
+            "$RUNNER_TEMP/aj-evidence/registry.json"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE@$digest" >> "$GITHUB_OUTPUT"
+          echo '### AJ Docker image successfully built and pushed' >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          printf '`%s@%s`\n' "$IMAGE" "$digest" >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo 'GPU/SageAttention kernel and Full render validation are still PENDING.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'GHCR defaults newly created packages to private; set package visibility to Public before anonymous Vast pulls.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record free disk (even if build failed)
+        if: always()
+        shell: bash
+        run: |
+          echo '### Final runner disk space' >> "$GITHUB_STEP_SUMMARY"
+          df -h / | tee -a "$GITHUB_STEP_SUMMARY"
+          free -h | tee -a "$GITHUB_STEP_SUMMARY"
+          docker buildx du || true
+
+      - name: Preserve build and registry evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aj-image-build-${{ github.sha }}
+          path: ${{ runner.temp }}/aj-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+  smoke:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Free disk for complete image pull
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/local/share/powershell \
+            /opt/hostedtoolcache /usr/local/.ghcup /opt/ghc /usr/share/swift /usr/local/share/boost
+          sudo docker system prune -af --volumes
+          df -h /
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull and inspect complete image by verified digest
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE"
+          docker image inspect "$IMAGE" --format 'UncompressedBytes={{.Size}}' | tee -a "$GITHUB_STEP_SUMMARY"
+          docker run --rm --network none --entrypoint /opt/aj/venv/bin/python \
+            "$IMAGE" /opt/aj/ziomalskit/h3/docker/smoke-image.py "$GITHUB_SHA"
+          printf 'Complete image pulled by digest and CPU smoke passed: `%s`\n' "$IMAGE" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Real GPU/Sage kernel, model loading, renders and Vast integration remain PENDING.' >> "$GITHUB_STEP_SUMMARY"

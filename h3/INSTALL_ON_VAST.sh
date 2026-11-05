@@ -2,7 +2,7 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 bash "$HERE/scripts/provision.sh" "$@"
-if [[ "${1:-}" == --dependencies-only ]]; then exit 0; fi
+if [[ "${1:-}" == --dependencies-only || "${1:-}" == --image-build ]]; then exit 0; fi
 
 DATA_ROOT="${H3_PERSISTENT_ROOT:-${WORKSPACE:-/workspace}}"
 PANEL_ROOT="${PANEL_ROOT:-$DATA_ROOT/H3_VAST_MOBILE}"

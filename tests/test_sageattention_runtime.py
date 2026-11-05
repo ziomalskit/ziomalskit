@@ -147,6 +147,60 @@ class SageInstallationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, name):
                     sage.unchanged(before, {**before, name: "newer"})
 
+    def test_cpu_image_build_receipt_never_certifies_gpu_and_promotes_only_after_smoke(self):
+        with patch.object(sage, 'build_identity', return_value=self.identity):
+            sage.install(self.root / 'ComfyUI', self.root / 'build', '13.0', image_build=True)
+        self.runtime_identity_mock.assert_not_called()
+        self.smoke_command_mock.assert_not_called()
+        self.assertFalse(self.receipt.exists())
+        self.assertTrue(sage.build_receipt_path().exists())
+        with self.assertRaisesRegex(ValueError, 'Unowned/incomplete'):
+            sage.verify(self.identity)
+        self.smoke_command_mock.side_effect = ValueError('kernel failed')
+        with self.assertRaisesRegex(ValueError, 'kernel failed'):
+            self.install()
+        self.assertFalse(self.receipt.exists())
+        self.smoke_command_mock.side_effect = None
+        self.commands.clear()
+        self.install()
+        self.assertTrue(self.receipt.exists())
+        self.assertEqual(self.commands, [])
+        sage.verify(self.identity)
+
+    def test_image_build_receipt_file_drift_blocks_runtime_before_smoke(self):
+        with patch.object(sage, 'build_identity', return_value=self.identity):
+            sage.install(self.root / 'ComfyUI', self.root / 'build', '13.0', image_build=True)
+        self.installed_files_mock.side_effect = lambda: {'_fused.so': 'changed'}
+        with self.assertRaisesRegex(ValueError, 'differs'):
+            self.install()
+        self.smoke_command_mock.assert_not_called()
+        self.assertFalse(self.receipt.exists())
+
+
+class MetadataSnapshotTests(unittest.TestCase):
+    def test_setuptools_vendor_metadata_does_not_replace_primary_distributions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            installed = Path(temp) / 'site-packages'
+            vendor = installed / 'setuptools/_vendor'
+            for root, version in ((installed, '26.3'), (vendor, '24.2')):
+                for name in ('packaging', 'typing-extensions', 'importlib-metadata', 'zipp'):
+                    dist = root / f'{name.replace("-", "_")}-{version}.dist-info'
+                    dist.mkdir(parents=True)
+                    (dist / 'METADATA').write_text(f'Name: {name}\nVersion: {version}\n')
+            paths = [str(installed)]
+            with patch.object(sage.metadata, 'distributions',
+                              side_effect=lambda: sage.metadata.Distribution.discover(path=paths)):
+                before = sage.packages()
+                paths.append(str(vendor))  # Actual setuptools import appends this path.
+                after = sage.packages()
+                self.assertEqual(after, before)
+                sage.unchanged(before, after)
+                # The same guard must still catch a real installed dependency change.
+                (installed / 'packaging-26.3.dist-info/METADATA').write_text('Name: packaging\nVersion: 99\n')
+                self.assertEqual(sage.packages()['packaging'], '99')
+                with self.assertRaisesRegex(ValueError, 'packaging'):
+                    sage.unchanged(before, sage.packages())
+
 
 class SageSourceAndToolchainTests(unittest.TestCase):
     def setUp(self):
@@ -239,6 +293,11 @@ def minimax_sageattn_forward(self, x): return _sageattn_int8_fp8_nhd(x, None)
             with self.assertRaisesRegex(ValueError, "will not replace"):
                 sage.runtime_identity("13.0")
             torch.__version__ = "2.11.0+cu130"
+            torch.cuda.is_available = lambda: False
+            self.assertEqual(sage.build_identity("13.0")["arch"], "12.0")
+            with self.assertRaisesRegex(ValueError, "sm_120"):
+                sage.runtime_identity("13.0")
+            torch.cuda.is_available = lambda: True
             torch.cuda.get_device_capability = lambda n: (9, 0)
             with self.assertRaisesRegex(ValueError, "sm_120"):
                 sage.runtime_identity("13.0")

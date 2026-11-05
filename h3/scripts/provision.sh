@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 set +x
-[[ "$#" -le 1 && ( "$#" == 0 || "$1" == --dependencies-only ) ]] || {
-  echo 'Usage: provision.sh [--dependencies-only]' >&2; exit 2;
+[[ "$#" -le 1 && ( "$#" == 0 || "$1" == --dependencies-only || "$1" == --image-build ) ]] || {
+  echo 'Usage: provision.sh [--dependencies-only|--image-build]' >&2; exit 2;
 }
 # Download credentials are scoped to the download subprocess only.
 unset AJ_DOWNLOAD_HF_TOKEN
@@ -81,13 +81,17 @@ h3_timed comfy_custom_nodes bash "$PANEL_ROOT/scripts/install_fallback_nodes.sh"
 "$COMFY_PYTHON" "$PANEL_ROOT/scripts/install_owned_nodes.py" \
   "$PANEL_ROOT/custom_nodes/aj_production" "$COMFY_ROOT/custom_nodes"
 "$COMFY_PYTHON" "$PACKAGE_DIR/scripts/install_timing.py" end "$AJ_NODES_STAGE" completed
-h3_timed llama_build bash "$PANEL_ROOT/scripts/setup_linux_llama.sh"
+AJ_LLAMA_ARGS=()
+if [[ "${1:-}" == --image-build ]]; then AJ_LLAMA_ARGS=(--build-only); fi
+h3_timed llama_build bash "$PANEL_ROOT/scripts/setup_linux_llama.sh" "${AJ_LLAMA_ARGS[@]}"
 
 AJ_LLAMA_SOURCE="${H3_BUILD_ROOT:-$DATA_ROOT/.h3-build}/llama.cpp-$("$COMFY_PYTHON" "$PANEL_ROOT/scripts/runtime_config.py" constant LLAMA_TAG)"
 h3_timed python_dependencies "$COMFY_PYTHON" -m pip install -r "$AJ_LLAMA_SOURCE/requirements/requirements-convert_hf_to_gguf.txt"
 # Mandatory v20 backend: compile/reuse and execute its small real CUDA probe
 # before ANY model transfer (including the optional first-run GGUF preparation).
-h3_timed sageattention "$COMFY_PYTHON" "$PANEL_ROOT/scripts/sageattention_runtime.py" install \
+AJ_SAGE_ACTION=install
+if [[ "${1:-}" == --image-build ]]; then AJ_SAGE_ACTION=build; fi
+h3_timed sageattention "$COMFY_PYTHON" "$PANEL_ROOT/scripts/sageattention_runtime.py" "$AJ_SAGE_ACTION" \
   "$COMFY_ROOT" "${H3_BUILD_ROOT:-$DATA_ROOT/.h3-build}" "$H3_CUDA_VERSION"
 if [[ "${1:-}" == --dependencies-only ]]; then
   echo 'Dependencies and MiniMax Sage CUDA kernel verified; no model transfer or service startup.'
@@ -96,6 +100,12 @@ fi
 AJ_DOWNLOAD_VENV="$DATA_ROOT/.aj-download-venv"
 if [[ ! -x "$AJ_DOWNLOAD_VENV/bin/python" ]]; then "$COMFY_PYTHON" -m venv "$AJ_DOWNLOAD_VENV"; fi
 PIP_CONSTRAINT= "$AJ_DOWNLOAD_VENV/bin/python" -m pip install -r "$PANEL_ROOT/download-requirements.txt"
+if [[ "${1:-}" == --image-build ]]; then
+  "$COMFY_PYTHON" -m pip check
+  "$COMFY_PYTHON" "$PANEL_ROOT/scripts/runtime_dependencies.py" verify "$PANEL_ROOT" "$COMFY_ROOT" "$H3_CUDA_VERSION"
+  echo 'Image dependencies built. GPU smoke PENDING. No models, credentials or services created.'
+  exit 0
+fi
 HF_TOKEN="$AJ_DOWNLOAD_HF_TOKEN" h3_timed models_provision "$AJ_DOWNLOAD_VENV/bin/python" "$PANEL_ROOT/scripts/provision_models.py" \
   --manifest "$PANEL_ROOT/config/models_manifest.json" --models-root "$COMFY_ROOT/models" --toolchain "$AJ_LLAMA_SOURCE"
 unset AJ_DOWNLOAD_HF_TOKEN HF_TOKEN

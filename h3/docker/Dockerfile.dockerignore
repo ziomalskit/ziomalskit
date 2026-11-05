@@ -1,0 +1,15 @@
+**
+!h3/
+!h3/**
+h3/**/state/
+h3/**/__pycache__/
+h3/**/.git/
+h3/**/.venv/
+h3/**/runtime.env
+h3/**/.env*
+h3/**/*.log
+h3/**/models/
+h3/**/input/
+h3/**/output/
+h3/**/*.gguf
+h3/**/*.safetensors

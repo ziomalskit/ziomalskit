@@ -1,5 +1,7 @@
 # Required MiniMax SageAttention installation
 
+Optional Docker/Vast trial: [first run](VAST_DOCKER_FIRST_RUN.md). Git installation remains the default; image compilation and GPU/render proof remain pending.
+
 The normal installer automatically builds/reuses SageAttention and executes a
 small GPU kernel smoke **before calling the model downloader**. There is no
 attention-mode change or fallback. The shared `COMFY_PYTHON`, ComfyUI v0.38.0,
@@ -30,8 +32,10 @@ against the selected torch rather than an isolated build environment's torch.
 No torch/vision/audio/NVIDIA/application upgrade is requested; existing package
 versions are compared before/after. The default remains torch 2.11.0+cu130,
 CUDA toolkit/runtime 13.0; the existing cu128/cu129 profiles are retained.
-Python 3.11/3.12, Linux x86_64, visible sm120, nvcc matching torch CUDA, and a
-C++ compiler are required before building. Compiler/build errors stop installation.
+Python 3.11/3.12, Linux x86_64, nvcc matching torch CUDA, and a C++ compiler
+are required for compilation. The normal Git installer also requires visible
+sm120 before building; the optional Docker build defers that GPU check and real
+kernel smoke to instance initialization. Compiler/build errors stop installation.
 
 Existing setuptools/wheel/packaging are reused. Only missing build helpers are
 installed, with fixed versions and `--no-deps`; no installed helper is downgraded

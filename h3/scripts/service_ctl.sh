@@ -12,6 +12,19 @@ if [[ -f "$RUNTIME_ENV" ]]; then
 fi
 # One-time download credentials never enter long-lived panel/ComfyUI workers.
 unset HF_TOKEN HUGGING_FACE_HUB_TOKEN HF_HUB_TOKEN
+if [[ -f /etc/aj-image.json ]]; then
+  # SSH sessions do not inherit Docker ENV reliably; panel-triggered restarts
+  # and explicit operator restarts must use the same image runtime paths.
+  export PATH="/opt/aj/venv/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  export CUDA_HOME=/usr/local/cuda LANG=C.UTF-8 LC_ALL=C.UTF-8
+  export LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64
+  unset VAST_API_KEY VASTAI_API_KEY
+fi
+# The optional image has an additional model/runtime admission gate. Ordinary
+# Git deployments have no image marker and retain their existing behavior.
+if [[ -f /etc/aj-image.json && ( "${1:-status}" == start || "${1:-status}" == restart ) ]]; then
+  /opt/aj/venv/bin/python /opt/aj/ziomalskit/h3/docker/instance.py service-check
+fi
 
 COMFY_ROOT="${COMFY_ROOT:-/workspace/ComfyUI}"
 WORKSPACE="${WORKSPACE:-/workspace}"
@@ -97,6 +110,7 @@ start_one(){
   case "$svc" in
     render)
       cd "$COMFY_ROOT"
+      if [[ -f /etc/aj-image.json ]]; then export -n H3_PANEL_PASSWORD; fi
       process_identity "$svc" launch --log-file "$(logfile comfyui-render)" -- "$COMFY_PYTHON" main.py \
         --listen 127.0.0.1 --port "$RENDER_PORT" \
         --models-directory "$COMFY_ROOT/models" \
@@ -110,6 +124,7 @@ start_one(){
     prompt)
       cd "$COMFY_ROOT"
       # DynamicVRAM is intentional: render throughput has priority.
+      if [[ -f /etc/aj-image.json ]]; then export -n H3_PANEL_PASSWORD; fi
       process_identity "$svc" launch --log-file "$(logfile comfyui-prompt)" -- "$COMFY_PYTHON" main.py \
         --listen 127.0.0.1 --port "$PROMPT_PORT" \
         --models-directory "$COMFY_ROOT/models" \
@@ -137,9 +152,10 @@ start_one(){
       export VAST_CLI="${VAST_CLI:-vastai}"
       export H3_PERSISTENT_ROOT="${H3_PERSISTENT_ROOT:-}"
       export H3_PERSISTENCE_MODE="${H3_PERSISTENCE_MODE:-}"
-      # Panel must be externally reachable through Vast port mapping; Basic Auth protects it.
+      panel_host=0.0.0.0
+      if [[ -f /etc/aj-image.json ]]; then panel_host=127.0.0.1; fi
       process_identity "$svc" launch --log-file "$(logfile h3-mobile)" -- "$PYTHON_BIN" -m uvicorn app.main:app \
-        --host 0.0.0.0 --port "$PANEL_PORT"
+        --host "$panel_host" --port "$PANEL_PORT"
       ;;
     *) echo "unknown service: $svc" >&2; exit 2;;
   esac
