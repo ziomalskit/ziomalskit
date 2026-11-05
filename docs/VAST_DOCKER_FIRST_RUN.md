@@ -1,11 +1,14 @@
 # Optional AJ Docker trial on Vast
 
 **GPU proof is PENDING. The existing [Git installer](PERSONAL_FIRST_RUN.md) remains
-the default.** This PR supplies the image recipe, not a published AJ image.
-Before renting, a builder must [build and measure it](VAST_DOCKER_BUILD.md) on a
-machine with enough disk, then provide a separately approved published image
-reference with its SHA256 digest. No registry publication or GPU rental was
-performed for this task. Do not rent an instance just to build the environment.
+the default.** Obtain the image from the [complete CI build and publication
+gate](VAST_DOCKER_BUILD.md#ci-build-and-publication), using its verified registry
+digest and fresh-runner pull/smoke result. Copy the exact `image` reference from
+`registry.json`, the CI summary or [PR #10](https://github.com/ziomalskit/ziomalskit/pull/10).
+CI records compressed layer bytes and the fresh-pull uncompressed image size.
+New GHCR packages can be private: verify anonymous pull access or configure the
+required registry authentication before a Vast trial. This CI performs no GPU
+rental. Do not rent an instance just to build the environment.
 
 ## Choose the template and instance
 
@@ -13,7 +16,7 @@ In a private Vast template, set:
 
 | Setting | Value |
 | --- | --- |
-| Image | Builder-supplied `registry/aj:release@sha256:…`; never `latest` or Automatic |
+| Image | Verified `ghcr.io/ziomalskit/aj-vast@sha256:…` from successful CI; never `latest` or Automatic |
 | Launch mode | **docker ENTRYPOINT**, no arguments |
 | Ports | Map **22/tcp only**, for SSH |
 | Environment | `PUBLIC_KEY` = the contents of your SSH **public** `.pub` key |

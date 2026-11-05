@@ -43,9 +43,9 @@ CUDA architecture remains 120 (upstream maps it to 120a where required).
 There is **no full hash lock**: apt updates, Python patch/security releases,
 remaining upstream pip transitive dependencies and compiler helpers can change.
 `/etc/aj-image.json` records the source revision and resolved apt/pip versions.
-After a successful build and separately authorized publication, use the **resulting
-image digest** to deploy that exact artifact. No AJ registry reference is invented
-here. Building and publishing a qualified prebuilt artifact remains a prerequisite
+After a successful CI build and publication, use the **verified registry report's
+image digest** to deploy that exact artifact. The local command does not publish.
+Building and publishing a qualified prebuilt artifact remains a prerequisite
 to a one-command rental experience; no operator should repair packages per rental.
 
 Build compiler objects, apt/pip caches and image SSH host keys are removed in the
@@ -130,23 +130,101 @@ Optional fast Dockerfile lint (no CUDA layers or compilation):
 docker build --check --platform linux/amd64 -f h3/docker/Dockerfile .
 ```
 
-Existing CPU CI is unchanged. There is no mandatory heavyweight Docker build or
-publication workflow; the explicit local build command above is the manual build
-validation path.
+## CI build and publication
+
+Existing CPU CI is unchanged. The separate, existing
+[`aj-docker-image.yml`](../.github/workflows/aj-docker-image.yml) builds only on
+`feat/optional-vast-docker` pushes affecting the image inputs, or explicit dispatch
+on that branch. It uses standard free `ubuntu-24.04` runners and ephemeral
+`GITHUB_TOKEN` GHCR authorization. It does not run on forks or production branches.
+
+Runner SDK cleanup and 8 GiB additional swap protect the build's resource budget.
+BuildKit stages and native compilation run with one worker; the image is pushed
+directly without a local image load or a second exported tarball. Compiler
+objects and apt/pip caches are removed before the provisioning layer is committed.
+
+Publication is accepted only after fetching and SHA256-checking the actual GHCR
+manifest and config, checking the tag, linux/amd64 platform and source revision,
+and checking every layer's availability and size. The build log, BuildKit metadata
+and registry evidence are retained as a 14-day workflow artifact. A fresh runner
+then pulls the complete image **by digest** and checks dependencies, imports,
+native file/build receipts and absence of weights, runtime credentials and SSH
+host keys. It runs with networking disabled and does not start services or claim
+GPU acceptance. New GHCR packages can be private; authenticated CI pull success
+does not establish anonymous Vast pull access.
+
+The first run is [42115360524](https://github.com/ziomalskit/ziomalskit/actions/runs/42115360524).
+The resource and verification update is
+[`f728933368d0a2dd36a06c5d2b2fe8a3b8f52c9b`](https://github.com/ziomalskit/ziomalskit/commit/f728933368d0a2dd36a06c5d2b2fe8a3b8f52c9b),
+with [run 42116392351](https://github.com/ziomalskit/ziomalskit/actions/runs/42116392351).
+Accept an image only when the complete image workflow, including registry
+verification and fresh-runner smoke, succeeds. Copy its immutable `image` from
+the `registry.json` artifact or the build summary; the published reference is also
+reported in [PR #10](https://github.com/ziomalskit/ziomalskit/pull/10).
+Local setup passed; 32 Docker/Sage/registry tests and 34 deployment,
+dependency and fallback-node tests passed. The full local CPU audit passed
+**1,053 tests in 578.390 seconds**, with no failures, errors or skips and all seven
+historical baseline defects still detected. Dockerfile checks and workflow lint
+also passed. These checks do not replace a complete image build.
+
+[PR CPU CI 42116401555](https://github.com/ziomalskit/ziomalskit/actions/runs/42116401555)
+also passed: setup, 1,053 tests (653.650 seconds), 16 HTTP smoke checks, and 1,053
+audit tests (645.785 seconds), with no skipped tests. Its generated merge commit
+is `0d679f4` (head `f728933368d0a2dd36a06c5d2b2fe8a3b8f52c9b` into the unchanged
+requested base).
+
+### Actual first image build and dependency-snapshot correction
+
+Run 42115360524 failed after **successfully compiling both llama.cpp binaries and
+the SageAttention 2.2.0 CUDA wheel** against the pinned CUDA 13 / torch 2.11 stack.
+The failure was the post-build dependency guard: importing setuptools through
+torch's C++ extension helper appended `setuptools/_vendor` to `sys.path`, and the
+last-wins distribution snapshot incorrectly reported four vendored versions as
+installed dependency changes (`packaging`, `typing-extensions`,
+`importlib-metadata`, `zipp`). No replacement of those installed packages occurred.
+An isolated environment with the actual setuptools 78.1.0 reproduces all four
+false changes without CUDA.
+
+Commit `e83f5852942dea8873e3edb364594b173a998841` preserves the first visible
+distribution, matching `importlib.metadata.version()`. A real metadata-directory
+regression covers the vendored path appearing and still rejects actual installed
+version drift. All 33 Docker/Sage/registry tests pass, as does the corrected guard
+against a real setuptools import. No package pin or dependency-mutation guard is
+removed. The obsolete resource-only run 42116392351 was cancelled; the replacement
+is [42121151372](https://github.com/ziomalskit/ziomalskit/actions/runs/42121151372).
+Branch-scoped concurrency now cancels obsolete builds when a fix is pushed.
+
+The first runner measured a 145 GiB root filesystem: 86 GiB initially free,
+116 GiB after SDK cleanup, and 96 GiB still free at failure. It had 15 GiB RAM and
+3 GiB existing swap. This was not an out-of-disk or compiler failure. The revised
+workflow retains one native build worker and swap protection for memory spikes.
+**No complete image or GHCR digest was produced by the first run.**
+
+The corrected commit's [PR CPU CI 42121160693](https://github.com/ziomalskit/ziomalskit/actions/runs/42121160693)
+passed setup, **1,054 tests** (520.173 seconds), **16 HTTP smoke checks**, and
+**1,054 audit tests** (515.532 seconds), with no failures, errors or skips. The
+seven historical baseline defects were still reproduced. CI checked generated
+merge `8e4cfce`, with `e83f5852942dea8873e3edb364594b173a998841` merged into the
+unchanged base; neither PR was merged on GitHub. A real public GHCR protocol probe
+also verified manifest/config SHA256s and layer HEAD sizes; that probe is not AJ
+publication evidence.
 
 | Proof | Result |
 | --- | --- |
-| CPU setup/tests/audit | **PASS**; 1049 tests, 16 HTTP smoke checks; record below |
-| Local full CUDA image build / measured image size | **NOT RUN / unknown** |
-| Clean native CUDA compilation with torch 2.11 / CUDA 13 | **NOT RUN** |
+| CPU setup/tests/audit | **PASS**; corrected-source CI: 1,054 tests, 16 HTTP smoke checks, 1,054 audit tests |
+| Local full CUDA image build | **NOT RUN**; development workspace is too small |
+| Complete image / registry digest / measured image size | [Image CI gate](https://github.com/ziomalskit/ziomalskit/actions/runs/42121151372): require success, registry artifact and fresh-pull summary |
+| Clean native CUDA compilation with torch 2.11 / CUDA 13 | **PASS** in first CI run; complete artifact still requires the image CI gate |
 | Real RTX PRO 6000 KJ SageAttention + llama/model load | **PENDING** |
 | One H3 Full + one 10Eros Full manual 5s render, MP4 | **PENDING** |
 | Vast ENTRYPOINT/SSH/disk/host integration | **PENDING** |
 
-No rented GPU, production model download, image publication, render submission,
-Vast lifecycle call or merge was performed. CPU PASS is not end-to-end readiness.
+CI performs model-free image publication, registry verification and CPU image
+smoke only. No GPU rental, production model download, render submission, Vast
+lifecycle call or PR merge is part of that workflow. CPU PASS is not end-to-end
+GPU readiness.
 
-## Verification record — 2026-11-05
+## Initial CPU-only verification — 2026-11-05, before image CI
 
 - `make setup`: **PASS** — `No broken requirements found.`
 - `make test`: **PASS** — `Ran 1049 tests in 586.540s`, `OK`,
@@ -167,9 +245,10 @@ Vast lifecycle call or merge was performed. CPU PASS is not end-to-end readiness
 The container's PID 1 is `tail`; full tests run under a temporary verification-only
 Linux child subreaper, so adopted inert test processes are reaped. No production
 process-control change or timeout adjustment is used for that environment detail.
-`nvcc` and `nvidia-smi` are unavailable. Full image build, actual CUDA source
-compilation, image size, real KJ kernel, model loading, Full videos and Vast
-integration retain the NOT RUN/PENDING labels above.
+`nvcc` and `nvidia-smi` were unavailable in that local workspace. That initial
+CPU-only record did not prove a full image build or CUDA compilation; the
+subsequent CI record above covers those gates. Real KJ kernel execution, model
+loading, Full videos and Vast integration remain PENDING.
 
 An early focused run exposed a temporary subshell that broke the service launch
 controller-parent relationship (four service test failures). It was removed
