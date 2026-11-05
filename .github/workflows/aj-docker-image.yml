@@ -21,7 +21,7 @@ permissions:
 
 concurrency:
   group: aj-docker-image-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -43,8 +43,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           echo 'Initial free disk:'
           df -h /
-          # Standard public runners have only 14 GB initially available.
-          # Remove SDKs unrelated to the CUDA/Linux x86_64 image build.
+          # Runner image sizes change. Measure each run and remove SDKs
+          # unrelated to the CUDA/Linux x86_64 image build.
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/local/share/powershell \
             /opt/hostedtoolcache /usr/local/.ghcup /opt/ghc /usr/share/swift /usr/local/share/boost
           sudo docker system prune -af --volumes

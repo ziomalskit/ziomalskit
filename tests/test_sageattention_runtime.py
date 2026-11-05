@@ -177,6 +177,31 @@ class SageInstallationTests(unittest.TestCase):
         self.assertFalse(self.receipt.exists())
 
 
+class MetadataSnapshotTests(unittest.TestCase):
+    def test_setuptools_vendor_metadata_does_not_replace_primary_distributions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            installed = Path(temp) / 'site-packages'
+            vendor = installed / 'setuptools/_vendor'
+            for root, version in ((installed, '26.3'), (vendor, '24.2')):
+                for name in ('packaging', 'typing-extensions', 'importlib-metadata', 'zipp'):
+                    dist = root / f'{name.replace("-", "_")}-{version}.dist-info'
+                    dist.mkdir(parents=True)
+                    (dist / 'METADATA').write_text(f'Name: {name}\nVersion: {version}\n')
+            paths = [str(installed)]
+            with patch.object(sage.metadata, 'distributions',
+                              side_effect=lambda: sage.metadata.Distribution.discover(path=paths)):
+                before = sage.packages()
+                paths.append(str(vendor))  # Actual setuptools import appends this path.
+                after = sage.packages()
+                self.assertEqual(after, before)
+                sage.unchanged(before, after)
+                # The same guard must still catch a real installed dependency change.
+                (installed / 'packaging-26.3.dist-info/METADATA').write_text('Name: packaging\nVersion: 99\n')
+                self.assertEqual(sage.packages()['packaging'], '99')
+                with self.assertRaisesRegex(ValueError, 'packaging'):
+                    sage.unchanged(before, sage.packages())
+
+
 class SageSourceAndToolchainTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="aj-sage-source-")

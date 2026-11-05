@@ -40,8 +40,14 @@ def run(args, **kwargs):
 
 
 def packages():
-    return {re.sub(r"[-_.]+", "-", d.metadata["Name"]).lower(): d.version
-            for d in metadata.distributions()}
+    # setuptools appends its _vendor directory to sys.path when cpp_extension
+    # imports it. Match importlib.metadata.version's first-visible distribution:
+    # a later vendored dist-info must not override the installed environment.
+    result = {}
+    for dist in metadata.distributions():
+        name = re.sub(r"[-_.]+", "-", dist.metadata["Name"]).lower()
+        result.setdefault(name, dist.version)
+    return result
 
 
 def unchanged(before, after):
