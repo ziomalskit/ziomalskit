@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+[[ "$#" == 0 || ( "$#" == 1 && "$1" == --build-only ) ]] || { echo 'Usage: setup_linux_llama.sh [--build-only]' >&2; exit 2; }
+INSTALL_ARGS=()
+CMAKE_ARGS=()
+if [[ "${1:-}" == --build-only ]]; then INSTALL_ARGS=(--build-only); CMAKE_ARGS=(-DGGML_NATIVE=OFF); fi
 COMFY_ROOT="${COMFY_ROOT:-/workspace/ComfyUI}"
 PANEL_ROOT="${PANEL_ROOT:-/workspace/H3_VAST_MOBILE}"
 source "$PANEL_ROOT/scripts/python_env.sh"
@@ -52,11 +56,15 @@ then
   echo "Reusing verified llama.cpp $LLAMA_TAG build"
 else
   echo "Building llama.cpp $LLAMA_TAG with $JOBS parallel jobs"
-  cmake -S "$SRC" -B "$SRC/build" -DGGML_CUDA=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=120
+  cmake -S "$SRC" -B "$SRC/build" -DGGML_CUDA=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=120 "${CMAKE_ARGS[@]}"
   cmake --build "$SRC/build" --config Release --parallel "$JOBS" --target llama-cli llama-server
 fi
 VENDOR="$LLM_NODE/vendor/llama.cpp/$LLAMA_TAG/linux-x64-cuda"
 mkdir -p "$VENDOR"
-"$COMFY_PYTHON" "$PANEL_ROOT/scripts/install_llama.py" "$BIN" "$SIGNATURE" "$VENDOR/llama-cli" "$LLAMA_TAG" "$LLAMA_COMMIT" "$CUDA_VERSION"
-"$COMFY_PYTHON" "$PANEL_ROOT/scripts/install_llama.py" "$SERVER_BIN" "$SERVER_SIGNATURE" "$VENDOR/llama-server" "$LLAMA_TAG" "$LLAMA_COMMIT" "$CUDA_VERSION"
-"$COMFY_PYTHON" "$PANEL_ROOT/scripts/llama_runtime.py" "$LLM_NODE"
+"$COMFY_PYTHON" "$PANEL_ROOT/scripts/install_llama.py" "$BIN" "$SIGNATURE" "$VENDOR/llama-cli" "$LLAMA_TAG" "$LLAMA_COMMIT" "$CUDA_VERSION" "${INSTALL_ARGS[@]}"
+"$COMFY_PYTHON" "$PANEL_ROOT/scripts/install_llama.py" "$SERVER_BIN" "$SERVER_SIGNATURE" "$VENDOR/llama-server" "$LLAMA_TAG" "$LLAMA_COMMIT" "$CUDA_VERSION" "${INSTALL_ARGS[@]}"
+if [[ "${1:-}" == --build-only ]]; then
+  echo 'llama.cpp compiled and checksummed; runtime execution PENDING (no host libcuda required during build).'
+else
+  "$COMFY_PYTHON" "$PANEL_ROOT/scripts/llama_runtime.py" "$LLM_NODE"
+fi

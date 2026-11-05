@@ -51,7 +51,7 @@ def unchanged(before, after):
         raise ValueError(f"SageAttention setup changed existing dependencies: {changed}")
 
 
-def runtime_identity(cuda):
+def build_identity(cuda):
     import torch
     import triton
     from torch.utils.cpp_extension import CUDA_HOME
@@ -62,8 +62,6 @@ def runtime_identity(cuda):
     expected = f"2.11.0+cu{cuda.replace('.', '')}"
     if torch.__version__ != expected or torch.version.cuda != cuda:
         raise ValueError(f"SageAttention requires existing torch {expected}, CUDA {cuda}; will not replace it")
-    if not torch.cuda.is_available() or torch.cuda.get_device_capability(0) != (12, 0):
-        raise ValueError("SageAttention setup requires a visible Blackwell sm_120 GPU")
     nvcc = Path(CUDA_HOME or "/missing-cuda") / "bin/nvcc"
     if not nvcc.is_file() or not shutil.which("c++"):
         raise ValueError("SageAttention needs CUDA devel nvcc and a C++ compiler; no packages were replaced")
@@ -75,6 +73,14 @@ def runtime_identity(cuda):
                 prefix=str(Path(sys.prefix).resolve()), torch=torch.__version__, cuda=cuda,
                 triton=triton.__version__, cxx11_abi=bool(torch._C._GLIBCXX_USE_CXX11_ABI),
                 nvcc=compiler, cxx=output(["c++", "--version"]), libc=list(platform.libc_ver()))
+
+
+def runtime_identity(cuda):
+    identity = build_identity(cuda)
+    import torch
+    if not torch.cuda.is_available() or torch.cuda.get_device_capability(0) != (12, 0):
+        raise ValueError("SageAttention setup requires a visible Blackwell sm_120 GPU")
+    return identity
 
 
 def installed_files():
@@ -98,8 +104,12 @@ def receipt_path():
     return Path(sys.prefix) / ".aj-sageattention.json"
 
 
-def verify(identity):
-    receipt = receipt_path()
+def build_receipt_path():
+    return receipt_path().with_name(".aj-sageattention-build.json")
+
+
+def verify(identity, *, image_build=False):
+    receipt = build_receipt_path() if image_build else receipt_path()
     if not receipt.is_file():
         raise ValueError("Unowned/incomplete SageAttention installation: use a clean shared venv or explicitly uninstall sageattention and rerun provisioning")
     saved = json.loads(receipt.read_text())
@@ -120,22 +130,36 @@ def smoke_command(comfy):
     run([sys.executable, str(Path(__file__).resolve()), "smoke", str(comfy)])
 
 
-def install(comfy, build_root, cuda):
+def save_receipt(target, identity, files):
+    saved = json.dumps(dict(runtime=identity, files=files), indent=2) + "\n"
+    temporary = target.with_suffix(".tmp")
+    temporary.write_text(saved)
+    temporary.replace(target)
+
+
+def install(comfy, build_root, cuda, *, image_build=False):
     before = packages()
     if "sageattention" in before:
-        verify(runtime_identity(cuda))
-        smoke_command(comfy)
+        identity = build_identity(cuda) if image_build else runtime_identity(cuda)
+        # An image build receipt proves only source/ABI/files, never GPU smoke.
+        from_build = image_build or not receipt_path().exists()
+        verify(identity, image_build=from_build)
+        if not image_build:
+            smoke_command(comfy)
+            save_receipt(receipt_path(), identity, installed_files())
         print("Reusing AJ-verified SageAttention", REVISION)
         return
     # A failed/interrupted attempt must never leave an apparently valid receipt.
     receipt_path().unlink(missing_ok=True)
+    if image_build:
+        build_receipt_path().unlink(missing_ok=True)
     for name, version in BUILD_TOOLS.items():
         if name not in before:
             run([sys.executable, "-m", "pip", "install", "--no-deps", f"{name}=={version}"])
     unchanged(before, packages())
     # torch.utils.cpp_extension imports setuptools; bootstrap missing helpers
     # before loading it on Python 3.12, whose fresh venv omits setuptools.
-    identity = runtime_identity(cuda)
+    identity = build_identity(cuda) if image_build else runtime_identity(cuda)
     build_root.mkdir(parents=True, exist_ok=True)
     # Upstream setup.py runs extensions in parallel as well as ninja workers;
     # each nvcc also has --threads=8. Bound the multipliers, not just MAX_JOBS.
@@ -163,13 +187,11 @@ def install(comfy, build_root, cuda):
         run([sys.executable, "-m", "pip", "install", "--no-deps", str(built[0])])
     unchanged(before, packages())
     files = installed_files()
-    smoke_command(comfy)  # Fresh process: never reuse a cached pre-install module.
-    saved = json.dumps(dict(runtime=identity, files=files), indent=2) + "\n"
-    target = receipt_path()
-    temporary = target.with_suffix(".tmp")
-    temporary.write_text(saved)
-    temporary.replace(target)
-    print("Installed and GPU-verified SageAttention", REVISION)
+    if not image_build:
+        smoke_command(comfy)  # Fresh process: never reuse a cached pre-install module.
+    save_receipt(build_receipt_path() if image_build else receipt_path(), identity, files)
+    print("Built SageAttention; GPU smoke PENDING" if image_build else
+          "Installed and GPU-verified SageAttention", REVISION)
 
 
 def kj_functions(comfy, namespace):
@@ -244,10 +266,10 @@ def main():
     elif action == "verify":
         verify(runtime_identity(sys.argv[3]))
         smoke(comfy)
-    elif action == "install":
+    elif action in {"install", "build"}:
         with (Path(sys.prefix) / ".aj-sageattention.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            install(comfy, Path(sys.argv[3]), sys.argv[4])
+            install(comfy, Path(sys.argv[3]), sys.argv[4], image_build=action == "build")
     else:
         raise ValueError("Expected install COMFY BUILD_ROOT CUDA, verify COMFY CUDA, or smoke COMFY")
 

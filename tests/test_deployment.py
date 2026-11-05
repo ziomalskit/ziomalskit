@@ -393,6 +393,21 @@ if '--build' in a:
         self.assertEqual((comfy/'main.py').read_text(),'user file')
         self.assertFalse((package/'service-started').exists())
 
+    def test_image_build_is_gpu_free_and_exits_before_models_credentials_and_services(self):
+        package, comfy, environment = self.provision_fixture()
+        result = subprocess.run(['bash', str(package / 'INSTALL_ON_VAST.sh'), '--image-build'],
+            env=environment, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = [json.loads(line) for line in (self.base / 'commands.jsonl').read_text().splitlines()]
+        sage = [a for a in commands if a[0].endswith('/sageattention_runtime.py')]
+        self.assertEqual(len(sage), 1)
+        self.assertEqual(sage[0][1], 'build')
+        self.assertFalse(any(a[0].endswith('/provision_models.py') for a in commands))
+        self.assertFalse((package / 'runtime.env').exists())
+        self.assertFalse((package / 'service-started').exists())
+        self.assertFalse((self.base / 'onstart.sh').exists())
+        self.assertIn('GPU smoke PENDING', result.stdout)
+
     def test_sage_failure_blocks_models_and_services_and_dependencies_only_stops_early(self):
         package, comfy, environment = self.provision_fixture()
         wrapper = package / 'INSTALL_ON_VAST.sh'

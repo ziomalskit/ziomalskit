@@ -26,13 +26,13 @@ def digest(path: Path) -> str:
     return result.hexdigest()
 
 
-def install(binary: Path, signature: Path, vendor: Path, tag: str, commit: str, cuda: str) -> None:
+def install(binary: Path, signature: Path, vendor: Path, tag: str, commit: str, cuda: str, *, build_only=False) -> None:
     with (vendor.parent / '.h3-llama.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        _install(binary, signature, vendor, tag, commit, cuda)
+        _install(binary, signature, vendor, tag, commit, cuda, build_only=build_only)
 
 
-def _install(binary: Path, signature: Path, vendor: Path, tag: str, commit: str, cuda: str) -> None:
+def _install(binary: Path, signature: Path, vendor: Path, tag: str, commit: str, cuda: str, *, build_only=False) -> None:
     fd, name = tempfile.mkstemp(prefix='.llama-candidate-', dir=vendor.parent)
     os.close(fd)
     candidate = Path(name)
@@ -43,11 +43,15 @@ def _install(binary: Path, signature: Path, vendor: Path, tag: str, commit: str,
         checksum = digest(candidate)
         if checksum != digest(binary):
             raise ValueError('Incomplete llama executable copy')
-        version = subprocess.check_output([str(candidate), '--version'], text=True,
-                                         stderr=subprocess.STDOUT, timeout=30)
-        if commit[:7] not in version:
-            raise ValueError('llama.cpp runtime commit failed verification')
-        meta = json.dumps({'tag': tag, 'commit': commit, 'cuda': cuda, 'arch': '120', 'sha256': checksum})
+        if not build_only:
+            version = subprocess.check_output([str(candidate), '--version'], text=True,
+                                             stderr=subprocess.STDOUT, timeout=30)
+            if commit[:7] not in version:
+                raise ValueError('llama.cpp runtime commit failed verification')
+        meta = {'tag': tag, 'commit': commit, 'cuda': cuda, 'arch': '120', 'sha256': checksum}
+        if build_only:
+            meta['runtime_execution'] = 'PENDING'
+        meta = json.dumps(meta)
         with candidate.open('rb') as stream:
             os.fsync(stream.fileno())
         # Metadata for both old and new content survives a crash between binary
@@ -70,4 +74,6 @@ def _install(binary: Path, signature: Path, vendor: Path, tag: str, commit: str,
 
 
 if __name__ == '__main__':
-    install(*map(Path, sys.argv[1:4]), *sys.argv[4:7])
+    if len(sys.argv) not in (7, 8) or (len(sys.argv) == 8 and sys.argv[7] != '--build-only'):
+        raise SystemExit('Expected BINARY SIGNATURE VENDOR TAG COMMIT CUDA [--build-only]')
+    install(*map(Path, sys.argv[1:4]), *sys.argv[4:7], build_only=len(sys.argv) == 8)

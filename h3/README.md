@@ -1,5 +1,7 @@
 # AJ / H3 Full production migration
 
+Optional Docker/Vast trial: [first run](../docs/VAST_DOCKER_FIRST_RUN.md). Git installation remains the default; image compilation and GPU/render proof remain pending.
+
 Current personal deployment: [Personal First Run](../docs/PERSONAL_FIRST_RUN.md).
 Use ephemeral instance disk under `/workspace`, one physical verified models
 store, private phone access, two initial renders and manual provider destroy.

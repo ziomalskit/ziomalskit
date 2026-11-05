@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+set +x
+unset HF_TOKEN HF_HUB_TOKEN HUGGING_FACE_HUB_TOKEN VAST_API_KEY VASTAI_API_KEY
+exec /opt/aj/venv/bin/python /opt/aj/ziomalskit/h3/docker/instance.py "$@"
