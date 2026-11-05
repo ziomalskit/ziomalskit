@@ -17,7 +17,7 @@ python3.12 -m venv /opt/aj/venv
 export WORKSPACE=/opt/aj/seed H3_PERSISTENT_ROOT=/opt/aj/seed
 export COMFY_ROOT=/opt/aj/seed/ComfyUI PANEL_ROOT=/opt/aj/seed/H3_VAST_MOBILE
 export H3_BUILD_ROOT=/opt/aj/build PACKAGE_DIR=/opt/aj/ziomalskit/h3
-export H3_SKIP_SYSTEM_PACKAGES=1 H3_INSTALL_VAST_CLI=0 H3_BUILD_JOBS=2
+export H3_SKIP_SYSTEM_PACKAGES=1 H3_INSTALL_VAST_CLI=0 H3_BUILD_JOBS=1
 # --image-build exits before the downloader, runtime.env, onstart or services.
 bash "$PACKAGE_DIR/scripts/provision.sh" --image-build
 # Preserve source/converters and installed native binaries, discard compiler objects.

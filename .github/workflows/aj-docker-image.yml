@@ -10,6 +10,9 @@ on:
       - h3/docker/**
       - h3/scripts/**
       - h3/INSTALL_ON_VAST.sh
+      - h3/*requirements*.txt
+      - h3/*constraints*.txt
+      - h3/config/custom_nodes_manifest.json
   workflow_dispatch:
 
 permissions:
@@ -25,6 +28,8 @@ jobs:
     if: github.repository == 'ziomalskit/ziomalskit' && github.ref == 'refs/heads/feat/optional-vast-docker'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    outputs:
+      image: ${{ steps.build.outputs.image }}
     steps:
       - name: Checkout exact commit (no credentials retained)
         uses: actions/checkout@v4
@@ -41,14 +46,26 @@ jobs:
           # Standard public runners have only 14 GB initially available.
           # Remove SDKs unrelated to the CUDA/Linux x86_64 image build.
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/local/share/powershell \
-            /opt/hostedtoolcache /usr/local/.ghcup || true
-          sudo docker system prune -af --volumes || true
+            /opt/hostedtoolcache /usr/local/.ghcup /opt/ghc /usr/share/swift /usr/local/share/boost
+          sudo docker system prune -af --volumes
+          # Native CUDA compilation can spike above physical RAM. Reserve swap
+          # on this disposable runner without changing its existing swap devices.
+          if (( $(free -b | awk '/^Swap:/ {print $2}') < 8589934592 )); then
+            sudo fallocate -l 8G /aj-build.swap
+            sudo chmod 600 /aj-build.swap
+            sudo mkswap /aj-build.swap
+            sudo swapon /aj-build.swap
+          fi
           echo 'Free disk after cleanup:'
           df -h /
           free -h
 
       - name: Setup Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          buildkitd-config-inline: |
+            [worker.oci]
+              max-parallelism = 1
 
       - name: Login to GHCR using ephemeral workflow token
         uses: docker/login-action@v3
@@ -64,6 +81,7 @@ jobs:
           IMAGE: ghcr.io/ziomalskit/aj-vast
           DOCKER_BUILDKIT: '1'
           BUILDKIT_PROGRESS: plain
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           umask 077
@@ -73,6 +91,7 @@ jobs:
           git archive "$GITHUB_SHA" h3 | tar -xf - -C "$context"
           test -f "$context/h3/docker/Dockerfile"
           tag="sha-${GITHUB_SHA:0:12}"
+          mkdir -p "$RUNNER_TEMP/aj-evidence"
           echo "Building $IMAGE:$tag"
           docker buildx build \
             --platform linux/amd64 \
@@ -82,17 +101,18 @@ jobs:
             --provenance=false \
             --sbom=false \
             --tag "$IMAGE:$tag" \
-            --metadata-file "$RUNNER_TEMP/aj-build-metadata.json" \
+            --metadata-file "$RUNNER_TEMP/aj-evidence/build-metadata.json" \
             --push \
-            --file "$context/h3/docker/Dockerfile" "$context"
-          digest="$(jq -r '."containerimage.digest" // empty' "$RUNNER_TEMP/aj-build-metadata.json")"
+            --file "$context/h3/docker/Dockerfile" "$context" 2>&1 | tee "$RUNNER_TEMP/aj-evidence/build.log"
+          digest="$(jq -r '."containerimage.digest" // empty' "$RUNNER_TEMP/aj-evidence/build-metadata.json")"
           [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] || { echo 'No trusted published digest'; exit 1; }
-          docker buildx imagetools inspect "$IMAGE@$digest" >/dev/null
+          python3 h3/docker/verify-registry.py "$IMAGE" "$tag" "$digest" "$GITHUB_SHA" \
+            "$RUNNER_TEMP/aj-evidence/registry.json"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
           echo "image=$IMAGE@$digest" >> "$GITHUB_OUTPUT"
           echo '### AJ Docker image successfully built and pushed' >> "$GITHUB_STEP_SUMMARY"
           echo '' >> "$GITHUB_STEP_SUMMARY"
-          echo "\\`$IMAGE@$digest\\`" >> "$GITHUB_STEP_SUMMARY"
+          printf '`%s@%s`\n' "$IMAGE" "$digest" >> "$GITHUB_STEP_SUMMARY"
           echo '' >> "$GITHUB_STEP_SUMMARY"
           echo 'GPU/SageAttention kernel and Full render validation are still PENDING.' >> "$GITHUB_STEP_SUMMARY"
           echo 'GHCR defaults newly created packages to private; set package visibility to Public before anonymous Vast pulls.' >> "$GITHUB_STEP_SUMMARY"
@@ -103,3 +123,46 @@ jobs:
         run: |
           echo '### Final runner disk space' >> "$GITHUB_STEP_SUMMARY"
           df -h / | tee -a "$GITHUB_STEP_SUMMARY"
+          free -h | tee -a "$GITHUB_STEP_SUMMARY"
+          docker buildx du || true
+
+      - name: Preserve build and registry evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aj-image-build-${{ github.sha }}
+          path: ${{ runner.temp }}/aj-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+  smoke:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Free disk for complete image pull
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/local/share/powershell \
+            /opt/hostedtoolcache /usr/local/.ghcup /opt/ghc /usr/share/swift /usr/local/share/boost
+          sudo docker system prune -af --volumes
+          df -h /
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull and inspect complete image by verified digest
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE"
+          docker image inspect "$IMAGE" --format 'UncompressedBytes={{.Size}}' | tee -a "$GITHUB_STEP_SUMMARY"
+          docker run --rm --network none --entrypoint /opt/aj/venv/bin/python \
+            "$IMAGE" /opt/aj/ziomalskit/h3/docker/smoke-image.py "$GITHUB_SHA"
+          printf 'Complete image pulled by digest and CPU smoke passed: `%s`\n' "$IMAGE" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Real GPU/Sage kernel, model loading, renders and Vast integration remain PENDING.' >> "$GITHUB_STEP_SUMMARY"
