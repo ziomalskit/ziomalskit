@@ -1,7 +1,4 @@
 {
-  "id": "full-start-gates-1",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "QUEUE_STATUS_COUNTS {'prompt_failed': 30}\nAJ_START_EXIT 0\nSTART_LOG render service OK\nSTART_LOG prompt service OK\nSTART_LOG panel service OK\nSTART_LOG {\"elapsed_seconds\": 221.0961038172245, \"end_monotonic\": 29974281.691068847, \"id\": \"4de8a748727748b697cf5e549ff65a52\", \"stage\": \"preflight\", \"start_monotonic\": 29974060.59496503, \"status\": \"completed\"}\nSTART_LOG prompt: 413 API nodes validated; no submission\nSTART_LOG render: 307 API nodes validated; no submission\nSTART_LOG prompt: 413 API nodes validated; no submission\nSTART_LOG render: 307 API nodes validated; no submission\nSTART_LOG SMOKE/CONVERSION PASSED \u2014 no real render submitted\nSTART_LOG {\"elapsed_seconds\": 9.666646055877209, \"end_monotonic\": 29974291.505459026, \"id\": \"0188fee5e3344155a4fd44d338ab152c\", \"stage\": \"smoke_test\", \"start_monotonic\": 29974281.83881297, \"status\": \"completed\"}\nSTART_LOG Preflight/smoke PASS; submissions OFF. Use the private SSH panel tunnel. GPU render acceptance PENDING.\nLISTENER 8188 200\nLISTENER 8189 200\nLISTENER 7860 AUTH_REQUIRED\nFULL_READINESS_PASS_SUBMISSIONS_OFF\n",
-  "stderr": ""
+  "id": "enable-live-batches-1",
+  "state": "running"
 }
