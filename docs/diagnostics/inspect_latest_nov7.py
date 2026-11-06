@@ -7,7 +7,7 @@ print('TOTAL_JOBS',len(jobs))
 print('LATEST_STATUSES',dict(collections.Counter(str(j.get('status')) for j in jobs[:30])))
 def scrub(text):
     text=str(text or '').splitlines()[0][:350]
-    text=re.sub(r'(["\']).*?\1','[quoted]',text)
+    text=re.sub(r"""(["']).*?\1""",'[quoted]',text)
     text=re.sub(r'\b[0-9a-fA-F]{32,}\b','[id]',text)
     return text
 for idx,j in enumerate(jobs[:8]):
