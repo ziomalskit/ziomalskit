@@ -1,6 +1,6 @@
 {
-  "id": "inspect-render-diff-2",
+  "id": "inspect-render-diff-3",
   "script_path": "docs/diagnostics/inspect_render_combo_diff.py",
-  "sha256": "7cc37fc27c2610adacdbfc0644c0b99c0aa738692f5f53e16a12cf0a1d162b99",
+  "sha256": "fc75284931795c5d0a11795e4ef7fda303d00c4155aebdd2dd4311de4330745c",
   "timeout_seconds": 300
 }
