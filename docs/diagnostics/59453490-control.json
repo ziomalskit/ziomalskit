@@ -1,6 +1,6 @@
 {
-  "id": "inspect-cgroup-1",
-  "script_path": "docs/diagnostics/inspect_cgroup.py",
-  "sha256": "06d7606716ec83b278ba57872096850a4be88eca15e29f09109a6ec71260dad9",
-  "timeout_seconds": 120
+  "id": "start-download-1",
+  "script_path": "docs/diagnostics/start_download.py",
+  "sha256": "ed5f5ada26e7409983ff61b21049a51695f8bd31674e507d8adfe1024100f4f6",
+  "timeout_seconds": 90
 }
