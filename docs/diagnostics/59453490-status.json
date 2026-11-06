@@ -1,7 +1,4 @@
 {
-  "id": "inspect-render-diff-3",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "EXPECTED {\"class_type\": \"CustomCombo\", \"inputs\": {\"choice\": \"scale_extension\", \"index\": 0, \"option1\": \"scale_ref\", \"option2\": \"scale_extension\", \"option3\": \"\", \"option4\": \"\", \"option5\": \"\"}}\nACTUAL {\"inputs\": {\"choice\": \"scale_extension\"}, \"class_type\": \"CustomCombo\", \"_meta\": {\"title\": \"Custom Combo\"}}\n",
-  "stderr": ""
+  "id": "apply-combo-render-smoke-1",
+  "state": "running"
 }
