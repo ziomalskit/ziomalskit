@@ -1,4 +1,7 @@
 {
   "id": "native-identity-why-fails-1",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "QUEUE 70 {'prompt_failed': 70}\nNATIVE_SOURCE 7 names ['__init__.py', 'compiler.py', 'execution_journal.py', 'gpu_gate.py', 'gpu_runtime.py', 'prompt_completion.py', 'temporal.py']\nDEPLOYED_NATIVE_ERROR NotADirectoryError [Errno 20] Not a directory: 'custom_nodes'\nLATEST_JOB prompt_failed h3_full MISMATCH_FIELDS [] FROZEN_ID_PREFIX 4e7a92e1d632 CURRENT_ID_PREFIX 4e7a92e1d632\nLATEST_JOB prompt_failed h3_full MISMATCH_FIELDS [] FROZEN_ID_PREFIX 4e7a92e1d632 CURRENT_ID_PREFIX 4e7a92e1d632\nLATEST_JOB prompt_failed h3_full MISMATCH_FIELDS [] FROZEN_ID_PREFIX 4e7a92e1d632 CURRENT_ID_PREFIX 4e7a92e1d632\nLATEST_JOB prompt_failed h3_full MISMATCH_FIELDS [] FROZEN_ID_PREFIX 4e7a92e1d632 CURRENT_ID_PREFIX 4e7a92e1d632\nLATEST_JOB prompt_failed h3_full MISMATCH_FIELDS [] FROZEN_ID_PREFIX 4e7a92e1d632 CURRENT_ID_PREFIX 4e7a92e1d632\nFILE_SHA main.py b8857b0cefa7\nFILE_SHA adapters/v20.py 0ec1f82e3875\nFILE_SHA workflow_adapters.py 5ae335e524e5\n",
+  "stderr": ""
 }
