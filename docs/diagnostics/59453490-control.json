@@ -1,6 +1,6 @@
 {
-  "id": "inspect-post-enable-failure-1",
-  "script_path": "docs/diagnostics/inspect_failed_prompt.py",
-  "sha256": "7ea09324065bf8c0ca5d329ab5c993aee6c8643252da8c10c8c2e2df48a98b74",
+  "id": "native-identity-why-fails-1",
+  "script_path": "docs/diagnostics/inspect_native_identity_live.py",
+  "sha256": "0a97a537bb3174a7700422c567c77c13ccb3d86e6069c1bc6b6bd24afe175a57",
   "timeout_seconds": 120
 }
