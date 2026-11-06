@@ -1,6 +1,6 @@
 {
-  "id": "inspect-prompt-failed-1",
-  "script_path": "docs/diagnostics/inspect_failed_prompt.py",
-  "sha256": "7ea09324065bf8c0ca5d329ab5c993aee6c8643252da8c10c8c2e2df48a98b74",
-  "timeout_seconds": 180
+  "id": "inspect-cli-validate-1",
+  "script_path": "docs/diagnostics/inspect_comfy_cli_validate.py",
+  "sha256": "afbfefab315b7bb97242bdabba362a3fc63566c84e91442380c94e1126c06faa",
+  "timeout_seconds": 240
 }
