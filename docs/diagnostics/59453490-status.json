@@ -1,7 +1,4 @@
 {
-  "id": "fix-canonical-native-1",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "NATIVE_MANIFEST_MATCH True FILES 7\nSYMLINK_PARENT True SYMLINK_PACKAGE False\nQUEUED_JOB_COUNTS {'prompt_failed': 70}\nPATCHED 0\nPATCHED 1\nNATIVE_VERIFY_PASS\nPANEL_RESTART_PASS\n",
-  "stderr": ""
+  "id": "inspect-post-native-new-failure-1",
+  "state": "running"
 }
