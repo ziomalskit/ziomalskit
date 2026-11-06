@@ -1,6 +1,6 @@
 {
-  "id": "inspect-customcombo-1",
-  "script_path": "docs/diagnostics/inspect_customcombo.py",
-  "sha256": "9412f7f5bbdcec5e88467f23e4c40a7863dd20c9b0325032f0d8f72c432e5bb0",
+  "id": "probe-customcombo-validate-1",
+  "script_path": "docs/diagnostics/probe_customcombo_validation.py",
+  "sha256": "b0ed5e6ca2a4c21322681f895704c259788095c82a1cce2351512fabd8237aa6",
   "timeout_seconds": 180
 }
