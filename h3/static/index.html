@@ -93,6 +93,8 @@ a{color:#9ecbff}
 <div id="qualityControls" class="render-grid"></div>
 <div id="advancedRenderSettings" hidden><div id="advancedRenderControls" class="render-grid"></div></div>
 <label>Clip duration (seconds)</label><input id="duration" type="number" value="20" min="1" max="120" step="1">
+<label for="seed">Render seed (optional)</label><input id="seed" type="number" min="0" max="9007199254740991" step="1" placeholder="Automatic">
+<div class="tiny">Leave blank for an automatic seed. Further renders increment this seed.</div>
 <div class="row">
 <div><label>Batches</label><input id="batches" type="number" value="1" min="1" max="100"></div>
 <div><label>Stuck timeout (min)</label><input id="timeout" type="number" value="8" min="1"></div>
@@ -345,6 +347,9 @@ async function generate(){
     if(!body){
     const renderSettings=submittedRenderSettings();
     const source=submittedPromptSource();
+    const seedField=document.getElementById('seed'),seedText=seedField?.value.trim()||'';
+    const seed=seedText===''?null:Number(seedText);
+    if(seedField?.validity?.badInput||(seed!==null&&(!Number.isSafeInteger(seed)||seed<0)))throw new Error('Render seed must be a whole number from 0 to 9007199254740991.');
     let pics=[];
     let p=document.getElementById('pic').files[0];
     let refs=[...document.getElementById('refs').files];
@@ -355,6 +360,7 @@ async function generate(){
     body={
       request_id:requestUUID(),
       ...source,
+      ...(seed===null?{}:{seed}),
       profile:document.getElementById('model').value,
       duration_seconds:+(document.getElementById('duration')?.value||20),
       render_settings:renderSettings,
