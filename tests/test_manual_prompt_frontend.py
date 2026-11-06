@@ -24,5 +24,5 @@ class ManualPromptFrontendTests(unittest.TestCase):
 
 
 for scenario in ("selector", "autoprompt", "manual_body", "retry", "pending_switch", "during_upload",
-                 "empty", "unknown", "preview", "review", "escaping"):
+                 "empty", "unknown", "preview", "review", "escaping", "seed", "invalid_seed"):
     setattr(ManualPromptFrontendTests, "test_" + scenario, lambda self, scenario=scenario: self.run_js(scenario))

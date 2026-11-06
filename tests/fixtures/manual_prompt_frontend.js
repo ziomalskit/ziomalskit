@@ -7,7 +7,7 @@ let uploads=0,loseReply=['retry','pending_switch'].includes(scenario),uploadGate
 function load(){
   const elements={model:{value:'h3_full'},promptMode:{value:'autoprompt',innerHTML:''},
     pic:{files:['anchor']},refs:{files:[1,2,3,4,5]},audio:{files:['audio']},
-    prompt:{value:'Original scene'},manualFinalPrompt:{value:exact},duration:{value:'20'},batches:{value:'3'},timeout:{value:'8'},
+    prompt:{value:'Original scene'},manualFinalPrompt:{value:exact},duration:{value:'20'},seed:{value:''},batches:{value:'3'},timeout:{value:'8'},
     generateBatch:{},newBatch:{},scenePromptField:{},manualPromptField:{},promptModeHelp:{},batchHelp:{},
     prefetchTarget:{},terminalSection:{},advancedRenderSettings:{},selectedStatus:{},promptSource:{},
     jobs:{innerHTML:''},reviewPool:{innerHTML:''}};
@@ -82,6 +82,23 @@ function manual(context,elements){elements.promptMode.value='manual_final';vm.ru
       await vm.runInContext('generate()',context);
       assert.deepEqual(requests[1],body);assert.equal(uploads,7);assert.equal(stored.size,0);
     }
+  }else if(scenario==='seed'){
+    assert.match(html,/<input[^>]+id="seed"/);
+    elements.seed.value='12345';manual(context,elements);
+    uploadGate=new Promise(resolve=>{releaseUpload=resolve});
+    const pending=vm.runInContext('generate()',context);
+    await Promise.resolve();elements.seed.value='67890';releaseUpload();await pending;
+    assert.equal(requests[0].seed,12345);
+    elements.seed.value='0';await vm.runInContext('generate()',context);assert.equal(requests[1].seed,0);
+    elements.promptMode.value='autoprompt';elements.seed.value='101';
+    await vm.runInContext('generate()',context);assert.equal(requests[2].seed,101);
+    elements.seed.value='';await vm.runInContext('generate()',context);assert.equal('seed' in requests[3],false);
+  }else if(scenario==='invalid_seed'){
+    for(const seed of ['-1','1.5','NaN','9007199254740992']){
+      elements.seed.value=seed;await vm.runInContext('generate()',context);
+    }
+    elements.seed.value='';elements.seed.validity={badInput:true};await vm.runInContext('generate()',context);
+    assert.equal(uploads,0);assert.equal(requests.length,0);assert.equal(alerts.length,5);
   }else if(scenario==='during_upload'){
     manual(context,elements);uploadGate=new Promise(resolve=>{releaseUpload=resolve});
     const pending=vm.runInContext('generate()',context);
