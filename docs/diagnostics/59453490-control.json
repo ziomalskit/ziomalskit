@@ -1,6 +1,6 @@
 {
-  "id": "probe-four-combo-index-1",
-  "script_path": "docs/diagnostics/probe_customcombo_index_fix.py",
-  "sha256": "c9c5a81a9779052cf3332307f3503443947f8c8af9986131ae7c1650d66634d8",
-  "timeout_seconds": 120
+  "id": "deploy-active-combos-index-1",
+  "script_path": "docs/diagnostics/deploy_active_combos.py",
+  "sha256": "b48d1989f996b2072c7e271ad0620a2188453dd0312ece7e87c9cfb0da1f829f",
+  "timeout_seconds": 550
 }
