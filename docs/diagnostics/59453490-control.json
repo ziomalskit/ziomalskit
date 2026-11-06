@@ -1,6 +1,6 @@
 {
-  "id": "replay-one-fullgpu-prompt-20261107-6",
-  "script_path": "docs/diagnostics/replay_fullgpu_one_prompt.py",
-  "sha256": "b490bcc3eba1d3ebc50713c7cb653f259790cec5d38660d1bd42896d2a28ce57",
-  "timeout_seconds": 680
+  "id": "inspect-final-timeline-20261107-7",
+  "script_path": "docs/diagnostics/inspect_final_timeline_failure.py",
+  "sha256": "cdf63b51d098e9b9456ce0119bfdeffde822837f6c02736c2dd971228604d4f1",
+  "timeout_seconds": 90
 }
