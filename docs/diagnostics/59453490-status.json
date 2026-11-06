@@ -1,7 +1,4 @@
 {
-  "id": "deploy-27b-full-gpu-20261107-4",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "GPU_OFFLOAD_PATCHED 2 QWEN35_27B_BLOCKS 64 GPU_LAYER_CAP 100\nNO_GENERATION_SUBMITTED\n",
-  "stderr": ""
+  "id": "native-27b-full-gpu-20261107-5",
+  "state": "running"
 }
