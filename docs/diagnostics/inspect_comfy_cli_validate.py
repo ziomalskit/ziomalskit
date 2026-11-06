@@ -25,7 +25,7 @@ for f in files[:2]:
      payload=d.get('error',{})
      if isinstance(payload,dict):
       print(name+'_ERROR_CODE',str(payload.get('code',''))[:120])
-      print(name+'_ERROR_MESSAGE',str(payload.get('message',''))[:700])
+      print(name+'_ERROR_MESSAGE',str(payload.get('message',''))[:700]);print(name+'_ERROR_DETAILS',json.dumps(payload,ensure_ascii=True)[:4800])
      else:print(name+'_ERROR_MESSAGE',str(payload)[:700])
      continue
    except (ValueError,TypeError):pass
