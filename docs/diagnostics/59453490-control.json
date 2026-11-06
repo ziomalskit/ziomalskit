@@ -1,6 +1,6 @@
 {
-  "id": "inspect-llm-runtime-1",
-  "script_path": "docs/diagnostics/inspect_llm_runtime_failure.py",
-  "sha256": "3080ebd16d92ff2dd7c93250ac75bec561b457d3b33bc26df7731a078271e95f",
-  "timeout_seconds": 120
+  "id": "deploy-vision-transport-and-diagnostics-1",
+  "script_path": "docs/diagnostics/deploy_llm_transport_fix.py",
+  "sha256": "9763ca0cc182eb01a3a5fc31e06204e2f4107045c223c6c1e18333eb111c9b5f",
+  "timeout_seconds": 600
 }
