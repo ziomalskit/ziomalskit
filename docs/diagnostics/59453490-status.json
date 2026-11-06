@@ -1,7 +1,4 @@
 {
-  "id": "inspect-markers-20261107-8",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "MARKERS final_h3_prompt text_len 6615 candidates 4 valid 1 valid_numbers [1] other_headings 0 details [{\"num\": 1, \"at_line_start\": false, \"indent\": null, \"exact_header\": true, \"contains_line_prefix\": true, \"close_bracket\": true, \"is_uppercase_label\": false}, {\"num\": 1, \"at_line_start\": false, \"indent\": null, \"exact_header\": true, \"contains_line_prefix\": true, \"close_bracket\": true, \"is_uppercase_label\": false}, {\"num\": 1, \"at_line_start\": false, \"indent\": null, \"exact_header\": true, \"contains_line_prefix\": true, \"close_bracket\": true, \"is_uppercase_label\": false}, {\"num\": 1, \"at_line_start\": true, \"indent\": null, \"exact_header\": true, \"contains_line_prefix\": false, \"close_bracket\": true, \"is_uppercase_label\": false}]\nMARKERS canonical_creative_plan text_len 9982 candidates 1 valid 1 valid_numbers [1] other_headings 0 details [{\"num\": 1, \"at_line_start\": true, \"indent\": null, \"exact_header\": true, \"contains_line_prefix\": false, \"close_bracket\": true, \"is_uppercase_label\": false}]\n",
-  "stderr": ""
+  "id": "probe-inline-shot-fix-20261107-9",
+  "state": "running"
 }
