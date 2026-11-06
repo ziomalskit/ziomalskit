@@ -1,6 +1,6 @@
 {
-  "id": "deploy-concise-vision-20261106-h",
-  "script_path": "docs/diagnostics/deploy_concise_vision_and_replay.py",
-  "sha256": "d349fa5a76f52b7df7c0020c8b10b6ca9884945be33cf0ae89e187ae213d9cbf",
-  "timeout_seconds": 900
+  "id": "fast-stage3-20261107-1",
+  "script_path": "docs/diagnostics/inspect_fast_stage3_v2.py",
+  "sha256": "a71fb110b3fd4c880c9552a3d96a290d40ce67b0ead0c50f42b5f0188b102829",
+  "timeout_seconds": 75
 }
