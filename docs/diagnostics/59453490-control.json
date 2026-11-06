@@ -1,0 +1,6 @@
+{
+  "id": "inspect-cgroup-1",
+  "script_path": "docs/diagnostics/inspect_cgroup.py",
+  "sha256": "06d7606716ec83b278ba57872096850a4be88eca15e29f09109a6ec71260dad9",
+  "timeout_seconds": 120
+}
