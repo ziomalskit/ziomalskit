@@ -1,7 +1,4 @@
 {
-  "id": "inspect-history-node-routing-1",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "HISTORY_PROMPT_KIND list 5\nNODE_COUNT 413\nOUTPUT_NODE 2551:4379 CLASS PreviewAny TITLE STEP 1 \u2014 Expanded Intent / Output\nOUTPUT_NODE 2551:2890 CLASS PreviewAny TITLE STEP 2 \u2014 Reference Map / Output\nNODE aj_creative_timeline CLASS AJCreativeTimelineGuard TITLE \n EDGE effective_duration_seconds FROM aj_frozen_duration SLOT 1\n EDGE creative_plan FROM 2551:4799:4814:4808 SLOT 0\nNODE 2551:2640:2445 CLASS AJPromptTextProcessor TITLE Mistral-Nemo HERETIC \u2014 Step 3\n NONCONTENT_FIELD model Qwen3.5-27B-heretic.Q5_K_M.gguf\n NONCONTENT_FIELD mmproj none\n NONCONTENT_FIELD system_prompt none\n NONCONTENT_FIELD max_tokens 8192\n NONCONTENT_FIELD reasoning off\n EDGE prompt FROM 2551:5364:5320 SLOT 0\n EDGE seed FROM 2551:4022:4101:4099 SLOT 0\nNODE aj_final_timeline CLASS AJFinalPromptTimeGuard TITLE \n EDGE canonical_creative_plan FROM aj_creative_timeline SLOT 0\n EDGE effective_duration_seconds FROM aj_frozen_duration SLOT 1\n EDGE final_h3_prompt FROM 2551:4308 SLOT 0\n",
-  "stderr": ""
+  "id": "inspect-creative-upstream-chain-1",
+  "state": "running"
 }
