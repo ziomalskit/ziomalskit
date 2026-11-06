@@ -1,4 +1,7 @@
 {
   "id": "probe-customcombo-validate-1",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "DYNAMIC_CHOICES 6 EXIT_CODE 0\nNO_ENVELOPE STDERR_LEN 0 STDOUT_LEN 60564\n",
+  "stderr": ""
 }
