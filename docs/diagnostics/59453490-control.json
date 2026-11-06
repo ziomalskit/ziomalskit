@@ -1,6 +1,6 @@
 {
-  "id": "probe-customcombo-validate-1",
-  "script_path": "docs/diagnostics/probe_customcombo_validation.py",
-  "sha256": "b0ed5e6ca2a4c21322681f895704c259788095c82a1cce2351512fabd8237aa6",
-  "timeout_seconds": 180
+  "id": "apply-customcombo-smoke-1",
+  "script_path": "docs/diagnostics/apply_customcombo_and_smoke.py",
+  "sha256": "9f1af809ccd88043ccb68d11f2bcbbf2695776648d3b8591ec44ddb7d136f1e2",
+  "timeout_seconds": 480
 }
