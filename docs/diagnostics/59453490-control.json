@@ -1,6 +1,6 @@
 {
-  "id": "deploy-27b-full-gpu-20261107-4",
-  "script_path": "docs/diagnostics/deploy_qwen27_full_gpu.py",
-  "sha256": "b35769d1a53981ca29b37dc68a470efe4131f55a107a446e98e5648f4d43862e",
+  "id": "native-27b-full-gpu-20261107-5",
+  "script_path": "docs/diagnostics/native_probe.py",
+  "sha256": "4ff3b9116424d7aa4e538bb2428c74b1dafc91e9aab6c7f2513acb13fe6f7630",
   "timeout_seconds": 330
 }
