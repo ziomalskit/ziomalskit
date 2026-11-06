@@ -1,7 +1,4 @@
 {
-  "id": "inspect-all-output-diffs-1",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "DIFF 6036:6962:6950:6899 CLASS CustomCombo EXPECTED {\"choice\": \"scale_extension\", \"index\": 0, \"option1\": \"scale_ref\", \"option2\": \"scale_extension\", \"option3\": \"\", \"option4\": \"\", \"option5\": \"\"} ACTUAL {\"choice\": \"scale_extension\"}\nDIFF 6036:7138:7134 CLASS PrimitiveInt EXPECTED {\"value\": 0, \"fixed\": \"fixed\"} ACTUAL {\"value\": 0}\nDIFF 6036:7138:7189 CLASS PrimitiveInt EXPECTED {\"value\": 1, \"fixed\": \"fixed\"} ACTUAL {\"value\": 1}\nDIFF 6036:7138:7197 CLASS PrimitiveInt EXPECTED {\"value\": 2, \"fixed\": \"fixed\"} ACTUAL {\"value\": 2}\nDIFF 6036:7225:7216:7218 CLASS CustomCombo EXPECTED {\"choice\": \"scale_extension\", \"index\": 0, \"option1\": \"scale_ref\", \"option2\": \"scale_extension\", \"option3\": \"\", \"option4\": \"\", \"option5\": \"\"} ACTUAL {\"choice\": \"scale_extension\"}\nTOTAL_CHAIN_NODES 71 MISMATCHES 5 IDS ['6036:6962:6950:6899', '6036:7138:7134', '6036:7138:7189', '6036:7138:7197', '6036:7225:7216:7218']\n",
-  "stderr": ""
+  "id": "apply-primitive-smoke-1",
+  "state": "running"
 }
