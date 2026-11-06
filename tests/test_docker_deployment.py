@@ -163,7 +163,87 @@ class DockerDeploymentTests(unittest.TestCase):
             ram, cpu, rows = docker.cgroup_limits(root, proc)
         self.assertEqual(ram, 90 * 1024**3); self.assertEqual(cpu, 6); self.assertEqual(len(rows), 3)
         (root / 'cgroup.controllers').unlink()
-        with self.assertRaisesRegex(ValueError, 'v2'):
+        with self.assertRaisesRegex(ValueError, 'cgroup'):
+            docker.cgroup_limits(root, proc)
+
+    def legacy_cgroups(self, membership='/allocation/job', fsroot='/'):
+        root = self.base / 'legacy'
+        proc = self.base / 'legacy-proc'
+        (proc / 'self').mkdir(parents=True)
+        (proc / 'self/cgroup').write_text(f'5:memory:{membership}\n4:cpu,cpuacct:{membership}\n')
+        (proc / 'meminfo').write_text('MemAvailable: 200000000 kB\n')
+        mountinfo = []
+        for controller, suffix in [('memory', 'memory'), ('cpu', 'cpu,cpuacct')]:
+            mount = root / suffix
+            child = mount / membership.lstrip('/') if fsroot == '/' else mount
+            child.mkdir(parents=True)
+            current = child
+            while True:
+                values = {'memory.limit_in_bytes': str(120 * 1024**3),
+                          'memory.soft_limit_in_bytes': str(2**63-4096),
+                          'memory.usage_in_bytes': str(10 * 1024**3)} if controller == 'memory' else {
+                              'cpu.cfs_quota_us': '800000', 'cpu.cfs_period_us': '100000'}
+                for name, value in values.items():
+                    (current / name).write_text(value)
+                if current == mount:
+                    break
+                current = current.parent
+            mountinfo.append(f'1 2 0:4 {fsroot} {mount} ro - cgroup cgroup rw,{suffix}\n')
+        (proc / 'self/mountinfo').write_text(''.join(mountinfo))
+        return root, proc
+
+    def test_legacy_cgroup_ancestors_soft_ram_budget_and_fractional_cpu(self):
+        root, proc = self.legacy_cgroups()
+        (root / 'memory/allocation/memory.limit_in_bytes').write_text(str(100 * 1024**3))
+        (root / 'memory/memory.soft_limit_in_bytes').write_text(str(95 * 1024**3))
+        (root / 'cpu,cpuacct/cpu.cfs_quota_us').write_text('650000')
+        with patch.object(docker.os, 'sched_getaffinity', return_value=set(range(16))):
+            ram, cpu, rows = docker.cgroup_limits(root, proc)
+        self.assertEqual(ram, 85 * 1024**3)
+        self.assertEqual(cpu, 6.5)
+        self.assertEqual(len(rows), 6)
+
+    def test_legacy_namespaced_mount_maps_host_membership_to_visible_root(self):
+        root, proc = self.legacy_cgroups('/docker/container', '/docker/container')
+        (root / 'cpu,cpuacct/cpu.cfs_quota_us').write_text('3071999')
+        (root / 'memory/memory.soft_limit_in_bytes').write_text('128459997184')
+        with patch.object(docker.os, 'sched_getaffinity', return_value=set(range(256))):
+            ram, cpu, rows = docker.cgroup_limits(root, proc)
+        self.assertEqual(ram, 128459997184 - 10 * 1024**3)
+        self.assertAlmostEqual(cpu, 30.71999)
+        self.assertEqual(len(rows), 2)
+
+    def test_legacy_unlimited_limits_still_bound_by_host_memory_and_affinity(self):
+        root, proc = self.legacy_cgroups('/', '/docker/container')
+        for name in ['memory.limit_in_bytes', 'memory.soft_limit_in_bytes']:
+            (root / 'memory' / name).write_text(str(2**63-4096))
+        (root / 'cpu,cpuacct/cpu.cfs_quota_us').write_text('-1')
+        with patch.object(docker.os, 'sched_getaffinity', return_value=set(range(12))):
+            ram, cpu, _ = docker.cgroup_limits(root, proc)
+        self.assertEqual(ram, 200000000 * 1024)
+        self.assertEqual(cpu, 12)
+        (root / 'memory/memory.limit_in_bytes').write_text('0')
+        (root / 'memory/memory.soft_limit_in_bytes').write_text('0')
+        self.assertEqual(docker.cgroup_limits(root, proc)[0], 0)
+
+    def test_legacy_missing_controller_invalid_quota_and_path_escape_fail_closed(self):
+        root, proc = self.legacy_cgroups('/', '/docker/container')
+        path = root / 'cpu,cpuacct/cpu.cfs_period_us'
+        path.write_text('0')
+        with self.assertRaisesRegex(ValueError, 'quota'):
+            docker.cgroup_limits(root, proc)
+        path.write_text('100000')
+        membership = proc / 'self/cgroup'
+        membership.write_text('5:memory:/other/container\n4:cpu,cpuacct:/\n')
+        with self.assertRaisesRegex(ValueError, 'map current'):
+            docker.cgroup_limits(root, proc)
+        membership.write_text('5:memory:/\n')
+        with self.assertRaisesRegex(ValueError, 'cpu controller'):
+            docker.cgroup_limits(root, proc)
+        membership.write_text('5:memory:/../escape\n4:cpu,cpuacct:/\n')
+        mountinfo = proc / 'self/mountinfo'
+        mountinfo.write_text(mountinfo.read_text().replace('/docker/container ', '/ '))
+        with self.assertRaisesRegex(ValueError, 'resolve current'):
             docker.cgroup_limits(root, proc)
 
     def test_early_resource_gpu_and_driver_failures_prevent_kernel(self):
