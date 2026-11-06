@@ -36,11 +36,24 @@ def generate(native_class, values):
         text = Path(command[command.index('-f') + 1]).read_bytes().decode('utf-8')
         content = text
         if '--image' in command:
-            # Same as cli_context::stage_media_file/push_user_message at the pin:
-            # ordered image parts first, then the exact prompt text.
-            content = [{'type': 'image_url', 'image_url': {'url': 'data:image/unknown;base64,' +
-                       base64.b64encode(Path(path).read_bytes()).decode('ascii')}}
-                       for path in command[command.index('--image') + 1].split(',')]
+            # The OpenAI-compatible multimodal endpoint expects a real image
+            # media type, not the historical generic image/unknown placeholder.
+            # Detect from file signatures, not user-controlled extensions.
+            content = []
+            for path in command[command.index('--image') + 1].split(','):
+                data = Path(path).read_bytes()
+                if data.startswith(b'\\x89PNG\\r\\n\\x1a\\n'):
+                    mime = 'image/png'
+                elif data.startswith(b'\\xff\\xd8\\xff'):
+                    mime = 'image/jpeg'
+                elif data.startswith((b'GIF87a', b'GIF89a')):
+                    mime = 'image/gif'
+                elif data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+                    mime = 'image/webp'
+                else:
+                    raise ValueError('unsupported native reference image encoding')
+                content.append({'type': 'image_url', 'image_url': {
+                    'url': 'data:' + mime + ';base64,' + base64.b64encode(data).decode('ascii')}})
             content.append({'type': 'text', 'text': text})
         messages.append({'role': 'user', 'content': content})
         request_values = {**values, 'native_seed': int(command[command.index('--seed') + 1])}
