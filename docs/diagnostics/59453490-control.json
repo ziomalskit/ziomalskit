@@ -1,6 +1,6 @@
 {
-  "id": "inspect-combo-index-source-1",
-  "script_path": "docs/diagnostics/inspect_combo_execution_contract.py",
-  "sha256": "4f7478a7a2d3eff660961848aa1e7fcafdd91e0cebd3df1e047edac6739ef6cf",
+  "id": "probe-four-combo-index-1",
+  "script_path": "docs/diagnostics/probe_customcombo_index_fix.py",
+  "sha256": "c9c5a81a9779052cf3332307f3503443947f8c8af9986131ae7c1650d66634d8",
   "timeout_seconds": 120
 }
