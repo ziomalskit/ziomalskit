@@ -12,7 +12,7 @@ concurrency:
 jobs:
   init:
     runs-on: ubuntu-24.04
-    timeout-minutes: 18
+    timeout-minutes: 180
     steps:
       - name: Create ephemeral SSH identity
         shell: bash
@@ -38,84 +38,17 @@ jobs:
               assert response.status in (200,201)
           print('Ephemeral PUBLIC key published for operator attachment; private key stays on runner.')
           PYCODE
-      - name: Await authorization and run init without model transfer
+      - name: Operate the existing instance through approved stages
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          trap 'rm -f "$RUNNER_TEMP/aj-key" "$RUNNER_TEMP/aj-key.pub"' EXIT
-          ssh_options=(-i "$RUNNER_TEMP/aj-key" -p 16843 -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$RUNNER_TEMP/aj-known-hosts" -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
-          connected=0
-          for attempt in $(seq 1 90); do
-            if ssh "${ssh_options[@]}" root@154.59.156.40 true 2>/dev/null; then
-              connected=1
-              break
-            fi
-            sleep 5
-          done
-          if [ "$connected" != 1 ]; then
-            echo 'SSH authorization or reachability failed.'
-            exit 1
-          fi
-          echo 'SSH authentication PASS'
-          ssh "${ssh_options[@]}" root@154.59.156.40 'python3 -' <<'PY'
-          import os, pathlib, pty, re, secrets, select, signal, subprocess, time
-          root = pathlib.Path('/workspace')
-          image = pathlib.Path('/etc/aj-image.json')
-          if not image.is_file():
-              raise SystemExit('Expected AJ image receipt is missing')
-          print('AJ image receipt present', flush=True)
-          probe = subprocess.run(['nvidia-smi','--query-gpu=name,driver_version,memory.total','--format=csv,noheader'],text=True,capture_output=True,timeout=20)
-          print(probe.stdout.strip(), flush=True)
-          if probe.returncode:
-              raise SystemExit('GPU probe failed')
-          os.umask(0o077)
-          root.mkdir(parents=True, exist_ok=True)
-          log_path = root / 'aj-diagnostic-init.log'
-          secret_path = pathlib.Path('/root/.aj-panel-password')
-          password = None
-          pid, fd = pty.fork()
-          if pid == 0:
-              os.execvp('aj-docker',['aj-docker','init'])
-          deadline = time.monotonic()+600
-          pending = b''
-          recent = b''
-          sent = False
-          status = None
-          with log_path.open('ab',buffering=0) as log:
-              while time.monotonic() < deadline:
-                  readable,_,_=select.select([fd],[],[],1)
-                  if readable:
-                      try: chunk = os.read(fd,65536)
-                      except OSError: break
-                      if not chunk: break
-                      log.write(chunk)
-                      recent = (recent+chunk)[-4096:]
-                      if b'Choose private panel password' in recent and not sent:
-                          password = secrets.token_urlsafe(36)
-                          secret_path.write_text(password+'\n')
-                          os.chmod(secret_path,0o600)
-                          os.write(fd,(password+'\n').encode())
-                          sent = True
-                      pending += chunk
-                      while b'\n' in pending:
-                          raw,pending = pending.split(b'\n',1)
-                          line = raw.decode('utf-8','replace').replace('\r','')
-                          if any(term in line for term in ['AJ Docker blocked:','Runtime health PASS','No weights downloaded.','Process ownership support','SageAttention']):
-                              if password: line = line.replace(password,'[REDACTED]')
-                              print(line[:1800],flush=True)
-                  done,code = os.waitpid(pid,os.WNOHANG)
-                  if done:
-                      status=code
-                      break
-              else:
-                  os.kill(pid,signal.SIGTERM)
-                  print('Init deadline reached; inspect private instance log.',flush=True)
-              if status is None:
-                  _,status=os.waitpid(pid,0)
-          os.close(fd)
-          result=os.waitstatus_to_exitcode(status)
-          print('AJ_INIT_EXIT='+str(result),flush=True)
-          if result:
-              print('Full private diagnostic output retained on the instance.',flush=True)
-          raise SystemExit(result)
-          PY
+          python3 - <<'FETCH'
+          import base64, json, os, pathlib, urllib.request
+          u='https://api.github.com/repos/ziomalskit/ziomalskit/contents/docs/diagnostics/aj_operator_runner.py?ref=diag/vast-init-59453490'
+          r=urllib.request.Request(u,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+          obj=json.load(urllib.request.urlopen(r,timeout=25))
+          pathlib.Path(os.environ['RUNNER_TEMP'],'aj_operator_runner.py').write_bytes(base64.b64decode(obj['content']))
+          FETCH
+          python3 "$RUNNER_TEMP/aj_operator_runner.py"
