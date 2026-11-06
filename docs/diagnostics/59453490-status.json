@@ -1,7 +1,4 @@
 {
-  "id": "probe-inline-shot-fix-20261107-9",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "SAFE_NORMALIZATION_PASS replaced 3 schedule_shots 1 final_chars 6609\n",
-  "stderr": ""
+  "id": "deploy-inline-shot-repair-20261107-10",
+  "state": "running"
 }
