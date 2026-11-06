@@ -5,9 +5,11 @@ on:
   push:
     branches:
       - feat/optional-vast-docker
+      - fix/functional-e2e-readiness
     paths:
       - .github/workflows/aj-docker-image.yml
       - h3/docker/**
+      - h3/static/**
       - h3/scripts/**
       - h3/INSTALL_ON_VAST.sh
       - h3/*requirements*.txt
@@ -25,7 +27,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.repository == 'ziomalskit/ziomalskit' && github.ref == 'refs/heads/feat/optional-vast-docker'
+    if: github.repository == 'ziomalskit/ziomalskit' && (github.ref == 'refs/heads/feat/optional-vast-docker' || github.ref == 'refs/heads/fix/functional-e2e-readiness')
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     outputs:
