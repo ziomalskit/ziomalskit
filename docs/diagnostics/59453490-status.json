@@ -1,7 +1,4 @@
 {
-  "id": "apply-primitive-smoke-1",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "PATCHED source\nPATCHED deployed\nSMOKE_EXIT 0\nSMOKE_LOG h3_full prompt\nSMOKE_LOG prompt: 413 API nodes validated; no submission\nSMOKE_LOG h3_full render\nSMOKE_LOG render: 307 API nodes validated; no submission\nSMOKE_LOG 10eros_full prompt\nSMOKE_LOG prompt: 413 API nodes validated; no submission\nSMOKE_LOG 10eros_full render\nSMOKE_LOG render: 307 API nodes validated; no submission\nSMOKE_LOG SMOKE/CONVERSION PASSED \u2014 no real render submitted\n",
-  "stderr": ""
+  "id": "full-start-gates-1",
+  "state": "running"
 }
