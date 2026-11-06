@@ -49,21 +49,18 @@ try:
     assert code==401
     spec=importlib.util.spec_from_file_location('aj_inline_temporal_live',list(targets)[0])
     mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
-    with urllib.request.urlopen('http://127.0.0.1:8189/history?max_items=5',timeout=15) as r:history=json.load(r)
-    validated=False
-    for entry in history.values():
-        for t,e in entry.get('status',{}).get('messages',[]):
-            if t!='execution_error' or e.get('node_id')!='aj_final_timeline':continue
-            inp=e.get('current_inputs',{})
-            def one(x):return x[0] if isinstance(x,list) and len(x)==1 else x
-            final=one(inp['final_h3_prompt'])
-            plan=one(inp['canonical_creative_plan'])
-            seconds=one(inp['effective_duration_seconds'])
-            out=mod.final_timeline(final,plan,seconds,canonicalize=True)
-            validated=bool(out and out!=final)
-            break
-        if validated:break
-    assert validated,'PREVIOUS_OUTPUT_NOT_VALIDATED'
+    # Use an isolated, synthetic fixture: ComfyUI history is cleared on restart.
+    plan = "[Shot 1]\\nTimeline: 00:00.000-00:01.000\\nOne action.\\n"
+    final = (
+        "subject_definitions:\\nObject\\n"
+        "summary:\\nOne description references [Shot 1] inline.\\n"
+        "retention_analysis:\\nThe object remains consistent.\\n"
+        "detailed_description:\\n[Shot 1]\\nOne action.\\n"
+        "overall_soundscape:\\nQuiet.\\n"
+        "non_diegetic_music:\\nNone.\\n"
+    )
+    normalized = mod.final_timeline(final, plan, 1.0, canonicalize=True)
+    assert normalized.count("[Shot 1]") == 1 and "references Shot 1 inline" in normalized, 'SYNTHETIC_GUARD_FIX_FAILED'
 except Exception:
     for p,before in targets.items():put(p,before)
     for name in ('prompt','render','panel'):
@@ -72,6 +69,6 @@ except Exception:
     print('ROLLED_BACK',flush=True)
     raise
 print('INLINE_SHOT_REFERENCES_REPAIRED',len(targets),'NATIVE_COPIES',flush=True)
-print('PREVIOUS_FINAL_PROMPT_PASSES_FULL_TIMELINE_VALIDATION',flush=True)
+print('SYNTHETIC_FINAL_PROMPT_VALIDATION_PASS',flush=True)
 print('SERVICES_HEALTHY',8188,8189,7860,flush=True)
 print('NO_NEW_GENERATION',flush=True)
