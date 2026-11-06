@@ -1,4 +1,7 @@
 {
   "id": "inspect-customcombo-1",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "CUSTOMCOMBO_SCHEMA {\"CustomCombo\": {\"input\": {\"required\": {\"choice\": [\"COMBO\", {\"multiselect\": false, \"options\": []}]}}, \"input_order\": {\"required\": [\"choice\"]}, \"is_input_list\": false, \"output\": [\"STRING\", \"INT\"], \"output_is_list\": [false, false], \"output_name\": [\"STRING\", \"INDEX\"], \"output_tooltips\": [null, null], \"output_matchtypes\": null, \"name\": \"CustomCombo\", \"display_name\": \"Custom Combo\", \"description\": \"\", \"python_module\": \"comfy_extras.nodes_logic\", \"category\": \"utilities\", \"output_node\": false, \"deprecated\": false, \"experimental\": true, \"dev_only\": false, \"api_node\": false, \"price_badge\": null, \"search_aliases\": null, \"essentials_category\": null, \"has_intermediate_output\": false}}\nMATCHED_FILES 0\n",
+  "stderr": ""
 }
