@@ -1,6 +1,6 @@
 {
-  "id": "start-download-1",
-  "script_path": "docs/diagnostics/start_download.py",
-  "sha256": "ed5f5ada26e7409983ff61b21049a51695f8bd31674e507d8adfe1024100f4f6",
-  "timeout_seconds": 90
+  "id": "patch-and-init-1",
+  "script_path": "docs/diagnostics/patch_and_init.py",
+  "sha256": "840e4b3214673c15206e7eb160631c0e2565be797521ec9c446fb5f102a95ffb",
+  "timeout_seconds": 900
 }
