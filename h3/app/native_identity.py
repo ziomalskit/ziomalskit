@@ -78,5 +78,8 @@ def validate_manifest_paths(expected):
 
 def verify_deployed_native(package: Path, expected: dict[str, str]) -> None:
     validate_manifest_paths(expected)
-    if native_manifest(package, deployed=True) != expected:
+    # Docker's custom_nodes directory may be a symlink to the pinned image seed.
+    # Canonicalize that trusted parent before opening each path with O_NOFOLLOW.
+    canonical = package.resolve(strict=True)
+    if native_manifest(canonical, deployed=True) != expected:
         raise ValueError("deployed native implementation differs from frozen repository implementation")
