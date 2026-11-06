@@ -1,6 +1,6 @@
 {
-  "id": "fast-stage3-20261107-1",
-  "script_path": "docs/diagnostics/inspect_fast_stage3_v2.py",
-  "sha256": "a71fb110b3fd4c880c9552a3d96a290d40ce67b0ead0c50f42b5f0188b102829",
-  "timeout_seconds": 75
+  "id": "inspect-stage3-resources-20261107-2",
+  "script_path": "docs/diagnostics/inspect_step3_resources.py",
+  "sha256": "f4247ff99349b912636612ce8044c3ef6e88ff420c258a3ad39d22298e4b5b16",
+  "timeout_seconds": 90
 }
