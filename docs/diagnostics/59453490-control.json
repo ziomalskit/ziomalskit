@@ -1,6 +1,6 @@
 {
-  "id": "native-27b-full-gpu-20261107-5",
-  "script_path": "docs/diagnostics/native_probe.py",
-  "sha256": "4ff3b9116424d7aa4e538bb2428c74b1dafc91e9aab6c7f2513acb13fe6f7630",
-  "timeout_seconds": 330
+  "id": "replay-one-fullgpu-prompt-20261107-6",
+  "script_path": "docs/diagnostics/replay_fullgpu_one_prompt.py",
+  "sha256": "b490bcc3eba1d3ebc50713c7cb653f259790cec5d38660d1bd42896d2a28ce57",
+  "timeout_seconds": 680
 }
