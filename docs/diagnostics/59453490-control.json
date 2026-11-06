@@ -1,6 +1,6 @@
 {
-  "id": "inspect-new-batch-failure-20261107-b",
-  "script_path": "docs/diagnostics/inspect_latest_nov7.py",
-  "sha256": "3b60be29f9406d8f00fb81d09edcf09eea75228595bf2b8bedf2a8324bf753be",
-  "timeout_seconds": 150
+  "id": "inspect-failed-jobs-20261107-c",
+  "script_path": "docs/diagnostics/inspect_recent_failed_jobs.py",
+  "sha256": "2505cd2b03a2c17844faebb634c7f53c463a1cdbb33962c2126bc5f981d54f1c",
+  "timeout_seconds": 145
 }
