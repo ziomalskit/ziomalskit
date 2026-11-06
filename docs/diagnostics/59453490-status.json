@@ -1,4 +1,7 @@
 {
   "id": "enable-live-batches-1",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "LIVE_BATCHES_ENABLED\nPREVIOUS_FAILURES_TERMINAL 30\nPANEL_AUTHENTICATED\nCOMFY_PROMPT_RENDER_RUNNING\nNO_JOBS_SUBMITTED\n",
+  "stderr": ""
 }
