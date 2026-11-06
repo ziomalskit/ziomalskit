@@ -1,6 +1,6 @@
 {
-  "id": "apply-customcombo-smoke-1",
-  "script_path": "docs/diagnostics/apply_customcombo_and_smoke.py",
-  "sha256": "9f1af809ccd88043ccb68d11f2bcbbf2695776648d3b8591ec44ddb7d136f1e2",
-  "timeout_seconds": 480
+  "id": "inspect-render-diff-1",
+  "script_path": "docs/diagnostics/inspect_render_combo_diff.py",
+  "sha256": "dbe6e7cb187e4e0654b3f97906b5f4b18b6c1eca93544ad74bc658b5c777925c",
+  "timeout_seconds": 300
 }
