@@ -1,6 +1,6 @@
 {
-  "id": "inspect-nodes-1",
+  "id": "inspect-nodes-2",
   "script_path": "docs/diagnostics/inspect_nodes.py",
-  "sha256": "9360cc2e076c71f3fe087b48585c7bef835e1284921823e636a647eebddf1bfd",
+  "sha256": "dd31f0abd13451e8756ace0d547c4cc5c938e9fe990d10ec45a2495a325c596b",
   "timeout_seconds": 60
 }
