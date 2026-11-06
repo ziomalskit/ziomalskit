@@ -1,4 +1,7 @@
 {
   "id": "deploy-vision-output-8k-20261106-e",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "TERMINAL_JOBS 110\nPATCHED 0\nPATCHED 1\nHEALTH 7860 401\nHEALTH 8189 200\nVISION_STEP1_STEP2_CTX 65536 MAX_TOKENS 8192\nFAILED_JOBS_NOT_RETRIED\n",
+  "stderr": ""
 }
