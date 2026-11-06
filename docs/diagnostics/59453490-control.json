@@ -1,4 +1,6 @@
 {
-  "id": "close-diagnostic-bridge-20261107-13",
-  "action": "close"
+  "id": "inspect-new-batch-failure-20261107-a",
+  "script_path": "docs/diagnostics/inspect_latest_nov7.py",
+  "sha256": "cbb10168d17a0bc68fb028edc9504844188898a8aa696e7acf97e398e92990c7",
+  "timeout_seconds": 150
 }
