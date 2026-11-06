@@ -1,6 +1,6 @@
 {
-  "id": "inspect-cli-validate-details-1",
-  "script_path": "docs/diagnostics/inspect_comfy_cli_validate.py",
-  "sha256": "68c6b2be2569b217d10b6f36f480b1bf4198f08412518dc0d1f0662b77cf9e05",
+  "id": "inspect-customcombo-1",
+  "script_path": "docs/diagnostics/inspect_customcombo.py",
+  "sha256": "9412f7f5bbdcec5e88467f23e4c40a7863dd20c9b0325032f0d8f72c432e5bb0",
   "timeout_seconds": 180
 }
