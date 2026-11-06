@@ -1,6 +1,6 @@
 {
-  "id": "inspect-newest-failures-20261107-e",
-  "script_path": "docs/diagnostics/inspect_recent_failed_jobs.py",
-  "sha256": "2505cd2b03a2c17844faebb634c7f53c463a1cdbb33962c2126bc5f981d54f1c",
-  "timeout_seconds": 145
+  "id": "inspect-stage-headroom-20261107-f",
+  "script_path": "docs/diagnostics/inspect_failed_headroom.py",
+  "sha256": "6c1ce14d837b2c925869bc189138682cfda8dea9919005c9f7372dde797f1cc5",
+  "timeout_seconds": 120
 }
