@@ -227,11 +227,25 @@ def cgroup_v1_limits(root, proc):
                 soft = int(row['memory.soft_limit_in_bytes'])
                 if min(usage, hard, soft) < 0:
                     raise ValueError('Invalid cgroup v1 memory limit')
+                reclaimable = 0
+                stat_path = current / 'memory.stat'
+                if stat_path.is_file():
+                    stats = {key: int(value) for key, value in
+                             (line.split() for line in stat_path.read_text().splitlines())}
+                    prefix = 'total_' if 'total_inactive_file' in stats else ''
+                    names = [prefix + name for name in ('inactive_file', 'dirty', 'writeback')]
+                    if all(name in stats for name in names):
+                        inactive, dirty, writeback = (stats[name] for name in names)
+                        if min(inactive, dirty, writeback) < 0:
+                            raise ValueError('Invalid cgroup v1 cache counters')
+                        reclaimable = min(usage, max(0, inactive - dirty - writeback))
+                row['reclaimable_inactive_file_bytes'] = reclaimable
+                working = usage - reclaimable
                 # PAGE_COUNTER_MAX is effectively unlimited; MemAvailable remains
                 # an independent bound. A positive soft limit is an extra budget.
                 for limit in [hard] + ([soft] if soft > 0 else []):
                     if limit < 2**60:
-                        ram = min(ram, max(0, limit - usage))
+                        ram = min(ram, max(0, limit - working))
             else:
                 for name in ('cpu.cfs_quota_us', 'cpu.cfs_period_us'):
                     row[name] = (current / name).read_text().strip()
