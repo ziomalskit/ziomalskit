@@ -1,6 +1,6 @@
 {
-  "id": "models-and-start-1",
-  "script_path": "docs/diagnostics/finalize_models_start.py",
-  "sha256": "681d2ff62fb20f005f037c2a4718aa53044a6bdfb282d85e046f950d0ca07f65",
-  "timeout_seconds": 6900
+  "id": "inspect-start-1",
+  "script_path": "docs/diagnostics/inspect_start.py",
+  "sha256": "f5a181ff721e41abba5405fadf0f734ee3e3474d632c5af6eeccaf0322a76e2b",
+  "timeout_seconds": 60
 }
