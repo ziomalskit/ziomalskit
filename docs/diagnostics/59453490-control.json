@@ -1,6 +1,6 @@
 {
-  "id": "inspect-vision-context-20261106-c",
-  "script_path": "docs/diagnostics/inspect_current_vision_context.py",
-  "sha256": "e8cbe3bf3d4ac35cd5404e70d01d05c904f081e88ef84e5a01706e3a8020165c",
-  "timeout_seconds": 240
+  "id": "probe-synthetic-llama-receipt-20261106-d",
+  "script_path": "docs/diagnostics/probe_synthetic_llama_receipt.py",
+  "sha256": "2a452e31b54d95576866f05329f3995353a0ed1b8063808b549401e6dcefa0ee",
+  "timeout_seconds": 360
 }
