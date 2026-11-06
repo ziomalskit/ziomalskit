@@ -193,7 +193,34 @@ def final_answer(text):
     return text
 
 
+def _canonicalize_inline_shot_mentions(text, plan):
+    """Convert only unquoted inline [Shot N] references to ordinary prose.
+
+    Canonical structural headers remain byte-identical. Any unknown, malformed,
+    or indented standalone shot marker remains subject to strict validation.
+    """
+    planned = {int(m.group(1)) for m in SHOT.finditer(directive_text(plan))}
+    visible = directive_text(text)
+    header_positions = {m.start() for m in SHOT.finditer(visible)}
+    replacements = []
+    for match in re.finditer(r"\[shot(?=\s|\d|\]|$)", visible, re.I):
+        if match.start() in header_positions:
+            continue
+        marker = re.match(r"\[Shot ([1-9][0-9]*)\]", visible[match.start():])
+        line_start = visible.rfind("\n", 0, match.start()) + 1
+        if (marker is None or int(marker.group(1)) not in planned
+                or not visible[line_start:match.start()].strip()):
+            return text
+        replacements.append((match.start(), match.start() + len(marker.group(0)),
+                             "Shot " + marker.group(1)))
+    for start, end, replacement in reversed(replacements):
+        text = text[:start] + replacement + text[end:]
+    return text
+
+
 def final_timeline(text, plan, effective, *, canonicalize=False):
+    if canonicalize:
+        text = _canonicalize_inline_shot_mentions(text, plan)
     final_answer(text)
     schedule = canonical_plan(plan, effective)
     start = re.search(r"(?m)^detailed_description:[ \t]*", text).end()
