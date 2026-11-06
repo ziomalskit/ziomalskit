@@ -1,6 +1,6 @@
 {
-  "id": "check-transfer-memory-1",
-  "script_path": "docs/diagnostics/check_transfer_memory.py",
-  "sha256": "693fbf13b700fb659740de91b00a29e6a178a7b4164939e113a3d108950b6104",
-  "timeout_seconds": 120
+  "id": "patch-and-init-2",
+  "script_path": "docs/diagnostics/patch_and_init.py",
+  "sha256": "7c26b8df787365a7516ecba8466d2e5f9ac07dd5fe12fbc6fe4e3085d2a730f3",
+  "timeout_seconds": 900
 }
