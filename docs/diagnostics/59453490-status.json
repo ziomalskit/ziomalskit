@@ -1,4 +1,7 @@
 {
   "id": "check-gguf-layers-20261107-3",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "MODEL_HEADER Qwen3.5-27B-heretic.Q5_K_M.gguf version 3 tensor_count 851 kv_count 52 bytes 19399608384\nMETADATA Qwen3.5-27B-heretic.Q5_K_M.gguf general.architecture qwen35\nMETADATA Qwen3.5-27B-heretic.Q5_K_M.gguf qwen35.block_count 64\nMODEL_HEADER Qwen3-14B-heretic.Q4_K_M.gguf version 3 tensor_count 443 kv_count 42 bytes 9001753952\nMETADATA Qwen3-14B-heretic.Q4_K_M.gguf general.architecture qwen3\nMETADATA Qwen3-14B-heretic.Q4_K_M.gguf qwen3.block_count 40\n",
+  "stderr": ""
 }
