@@ -1,7 +1,4 @@
 {
-  "id": "deploy-active-combos-index-1",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "HISTORICAL_TERMINAL_JOBS 80\nDEPLOYED_STAGES_INDEX_1 4\nALL_FOUR_SMOKE_PROFILES_PASS\nCONFIRMED_API_STAGE_INDEX_1\nLIVE_PANEL_RESTART_PASS\nNO_JOBS_RESUBMITTED\n",
-  "stderr": ""
+  "id": "inspect-after-active-selectors-failure-1",
+  "state": "running"
 }
