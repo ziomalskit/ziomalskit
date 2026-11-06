@@ -1,6 +1,6 @@
 {
-  "id": "inspect-history-node-routing-1",
-  "script_path": "docs/diagnostics/inspect_history_nodes_structure.py",
-  "sha256": "5bdec9c4016839ae8a4ffc7406ce27cff9de8afb6bbf82d5df0e76bf4c23c142",
+  "id": "inspect-creative-upstream-chain-1",
+  "script_path": "docs/diagnostics/inspect_creative_guard_chain.py",
+  "sha256": "e7e1fba51495eecdbad3635c43a3517d8c7a018bf53cf0e60f091886a9a36750",
   "timeout_seconds": 120
 }
