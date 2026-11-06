@@ -1,6 +1,6 @@
 {
-  "id": "inspect-stage3-resources-20261107-2",
-  "script_path": "docs/diagnostics/inspect_step3_resources.py",
-  "sha256": "f4247ff99349b912636612ce8044c3ef6e88ff420c258a3ad39d22298e4b5b16",
-  "timeout_seconds": 90
+  "id": "check-gguf-layers-20261107-3",
+  "script_path": "docs/diagnostics/check_gguf_layer_count.py",
+  "sha256": "85e9ee469ebbba499d5b78140224d105698852c78e22da61d6ade3be65699b0c",
+  "timeout_seconds": 70
 }
