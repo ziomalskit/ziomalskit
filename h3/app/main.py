@@ -1828,7 +1828,24 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
     api_path = workflow.with_suffix(".api.json")
     catalog_path = workflow.with_suffix(".catalog.json")
     _atomic_json_write(api_path, prepared)
-    _atomic_json_write(catalog_path, catalog)
+    # CustomCombo is a ComfyUI frontend-defined dropdown whose backend intentionally
+    # advertises no fixed options and accepts user-defined strings. The pinned
+    # comfy-cli schema validator does not honor CustomCombo.validate_inputs().
+    # Enrich only a disposable validation snapshot; keep the live catalog and
+    # the API execution prompt untouched. All other node checks stay strict.
+    validation_catalog = copy.deepcopy(catalog)
+    custom_values = sorted({node["inputs"]["choice"] for node in prepared.values()
+                            if node.get("class_type") == "CustomCombo" and "choice" in node.get("inputs", {})})
+    if custom_values:
+        custom = validation_catalog.get("CustomCombo", {})
+        spec = custom.get("input", {}).get("required", {}).get("choice")
+        if (custom.get("python_module") != "comfy_extras.nodes_logic"
+                or not isinstance(spec, list) or len(spec) != 2 or spec[0] != "COMBO"
+                or not isinstance(spec[1], dict) or spec[1].get("options") != []
+                or any(not isinstance(value, str) or not value or len(value) > 256 for value in custom_values)):
+            raise RuntimeError("CustomCombo dynamic schema changed; refusing validation workaround")
+        spec[1]["options"] = custom_values
+    _atomic_json_write(catalog_path, validation_catalog)
     validation = await run_cli_envelope(
         service, "workflow", "validate", "--workflow", str(api_path), "--input", str(catalog_path)
     )
