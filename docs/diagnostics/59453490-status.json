@@ -1,4 +1,7 @@
 {
   "id": "inspect-new-batch-failure-20261107-b",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "TOTAL_JOBS 130\nLATEST_STATUSES {'prompt_queued': 7, 'prompt_running': 1, 'prompt_failed': 21, 'completed': 1}\nJOB 0 status prompt_queued profile 10eros_full error  prompt_accepted False\nJOB 1 status prompt_queued profile 10eros_full error  prompt_accepted False\nJOB 2 status prompt_queued profile 10eros_full error  prompt_accepted False\nJOB 3 status prompt_queued profile 10eros_full error  prompt_accepted False\nJOB 4 status prompt_queued profile 10eros_full error  prompt_accepted False\nJOB 5 status prompt_queued profile 10eros_full error  prompt_accepted False\nJOB 6 status prompt_queued profile 10eros_full error  prompt_accepted False\nJOB 7 status prompt_running profile 10eros_full error  prompt_accepted True\n  HISTORY None completed None\nCOMFY_QUEUE 8188 running 0 pending 0\nCOMFY_QUEUE 8189 running 1 pending 0\n",
+  "stderr": ""
 }
