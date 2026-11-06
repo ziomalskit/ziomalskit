@@ -1,6 +1,6 @@
 {
-  "id": "inspect-nodes-2",
-  "script_path": "docs/diagnostics/inspect_nodes.py",
-  "sha256": "dd31f0abd13451e8756ace0d547c4cc5c938e9fe990d10ec45a2495a325c596b",
-  "timeout_seconds": 60
+  "id": "fix-soundfile-1",
+  "script_path": "docs/diagnostics/fix_soundfile.py",
+  "sha256": "f2b794051295081d1645a66e8ffd5bbfdc44fe677b681dbd2cc0abe46782a7b4",
+  "timeout_seconds": 1200
 }
