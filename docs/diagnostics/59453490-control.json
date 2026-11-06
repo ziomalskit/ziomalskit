@@ -1,6 +1,6 @@
 {
-  "id": "check-gguf-layers-20261107-3",
-  "script_path": "docs/diagnostics/check_gguf_layer_count.py",
-  "sha256": "85e9ee469ebbba499d5b78140224d105698852c78e22da61d6ade3be65699b0c",
-  "timeout_seconds": 70
+  "id": "deploy-27b-full-gpu-20261107-4",
+  "script_path": "docs/diagnostics/deploy_qwen27_full_gpu.py",
+  "sha256": "b35769d1a53981ca29b37dc68a470efe4131f55a107a446e98e5648f4d43862e",
+  "timeout_seconds": 330
 }
