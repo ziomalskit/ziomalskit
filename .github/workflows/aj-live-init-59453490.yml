@@ -5,10 +5,10 @@ on:
     paths: [.github/workflows/aj-live-init-59453490.yml]
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 concurrency:
   group: aj-live-init-59453490
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   init:
     runs-on: ubuntu-24.04
@@ -16,11 +16,28 @@ jobs:
     steps:
       - name: Create ephemeral SSH identity
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           umask 077
           ssh-keygen -q -t ed25519 -N '' -C 'aj-gh-init-59453490' -f "$RUNNER_TEMP/aj-key"
           printf '::notice title=AJ SSH public key::%s\n' "$(cat "$RUNNER_TEMP/aj-key.pub")"
+          python3 - <<'PYCODE'
+          import base64, json, os, pathlib, urllib.request, urllib.error
+          endpoint='https://api.github.com/repos/ziomalskit/ziomalskit/contents/docs/diagnostics/59453490-runner.pub'
+          headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
+          payload={'message':'[skip ci] Publish ephemeral diagnostic SSH public key','branch':'diag/vast-init-59453490','content':base64.b64encode(pathlib.Path(os.environ['RUNNER_TEMP'],'aj-key.pub').read_bytes()).decode()}
+          try:
+              current=json.load(urllib.request.urlopen(urllib.request.Request(endpoint+'?ref=diag/vast-init-59453490',headers=headers),timeout=20))
+              payload['sha']=current['sha']
+          except urllib.error.HTTPError as error:
+              if error.code!=404: raise
+          req=urllib.request.Request(endpoint,data=json.dumps(payload).encode(),method='PUT',headers=headers)
+          with urllib.request.urlopen(req,timeout=20) as response:
+              assert response.status in (200,201)
+          print('Ephemeral PUBLIC key published for operator attachment; private key stays on runner.')
+          PYCODE
       - name: Await authorization and run init without model transfer
         shell: bash
         run: |
