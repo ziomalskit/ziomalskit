@@ -1,6 +1,8 @@
 # AJ functional end-to-end readiness — 6 November 2026
 
 Issue: [#11](https://github.com/ziomalskit/ziomalskit/issues/11).
+Fix and regression review: [Draft PR #12](https://github.com/ziomalskit/ziomalskit/pull/12).
+Download [evidence and reproduction scripts](evidence/FUNCTIONAL_E2E_EVIDENCE.zip).
 Review starts at PR #10, `d5b71fa4ca3dd085abf570ad369cac4007226d1d`, including
 PR #8 at `ef84f8e3066e3d14beeba6bb4e87393d675ef6f1`.
 
