@@ -1,6 +1,6 @@
 {
-  "id": "fix-canonical-native-1",
-  "script_path": "docs/diagnostics/fix_native_symlink_and_resume.py",
-  "sha256": "04966c5e5f19cb28531fe8e611dfa848adfef04b2824c93a86b5f9a8261863d4",
-  "timeout_seconds": 300
+  "id": "inspect-post-native-new-failure-1",
+  "script_path": "docs/diagnostics/inspect_failed_prompt.py",
+  "sha256": "7ea09324065bf8c0ca5d329ab5c993aee6c8643252da8c10c8c2e2df48a98b74",
+  "timeout_seconds": 120
 }
