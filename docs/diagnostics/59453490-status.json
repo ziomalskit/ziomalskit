@@ -1,7 +1,4 @@
 {
-  "id": "inspect-gpu-gate-live-20261107-d",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "GPU_GATE {'phase': 'idle', 'age_s': 0.31, 'owner_pid_alive': True}\nQUEUE 8188 running 0 pending 0\nQUEUE 8189 running 1 pending 0\nCURRENT_STATUS {'prompt_failed': 22, 'completed': 1, 'prompt_running': 1, 'prompt_queued': 6}\n",
-  "stderr": ""
+  "id": "inspect-newest-failures-20261107-e",
+  "state": "running"
 }
