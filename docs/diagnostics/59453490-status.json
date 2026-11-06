@@ -1,4 +1,7 @@
 {
   "id": "inspect-new-batch-failure-20261107-a",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 1,
+  "stdout": "TOTAL_JOBS 130\nLATEST_STATUSES {'prompt_queued': 7, 'prompt_running': 1, 'prompt_failed': 21, 'completed': 1}\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<stdin>\", line 15, in <module>\n  File \"<stdin>\", line 9, in scrub\nIndexError: list index out of range\n"
 }
