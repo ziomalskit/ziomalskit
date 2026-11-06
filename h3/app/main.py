@@ -1822,6 +1822,24 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
                 analysis_texts = analysis_cache.texts(job, batch, records=batches)
         prepared, mapping = adapter.install_runtime_guards(prepared, catalog, job["context"],
                                                          phase=service, analysis_texts=analysis_texts)
+        if service == "prompt":
+            # ComfyUI's frontend-owned CustomCombo is converted to API with
+            # "choice" but without the matching "index" output. The backend
+            # defaults index=0 (Disabled), silently bypassing all four writer
+            # stages even when their choices were frozen to Enabled.
+            # Strictly restore only the audited second option (index=1).
+            stage_choices = {
+                "2551:5422:5067": "MMH3 Ref2VA Step 1 Expand User Prompt",
+                "2551:5422:5068": "MMH3 Ref2VA Step 2 Ref Analysis",
+                "2551:5422:5069": "MMH3 Ref2VA Step 3 Creative",
+                "2551:5422:5070": "MMH3 Ref2VA Step 4 Compiler",
+            }
+            for node_id, expected_choice in stage_choices.items():
+                stage_node = prepared.get(node_id)
+                if (not isinstance(stage_node, dict) or stage_node.get("class_type") != "CustomCombo"
+                        or stage_node.get("inputs") != {"choice": expected_choice}):
+                    raise RuntimeError("Pinned production step selector changed; refusing implicit Disabled stage")
+                stage_node["inputs"]["index"] = 1
         adapter.validate_final_graph(prepared, job["context"], phase=service)
         if mapping is not None:
             job["render_phase_nodes"] = mapping
