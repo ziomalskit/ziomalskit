@@ -1,6 +1,6 @@
 {
-  "id": "inspect-all-output-diffs-1",
-  "script_path": "docs/diagnostics/inspect_render_combo_diff.py",
-  "sha256": "8eab8e7ab59e80a9643b705e27c60c7d5eb80efdfca179b636012660c1a827c0",
-  "timeout_seconds": 300
+  "id": "apply-primitive-smoke-1",
+  "script_path": "docs/diagnostics/apply_primitive_and_smoke.py",
+  "sha256": "3da608c6ec9c2a7b349c923a881cc08eae47efe84280af6460fa624905cf93c1",
+  "timeout_seconds": 480
 }
