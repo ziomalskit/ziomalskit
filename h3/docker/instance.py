@@ -7,6 +7,7 @@ import fcntl
 import getpass
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -138,9 +139,9 @@ def bootstrap():
 
 
 def cgroup_limits(root=Path('/sys/fs/cgroup'), proc=Path('/proc')):
-    """Require v2; bound by affinity and every visible current/ancestor limit."""
+    """Bound by affinity and every visible current/ancestor resource limit."""
     if not (root / 'cgroup.controllers').is_file():
-        raise ValueError('cgroup v2 is required for this Docker recipe; review a v1 host separately')
+        return cgroup_v1_limits(root, proc)
     mounts = [line.split() for line in (proc / 'self/mountinfo').read_text().splitlines() if ' - cgroup2 ' in line]
     membership = next(line.split(':', 2)[2] for line in (proc / 'self/cgroup').read_text().splitlines() if line.startswith('0::'))
     if len(mounts) != 1 or mounts[0][4] != str(root):
@@ -174,6 +175,75 @@ def cgroup_limits(root=Path('/sys/fs/cgroup'), proc=Path('/proc')):
         if current == root.resolve():
             break
         current = current.parent
+    return ram, cpu, rows
+
+
+def cgroup_v1_limits(root, proc):
+    """Resolve both legacy controllers; retain soft RAM budgets conservatively."""
+    def unescape(value):
+        return re.sub(r'\\([0-7]{3})', lambda match: chr(int(match[1], 8)), value)
+
+    memberships = {}
+    for line in (proc / 'self/cgroup').read_text().splitlines():
+        _, controllers, path = line.split(':', 2)
+        for controller in controllers.split(','):
+            memberships[controller] = path
+    mounts = []
+    for line in (proc / 'self/mountinfo').read_text().splitlines():
+        before, after = line.split(' - ', 1)
+        fields, filesystem = before.split(), after.split()
+        if filesystem[0] == 'cgroup':
+            mounts.append((unescape(fields[3]), Path(unescape(fields[4])),
+                           set(filesystem[2].split(','))))
+    ram = next(int(line.split()[1]) * 1024 for line in (proc / 'meminfo').read_text().splitlines()
+               if line.startswith('MemAvailable:'))
+    cpu = float(len(os.sched_getaffinity(0)))
+    rows = []
+    for controller in ('memory', 'cpu'):
+        candidates = [mount for mount in mounts if controller in mount[2]
+                      and mount[1].resolve().is_relative_to(root.resolve())]
+        if len(candidates) != 1 or controller not in memberships:
+            raise ValueError('Cannot resolve cgroup v1 ' + controller + ' controller')
+        fsroot, mount, _ = candidates[0]
+        membership = memberships[controller]
+        if membership == '/':
+            current = mount
+        elif fsroot == '/':
+            current = mount / membership.lstrip('/')
+        elif membership == fsroot or membership.startswith(fsroot.rstrip('/') + '/'):
+            current = mount / membership[len(fsroot):].lstrip('/')
+        else:
+            raise ValueError('Cannot map current cgroup v1 ' + controller)
+        mount, current = mount.resolve(), current.resolve()
+        if not current.is_relative_to(mount) or not current.is_dir():
+            raise ValueError('Cannot resolve current cgroup v1 ' + controller)
+        while True:
+            row = {'version': 1, 'controller': controller, 'path': str(current)}
+            if controller == 'memory':
+                for name in ('memory.limit_in_bytes', 'memory.soft_limit_in_bytes', 'memory.usage_in_bytes'):
+                    row[name] = (current / name).read_text().strip()
+                usage = int(row['memory.usage_in_bytes'])
+                hard = int(row['memory.limit_in_bytes'])
+                soft = int(row['memory.soft_limit_in_bytes'])
+                if min(usage, hard, soft) < 0:
+                    raise ValueError('Invalid cgroup v1 memory limit')
+                # PAGE_COUNTER_MAX is effectively unlimited; MemAvailable remains
+                # an independent bound. A positive soft limit is an extra budget.
+                for limit in [hard] + ([soft] if soft > 0 else []):
+                    if limit < 2**60:
+                        ram = min(ram, max(0, limit - usage))
+            else:
+                for name in ('cpu.cfs_quota_us', 'cpu.cfs_period_us'):
+                    row[name] = (current / name).read_text().strip()
+                quota, period = int(row['cpu.cfs_quota_us']), int(row['cpu.cfs_period_us'])
+                if period <= 0 or quota < -1 or quota == 0:
+                    raise ValueError('Invalid cgroup v1 CPU quota')
+                if quota != -1:
+                    cpu = min(cpu, quota / period)
+            rows.append(row)
+            if current == mount:
+                break
+            current = current.parent
     return ram, cpu, rows
 
 
