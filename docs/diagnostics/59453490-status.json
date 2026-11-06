@@ -1,4 +1,7 @@
 {
   "id": "inspect-final-timeline-20261107-7",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "GUARD_ERROR inline, malformed or misplaced structural shot directive\nEXCEPTION_CLASS ValueError\nINPUT_KEYS ['canonical_creative_plan', 'effective_duration_seconds', 'final_h3_prompt']\nINPUT_STRUCTURE final_h3_prompt length 6615 shot_headers 0 timeline_headers 0 temporal_cuts 0\nINPUT_STRUCTURE canonical_creative_plan length 9982 shot_headers 0 timeline_headers 1 temporal_cuts 0\n",
+  "stderr": ""
 }
