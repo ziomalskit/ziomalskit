@@ -1,6 +1,6 @@
 {
-  "id": "identify-vram-owner-20261107-g",
-  "script_path": "docs/diagnostics/inspect_gpu_memory_owner.py",
-  "sha256": "62ba50f486af37ccf23041881b65edc7c20832d2c60976b3a1f7cfeed37a7643",
-  "timeout_seconds": 100
+  "id": "free-idle-render-vram-20261107-h",
+  "script_path": "docs/diagnostics/free_idle_render_vram.py",
+  "sha256": "905908610af68a2792c592e3eecb97d0b490eb81e9f3099644eec771c54c1db2",
+  "timeout_seconds": 105
 }
