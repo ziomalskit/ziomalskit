@@ -1,7 +1,4 @@
 {
-  "id": "identify-vram-owner-20261107-g",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "GPU_PROCESSES\nPROC prompt PID 42779 USED_MIB 550\nPROC renderer PID 43136 USED_MIB 39356\nQUEUE 8188 running 0 pending 0\nQUEUE 8189 running 1 pending 0\n",
-  "stderr": ""
+  "id": "free-idle-render-vram-20261107-h",
+  "state": "running"
 }
