@@ -1,4 +1,7 @@
 {
   "id": "deploy-inline-shot-repair-20261107-12",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "INLINE_SHOT_REFERENCES_REPAIRED 2 NATIVE_COPIES\nSYNTHETIC_FINAL_PROMPT_VALIDATION_PASS\nSERVICES_HEALTHY 8188 8189 7860\nNO_NEW_GENERATION\n",
+  "stderr": ""
 }
