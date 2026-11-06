@@ -1,4 +1,7 @@
 {
   "id": "free-idle-render-vram-20261107-h",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "FREE_BEFORE_MIB 57331 USED_BEFORE_MIB 39920\nRENDER_FREE_HTTP 200\nFREE_AFTER_MIB 95208 USED_AFTER_MIB 2043 RECOVERED_MIB 37877\nRENDER_QUEUE_REMAINS_IDLE True\n",
+  "stderr": ""
 }
