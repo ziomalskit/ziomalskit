@@ -8,12 +8,17 @@ sys.path.insert(0,'/workspace/H3_VAST_MOBILE')
 module=importlib.import_module('app.main')
 smoke=importlib.import_module('scripts.smoke_test')
 hooks=importlib.import_module('app.adapters.v20')
-key='6036:6962:6950:6899'
 def inspect(self,prompt):
- expected=self.adapter.descriptor['api']['output_chains']['nodes'][key]
- actual=prompt.get(key)
- print('EXPECTED',json.dumps(expected,ensure_ascii=True),flush=True)
- print('ACTUAL',json.dumps(actual,ensure_ascii=True),flush=True)
+ nodes=self.adapter.descriptor['api']['output_chains']['nodes']
+ mismatches=[]
+ for key,expected in nodes.items():
+  actual=prompt.get(key)
+  if not isinstance(actual,dict) or actual.get('class_type')!=expected.get('class_type') or actual.get('inputs')!=expected.get('inputs'):
+   mismatches.append(key)
+   # Synthetic workflow only. Limit output to fixed per-node information.
+   print('DIFF',key,'CLASS',expected.get('class_type'),'EXPECTED',json.dumps(expected.get('inputs'),ensure_ascii=True)[:750],
+         'ACTUAL',json.dumps(actual.get('inputs') if isinstance(actual,dict) else None,ensure_ascii=True)[:750],flush=True)
+ print('TOTAL_CHAIN_NODES',len(nodes),'MISMATCHES',len(mismatches),'IDS',mismatches,flush=True)
  raise RuntimeError('STOP_AFTER_COMBO_DIFF')
 hooks.V20Hooks.validate_output_chains=inspect
 async def check():
