@@ -1,6 +1,6 @@
 {
-  "id": "inspect-after-active-selectors-failure-1",
-  "script_path": "docs/diagnostics/inspect_failed_prompt.py",
-  "sha256": "7ea09324065bf8c0ca5d329ab5c993aee6c8643252da8c10c8c2e2df48a98b74",
-  "timeout_seconds": 120
+  "id": "inspect-execution-after-selectors-2",
+  "script_path": "docs/diagnostics/inspect_comfy_execution_errors.py",
+  "sha256": "2cb9af50bfe9a69ca23e017d4a5373b5483fa9c93046216db97f18b0adbec625",
+  "timeout_seconds": 150
 }
