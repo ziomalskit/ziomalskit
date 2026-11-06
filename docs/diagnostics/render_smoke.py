@@ -54,16 +54,25 @@ for profile in ['h3_full','10eros_full']:
  if body_file.exists():body=body_file.read_bytes()
  else:
   payload={'request_id':str(uuid.uuid5(uuid.NAMESPACE_URL,'aj-59453490-robot-smoke-'+profile)),'profile':profile,'prompt_mode':'manual_final','manual_final_prompt':'A small green toy robot with a square head and orange chest slowly lifts its right arm and waves twice in a bright white studio. The camera stays still in a medium shot. Soft even daylight, smooth continuous motion, quiet mechanical clicking. No people, no writing, no scene cuts.','pictures':pictures,'audio':[],'batches':1,'duration_seconds':5,'seed':42,'random_each':False,'loras':[{'id':'hm-breasts-v2','enabled':False,'strength':1.0}],'soft_timeout_minutes':20}
+  if profile=='h3_full':
+   payload['prompt_mode']='autoprompt'
+   payload['prompt']=payload.pop('manual_final_prompt')
   body=json.dumps(payload).encode();body_file.write_bytes(body)
  ack_file=state/(profile+'-smoke-ack.json')
  if ack_file.exists():ack=json.loads(ack_file.read_text())
  else:
   ack=request('/api/batches',body);ack_file.write_text(json.dumps(ack))
  batches=ack['created_batches'];assert len(batches)==1
+ # Exercise the normal autoprompt path once, retaining only its first candidate.
+ # The batch contract remains unchanged; surplus candidates are cancelled.
+ if profile=='h3_full':
+  for item in request('/api/jobs')['jobs']:
+   if item.get('batch_id') in batches and item.get('candidate_index')!=1 and item.get('status') not in {'cancelled','completed','rejected','prompt_failed','render_failed'}:
+    request('/api/jobs/'+item['id']+'/cancel',b'')
  deadline=time.monotonic()+1800;previous=None
  while time.monotonic()<deadline:
-  matches=[j for j in request('/api/jobs')['jobs'] if j.get('batch_id') in batches]
-  assert len(matches)==1,'Manual smoke must create exactly one job'
+  matches=[j for j in request('/api/jobs')['jobs'] if j.get('batch_id') in batches and (profile!='h3_full' or j.get('candidate_index')==1)]
+  assert len(matches)==1,'Smoke must retain exactly one candidate'
   job=matches[0];status=job.get('status')
   if status!=previous:print('RENDER_STATE',profile,status,flush=True);previous=status
   if status=='completed':break
