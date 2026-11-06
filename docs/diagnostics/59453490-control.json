@@ -1,6 +1,6 @@
 {
-  "id": "inspect-final-timeline-20261107-7",
-  "script_path": "docs/diagnostics/inspect_final_timeline_failure.py",
-  "sha256": "cdf63b51d098e9b9456ce0119bfdeffde822837f6c02736c2dd971228604d4f1",
-  "timeout_seconds": 90
+  "id": "inspect-markers-20261107-8",
+  "script_path": "docs/diagnostics/inspect_final_markers.py",
+  "sha256": "41a2bcc5b84c2751592404cccc2c00aa546c974864800943741a83c3c59c0c5f",
+  "timeout_seconds": 75
 }
