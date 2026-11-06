@@ -1840,6 +1840,20 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
                         or stage_node.get("inputs") != {"choice": expected_choice}):
                     raise RuntimeError("Pinned production step selector changed; refusing implicit Disabled stage")
                 stage_node["inputs"]["index"] = 1
+            # Real llama-server HTTP 400 on the first vision stage:
+            # 8192 context slots are insufficient for multimodal image tokens,
+            # the prompt and 2048 reserved output tokens. Retain the original
+            # sampled-output budget and model; expand only the two pinned
+            # Mistral Small 3.2 analysis stages to 32768 context slots.
+            for node_id in ("2551:2640:2441", "2551:2640:2447"):
+                node = prepared.get(node_id)
+                if (not isinstance(node, dict) or node.get("class_type") != "AJPromptTextProcessor"
+                        or node.get("inputs", {}).get("ctx_size") != 8192
+                        or node["inputs"].get("max_tokens") != 2048
+                        or node["inputs"].get("model") != job["context"]["profile_identity"]["analysis_model"]
+                        or node["inputs"].get("mmproj") != job["context"]["profile_identity"]["analysis_mmproj"]):
+                    raise RuntimeError("Pinned vision analysis stage changed; context override is unsafe")
+                node["inputs"]["ctx_size"] = 32768
         adapter.validate_final_graph(prepared, job["context"], phase=service)
         if mapping is not None:
             job["render_phase_nodes"] = mapping
