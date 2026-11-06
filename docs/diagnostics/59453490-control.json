@@ -1,6 +1,6 @@
 {
-  "id": "probe-inline-shot-fix-20261107-9",
-  "script_path": "docs/diagnostics/probe_inline_shot_repair.py",
-  "sha256": "25b58d59f8581ca9e246aedcafdbd0f1dfa4a28c796e677ef144375db45e151c",
-  "timeout_seconds": 80
+  "id": "deploy-inline-shot-repair-20261107-10",
+  "script_path": "docs/diagnostics/deploy_inline_shot_normalization.py",
+  "sha256": "57c75f20aaddcd8a068b6aae5ded96623732b0908ac5c161fccb097e0166df90",
+  "timeout_seconds": 780
 }
