@@ -1,4 +1,7 @@
 {
   "id": "inspect-cli-validate-1",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "SYNTHETIC_PROMPT_API_FILES 1\nCATALOG_EXISTS True\nVALIDATION_EXIT_CODE 1 STDOUT_LEN 126054 STDERR_LEN 0\nstdout_JSON_FIELDS ['schema', 'type', 'ok', 'command', 'version', 'where', 'data', 'error']\nstdout_OK False TYPE envelope\nstdout_ERROR_CODE workflow_unknown_nodes\nstdout_ERROR_MESSAGE workflow has 6 validation error(s): no_options_available\n",
+  "stderr": ""
 }
