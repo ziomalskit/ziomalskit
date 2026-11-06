@@ -1,4 +1,7 @@
 {
   "id": "capture-vision-receipt-20261106-g",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "TEMPORARY_RECEIPT_PROBE_ACTIVE\nONE_REPLAY_ACCEPTED\nREPLAY_STATUS error False\nFAILED_NODE 2551:2640:2441 AJPromptTextProcessor ValueError\nORIGINAL_NATIVE_RESTORED\nRECEIPT_COUNT 1\nRECEIPT {\"completion_tokens\": 8192, \"content_chars\": 27404, \"finish_reason\": \"length\", \"reasoning_chars\": 0, \"stop\": true, \"stop_type\": \"limit\", \"tokens_predicted\": 8192, \"truncated\": false, \"verbose_present\": true}\n",
+  "stderr": ""
 }
