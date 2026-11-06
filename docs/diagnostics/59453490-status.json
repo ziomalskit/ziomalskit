@@ -1,7 +1,4 @@
 {
-  "id": "fast-stage3-20261107-1",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "COMFY_QUEUE 0 0\nAJ_STATUS {'prompt_failed': 110}\nENTRY 0 error False\nNODE 0 2551:2640:2441 AJPromptTextProcessor {'timeout_seconds': 300, 'ctx_size': 65536, 'max_tokens': 8192, 'reasoning': 'off', 'extra_args': '', 'memory_mode': 'gpu_layers', 'n_gpu_layers': 50, 'n_cpu_moe_layers': 1, 'enable_processing': True}\nNODE 0 2551:2640:2447 AJPromptTextProcessor {'timeout_seconds': 300, 'ctx_size': 65536, 'max_tokens': 8192, 'reasoning': 'off', 'extra_args': '', 'memory_mode': 'gpu_layers', 'n_gpu_layers': 50, 'n_cpu_moe_layers': 1, 'enable_processing': True}\nNODE 0 2551:2640:2445 AJPromptTextProcessor {'timeout_seconds': 600, 'ctx_size': 24576, 'max_tokens': 8192, 'reasoning': 'off', 'extra_args': '--reasoning-format deepseek --reasoning-budget 0', 'memory_mode': 'gpu_layers', 'n_gpu_layers': 50, 'n_cpu_moe_layers': 1, 'enable_processing': True}\nNODE 0 2551:5422:5070 CustomCombo {}\nFAILURE 0 2551:2640:2445 AJPromptTextProcessor TimeoutError TIMEOUT\nGPU_PROCESSES 2\n",
-  "stderr": ""
+  "id": "inspect-stage3-resources-20261107-2",
+  "state": "running"
 }
