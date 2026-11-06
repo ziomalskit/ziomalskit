@@ -1,6 +1,6 @@
 {
-  "id": "deploy-active-combos-index-1",
-  "script_path": "docs/diagnostics/deploy_active_combos.py",
-  "sha256": "b48d1989f996b2072c7e271ad0620a2188453dd0312ece7e87c9cfb0da1f829f",
-  "timeout_seconds": 550
+  "id": "inspect-after-active-selectors-failure-1",
+  "script_path": "docs/diagnostics/inspect_failed_prompt.py",
+  "sha256": "7ea09324065bf8c0ca5d329ab5c993aee6c8643252da8c10c8c2e2df48a98b74",
+  "timeout_seconds": 120
 }
