@@ -1,6 +1,6 @@
 {
-  "id": "fix-bridge-start-1",
-  "script_path": "docs/diagnostics/fix_bridge_start.py",
-  "sha256": "bffffc66c1e5d35dee6dca2e29f1b12c880193317ade111e57d14059cbfbf42f",
-  "timeout_seconds": 1000
+  "id": "inspect-nodes-1",
+  "script_path": "docs/diagnostics/inspect_nodes.py",
+  "sha256": "9360cc2e076c71f3fe087b48585c7bef835e1284921823e636a647eebddf1bfd",
+  "timeout_seconds": 60
 }
