@@ -1,6 +1,6 @@
 {
-  "id": "inspect-live-aj-1",
-  "script_path": "docs/diagnostics/inspect_live_aj.py",
-  "sha256": "bd5b3c9c77194540188d4d1eb16baeb56ec691c4468fd309ae8bc9660e7eac94",
-  "timeout_seconds": 120
+  "id": "publish-https-access-1",
+  "script_path": "docs/diagnostics/publish_access.py",
+  "sha256": "3e9eff32dfc5efa995282f069923056da9479db211b8e88d0a5b65b4f3a44624",
+  "timeout_seconds": 480
 }
