@@ -1,6 +1,6 @@
 {
-  "id": "inspect-failed-jobs-20261107-c",
-  "script_path": "docs/diagnostics/inspect_recent_failed_jobs.py",
-  "sha256": "2505cd2b03a2c17844faebb634c7f53c463a1cdbb33962c2126bc5f981d54f1c",
-  "timeout_seconds": 145
+  "id": "inspect-gpu-gate-live-20261107-d",
+  "script_path": "docs/diagnostics/inspect_gpu_gate_state.py",
+  "sha256": "d985894eed8c8cd73e2c1070b42233eca29722a5e625cd88cb07f8203815aca6",
+  "timeout_seconds": 75
 }
