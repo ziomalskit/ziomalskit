@@ -1,7 +1,4 @@
 {
-  "id": "probe-synthetic-llama-receipt-20261106-d",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "GPU_FREE_MIB 96137\nMODEL_SERVER_HEALTHY\nRECEIPT {\"completion_tokens\": 2, \"finish_reason\": \"stop\", \"response_char_length\": 2, \"stop\": true, \"stop_type\": \"eos\", \"truncated\": false, \"verbose_keys\": [\"content\", \"generation_settings\", \"has_new_line\", \"id_slot\", \"index\", \"model\", \"prompt\", \"stop\", \"stop_type\", \"stopping_word\", \"timings\", \"tokens\", \"tokens_cached\", \"tokens_evaluated\", \"tokens_predicted\", \"truncated\"], \"verbose_present\": true}\nPROBE_SERVER_STOPPED\n",
-  "stderr": ""
+  "id": "deploy-vision-output-8k-20261106-e",
+  "state": "running"
 }
