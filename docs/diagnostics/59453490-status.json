@@ -1,4 +1,7 @@
 {
   "id": "fix-widgets-probe-1",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 1,
+  "stdout": "h3_full prompt\nTraceback (most recent call last):\n  File \"/workspace/H3_VAST_MOBILE/scripts/smoke_test.py\", line 109, in <module>\n    main()\n  File \"/workspace/H3_VAST_MOBILE/scripts/smoke_test.py\", line 105, in main\n    asyncio.run(run_smoke(module, dict(os.environ)))\n  File \"/usr/lib/python3.12/asyncio/runners.py\", line 194, in run\n    return runner.run(main)\n           ^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/runners.py\", line 118, in run\n    return self._loop.run_until_complete(task)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/base_events.py\", line 687, in run_until_complete\n    return future.result()\n           ^^^^^^^^^^^^^^^\n  File \"/workspace/H3_VAST_MOBILE/scripts/smoke_test.py\", line 95, in run_smoke\n    await validate_without_submission(module, service, path)\n  File \"/workspace/H3_VAST_MOBILE/scripts/smoke_test.py\", line 73, in validate_without_submission\n    prepared = await module._prepare_workflow_api(path, service, preview_envelope=preview)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/workspace/H3_VAST_MOBILE/app/main.py\", line 1832, in _prepare_workflow_api\n    validation = await run_cli_envelope(\n                 ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/workspace/H3_VAST_MOBILE/app/main.py\", line 965, in run_cli_envelope\n    raise RuntimeError(err.decode(errors=\"replace\") or f\"comfy-cli exited {proc.returncode}\")\nRuntimeError: comfy-cli exited 1\n\n",
+  "stderr": ""
 }
