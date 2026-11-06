@@ -1,4 +1,7 @@
 {
   "id": "deploy-vision-transport-and-diagnostics-1",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "CURRENT_QUEUE 90 {'prompt_failed': 90}\nPINNED_FILE compiler.py f6f5e8870851\nPINNED_FILE prompt_completion.py c04594c36e5a\nTWO_NATIVE_PACKAGES_MATCH 7\nRESTARTED prompt\nRESTARTED panel\nLISTENER 8189 200\nLISTENER 7860 401\nNO_USER_BATCH_REPLAYED\n",
+  "stderr": ""
 }
