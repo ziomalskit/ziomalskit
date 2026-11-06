@@ -1,7 +1,4 @@
 {
-  "id": "publish-https-access-1",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "PUBLIC_HTTPS_AUTH_PASS https://priest-feature-investments-folding.trycloudflare.com\nACCESS_CIPHERTEXT=WB9z4teJTR8SmWdZU2qIi0uAIkLiSKkr8QEdHlGJ73QzSp2QYM/BctqkGeeH/ovSs+qKOvNsOf/PELhZygSvx6GEDjTrsNxE3jDmh6zX/ldpTO1E/qVBfe8PpichgyPGh7TCGzMYlgYLrzkrOsYLKb3c8j8Jkwrw/H0XDLQm40rKXeLvsQeRT6VHE5ZuNHgITU0txRqfGQc/t81jjZoaQgCe8xlOf1QJnGwaaV35Ye2YeEmiKV5+ZUxFBHX0b95e795veFyZ5uUyrP8SUlL4ruw0BxAK/aiWJTNjWz36JN+lGDZQloTdNaT0OqFpwNaStzoT/xZgTEacdi2T3yeLr+NShwJ3cK6MGnSo/3kegiWqwZDTlyAVIVQscdwfIdpNBdHup5+ydmRAsIF9LBeLMo6DiW+sspoKRU1soPeT09tFUUgHvF92QAgbqcca6xfNix0aHGBsmcHmoHgOpcEIxwpJdE1amPAth319q2jzipniL42Q+3lTe24e4VWo4O/m\n",
-  "stderr": ""
+  "id": "inspect-prompt-failed-1",
+  "state": "running"
 }
