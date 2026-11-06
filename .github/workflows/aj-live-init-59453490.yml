@@ -69,6 +69,7 @@ jobs:
           if probe.returncode:
               raise SystemExit('GPU probe failed')
           os.umask(0o077)
+          root.mkdir(parents=True, exist_ok=True)
           log_path = root / 'aj-diagnostic-init.log'
           secret_path = pathlib.Path('/root/.aj-panel-password')
           password = None
