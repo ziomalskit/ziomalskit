@@ -69,7 +69,7 @@ def _widget_names(schema, saved):
                 raise WorkflowPreparationError(f"Malformed input specification: {name}")
             kind = spec[0]
             options = spec[1] if len(spec) > 1 and isinstance(spec[1], dict) else {}
-            if options.get("forceInput") or options.get("defaultInput"):
+            if options.get("forceInput") or options.get("defaultInput") or kind == "RESOLUTION_PREVIEW":
                 continue
             if isinstance(kind, str) and kind.startswith("COMFY_") and "COMBO" in kind:
                 result.append(name)
