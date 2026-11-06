@@ -1,6 +1,6 @@
 {
-  "id": "deploy-vision-transport-and-diagnostics-1",
-  "script_path": "docs/diagnostics/deploy_llm_transport_fix.py",
-  "sha256": "9763ca0cc182eb01a3a5fc31e06204e2f4107045c223c6c1e18333eb111c9b5f",
-  "timeout_seconds": 600
+  "id": "inspect-new-batch-after-mime-1",
+  "script_path": "docs/diagnostics/inspect_failed_prompt.py",
+  "sha256": "7ea09324065bf8c0ca5d329ab5c993aee6c8643252da8c10c8c2e2df48a98b74",
+  "timeout_seconds": 120
 }
