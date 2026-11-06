@@ -1,6 +1,6 @@
 {
-  "id": "inspect-stage-headroom-20261107-f",
-  "script_path": "docs/diagnostics/inspect_failed_headroom.py",
-  "sha256": "6c1ce14d837b2c925869bc189138682cfda8dea9919005c9f7372dde797f1cc5",
-  "timeout_seconds": 120
+  "id": "identify-vram-owner-20261107-g",
+  "script_path": "docs/diagnostics/inspect_gpu_memory_owner.py",
+  "sha256": "62ba50f486af37ccf23041881b65edc7c20832d2c60976b3a1f7cfeed37a7643",
+  "timeout_seconds": 100
 }
