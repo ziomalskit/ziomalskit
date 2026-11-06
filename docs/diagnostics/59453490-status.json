@@ -1,7 +1,4 @@
 {
-  "id": "inspect-combo-index-source-1",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "UI_COMBO 5068 {'choice': 'Disabled', 'index': '0', 'option1': 'Disabled', 'option2': 'MMH3 Ref2VA Step 2 Ref Analysis', 'option3': ''} SERIALIZED_COUNT 5\nUI_COMBO 5069 {'choice': 'Disabled', 'index': '0', 'option1': 'Disabled', 'option2': 'MMH3 Ref2VA Step 3 Creative', 'option3': ''} SERIALIZED_COUNT 5\nUI_COMBO 5070 {'choice': 'Disabled', 'index': '0', 'option1': 'Disabled', 'option2': 'MMH3 Ref2VA Step 4 Compiler', 'option3': ''} SERIALIZED_COUNT 5\nUI_COMBO 5067 {'choice': 'Disabled', 'index': '0', 'option1': 'Disabled', 'option2': 'MMH3 Ref2VA Step 1 Expand User Prompt', 'option3': 'MMH3 FL2VA Enhance (Any Mode)', 'option4': ''} SERIALIZED_COUNT 6\nAPI_NODE 2551:5422:5067 CustomCombo INPUTS {'choice': 'MMH3 Ref2VA Step 1 Expand User Prompt'}\nAPI_NODE 2551:5422:5068 CustomCombo INPUTS {'choice': 'MMH3 Ref2VA Step 2 Ref Analysis'}\nAPI_NODE 2551:5422:5069 CustomCombo INPUTS {'choice': 'MMH3 Ref2VA Step 3 Creative'}\nAPI_NODE 2551:5422:5070 CustomCombo INPUTS {'choice': 'MMH3 Ref2VA Step 4 Compiler'}\nAPI_NODE 2551:4799:5296:5294 ComfySwitchNode INPUTS {'switch': '[linked]', 'on_false': '[linked]', 'on_true': '[linked]'}\nAPI_NODE 2551:4799:5296:5293 easy PassOrNone INPUTS {'anything': '[linked]'}\nAPI_NODE 2551:4799:5296:5292 None INPUTS {}\nRUNTIME_UI_FROM 8fb51a498b92c6278eda7ee584_prompt.json\n",
-  "stderr": ""
+  "id": "probe-four-combo-index-1",
+  "state": "running"
 }
