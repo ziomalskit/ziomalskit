@@ -1,7 +1,4 @@
 {
-  "id": "inspect-stage3-resources-20261107-2",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "ENTRY 0 STATUS error MESSAGES [('execution_start', ['prompt_id', 'timestamp']), ('execution_cached', ['nodes', 'prompt_id', 'timestamp']), ('execution_error', ['prompt_id', 'node_id', 'node_type', 'executed', 'exception_message', 'exception_type', 'traceback', 'current_inputs', 'current_outputs', 'timestamp'])]\nMODEL_STAGE 2551:2640:2441 model_basename Mistral-Small-3.2-24B-Instruct-2506-ultra-uncensored-heretic-Q6_K.gguf mmproj True timeout 300 n_gpu_layers 50 ctx_size 65536 max_tokens 8192 prompt_input_type list prompt_input_str_len None\nMODEL_STAGE 2551:2640:2447 model_basename Mistral-Small-3.2-24B-Instruct-2506-ultra-uncensored-heretic-Q6_K.gguf mmproj True timeout 300 n_gpu_layers 50 ctx_size 65536 max_tokens 8192 prompt_input_type list prompt_input_str_len None\nMODEL_STAGE 2551:2640:2445 model_basename Qwen3.5-27B-heretic.Q5_K_M.gguf mmproj False timeout 600 n_gpu_layers 50 ctx_size 24576 max_tokens 8192 prompt_input_type list prompt_input_str_len None\nMODEL_STAGE 2551:2640:7450 model_basename None mmproj False timeout None n_gpu_layers None ctx_size None max_tokens None prompt_input_type NoneType prompt_input_str_len None\nOUTPUT_NODES 3\nLARGE_OUTPUTS [{\"node_id\": \"2551:2890\", \"count\": 1, \"largest_lengths\": [3515]}, {\"node_id\": \"2551:4379\", \"count\": 1, \"largest_lengths\": [2755]}, {\"node_id\": \"2551:7389\", \"count\": 1, \"largest_lengths\": [2043]}]\nGPU_PROCESS_USAGE_MIB ['550', '550']\nRECENT_LOG_EVENT_COUNT 4\nLOG_EVENT \u001b[1m\u001b[31m[ERROR]\u001b[0m !!! Exception during processing !!! native compiler timed out\nLOG_EVENT raise TimeoutError('native compiler timed out')\nLOG_EVENT TimeoutError: native compiler timed out\nLOG_EVENT \u001b[32m[INFO]\u001b[0m \u001b[32mPrompt executed in 00:10:47\u001b[0m\n",
-  "stderr": ""
+  "id": "check-gguf-layers-20261107-3",
+  "state": "running"
 }
