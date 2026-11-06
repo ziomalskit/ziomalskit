@@ -226,6 +226,19 @@ class DockerDeploymentTests(unittest.TestCase):
         (root / 'memory/memory.soft_limit_in_bytes').write_text('0')
         self.assertEqual(docker.cgroup_limits(root, proc)[0], 0)
 
+    def test_legacy_available_ram_reclaims_only_clean_inactive_file_cache(self):
+        root, proc = self.legacy_cgroups('/', '/docker/container')
+        memory = root / 'memory'
+        (memory / 'memory.usage_in_bytes').write_text(str(32 * 1024**3))
+        (memory / 'memory.stat').write_text('\n'.join(
+            f'total_{name} {value * 1024**3}' for name, value in
+            [('inactive_file', 24), ('dirty', 1), ('writeback', 1)]))
+        ram, _, rows = docker.cgroup_limits(root, proc)
+        self.assertEqual(ram, 110 * 1024**3)
+        self.assertEqual(rows[0]['reclaimable_inactive_file_bytes'], 22 * 1024**3)
+        (memory / 'memory.stat').write_text('total_inactive_file 999999999999\n')
+        self.assertEqual(docker.cgroup_limits(root, proc)[0], 88 * 1024**3)
+
     def test_legacy_missing_controller_invalid_quota_and_path_escape_fail_closed(self):
         root, proc = self.legacy_cgroups('/', '/docker/container')
         path = root / 'cpu,cpuacct/cpu.cfs_period_us'
