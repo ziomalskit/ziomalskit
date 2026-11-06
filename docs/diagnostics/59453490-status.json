@@ -1,4 +1,7 @@
 {
   "id": "apply-combo-render-smoke-1",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 1,
+  "stdout": "PATCHED source\nPATCHED deployed\nSMOKE_EXIT 1\nSMOKE_LOG h3_full prompt\nSMOKE_LOG prompt: 413 API nodes validated; no submission\nSMOKE_LOG h3_full render\nSMOKE_LOG Traceback (most recent call last):\nSMOKE_LOG     self.hook.validate_final_graph(prompt, context, phase=phase)\nSMOKE_LOG     self.validate_output_chains(prompt)\nSMOKE_LOG     raise WorkflowAdapterCompatibilityError(f\"workflow-adapter {self.id if 'id' in self.descriptor else '?'} compatibility error: {detail}\")\nSMOKE_LOG app.workflow_adapters.WorkflowAdapterCompatibilityError: workflow-adapter h3_v20 compatibility error: visual/audio output chain 6036:7138:7134 changed\n",
+  "stderr": ""
 }
