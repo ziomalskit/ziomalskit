@@ -1,6 +1,6 @@
 {
-  "id": "inspect-execution-after-selectors-2",
-  "script_path": "docs/diagnostics/inspect_comfy_execution_errors.py",
-  "sha256": "2cb9af50bfe9a69ca23e017d4a5373b5483fa9c93046216db97f18b0adbec625",
-  "timeout_seconds": 150
+  "id": "inspect-llm-runtime-1",
+  "script_path": "docs/diagnostics/inspect_llm_runtime_failure.py",
+  "sha256": "3080ebd16d92ff2dd7c93250ac75bec561b457d3b33bc26df7731a078271e95f",
+  "timeout_seconds": 120
 }
