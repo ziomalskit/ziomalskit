@@ -1,6 +1,6 @@
 {
-  "id": "inspect-current-prompt-20261106-b",
-  "script_path": "docs/diagnostics/inspect_comfy_execution_errors.py",
-  "sha256": "2cb9af50bfe9a69ca23e017d4a5373b5483fa9c93046216db97f18b0adbec625",
+  "id": "inspect-vision-context-20261106-c",
+  "script_path": "docs/diagnostics/inspect_current_vision_context.py",
+  "sha256": "e8cbe3bf3d4ac35cd5404e70d01d05c904f081e88ef84e5a01706e3a8020165c",
   "timeout_seconds": 240
 }
