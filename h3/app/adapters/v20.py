@@ -219,7 +219,16 @@ class V20Hooks:
                     "option2": "scale_extension", "option3": "", "option4": "", "option5": ""}}
                 and actual.get("inputs") == {"choice": "scale_extension"}
             )
-            if not frontend_combo and actual.get("inputs") != expected["inputs"]:
+            # PrimitiveInt's "fixed" is a frontend-only control-after-generate
+            # setting; ComfyUI 0.38 executes exclusively from its integer value.
+            pinned_ints = {"6036:7138:7134": 0, "6036:7138:7189": 1, "6036:7138:7197": 2}
+            primitive_fixed = (
+                key in pinned_ints
+                and expected == {"class_type": "PrimitiveInt",
+                                 "inputs": {"value": pinned_ints[key], "fixed": "fixed"}}
+                and actual.get("inputs") == {"value": pinned_ints[key]}
+            )
+            if not (frontend_combo or primitive_fixed) and actual.get("inputs") != expected["inputs"]:
                 a.fail(f"visual/audio output chain {key} changed")
         create = prompt[chain["create_video"]]["inputs"]
         for field, decoder in ((chain["visual_input"], chain["visual_decoder"]),
