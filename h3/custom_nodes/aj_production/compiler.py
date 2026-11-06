@@ -14,6 +14,7 @@ import subprocess
 import threading
 import time
 import urllib.request
+import urllib.error
 
 from .temporal import final_answer
 
@@ -139,8 +140,33 @@ def run_completion(command, messages, values, *, response_parser=completion_resp
         def request():
             try:
                 future.set_result(post_completion(url, payload, max(.1, deadline - time.monotonic())))
-            except Exception:
-                future.set_exception(ValueError('native compiler JSON transport/runtime failure'))
+            except Exception as error:
+                # Never include provider output or submitted messages in job logs.
+                # A safe transport category is essential for live debugging.
+                if isinstance(error, urllib.error.HTTPError):
+                    response = error.read(16384).decode('utf-8', 'replace').lower()
+                    if any(part in response for part in ('invalid url', 'uri-encoded', 'base64', 'unsupported image', 'image input')):
+                        cause = 'image_payload'
+                    elif any(part in response for part in ('context size', 'context length', 'too many tokens', 'token budget')):
+                        cause = 'context_overflow'
+                    elif any(part in response for part in ('mmproj', 'projector', 'multimodal')):
+                        cause = 'vision_projector'
+                    elif any(part in response for part in ('out of memory', 'cuda memory', 'allocation failed')):
+                        cause = 'memory_allocation'
+                    elif any(part in response for part in ('chat template', 'template error')):
+                        cause = 'chat_template'
+                    else:
+                        cause = 'unclassified_server_error'
+                    category = f'HTTP_{error.code}_{cause}'
+                elif isinstance(error, json.JSONDecodeError):
+                    category = 'invalid_json_response'
+                elif isinstance(error, (TimeoutError, socket.timeout)):
+                    category = 'read_timeout'
+                elif isinstance(error, urllib.error.URLError):
+                    category = 'transport_unreachable'
+                else:
+                    category = 'transport_' + type(error).__name__
+                future.set_exception(ValueError('native compiler completion failed: ' + category))
         thread = threading.Thread(target=request, daemon=True)
         thread.start()
         while not future.done():
