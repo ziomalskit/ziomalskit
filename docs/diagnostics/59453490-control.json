@@ -1,6 +1,6 @@
 {
-  "id": "inspect-render-diff-3",
-  "script_path": "docs/diagnostics/inspect_render_combo_diff.py",
-  "sha256": "fc75284931795c5d0a11795e4ef7fda303d00c4155aebdd2dd4311de4330745c",
-  "timeout_seconds": 300
+  "id": "apply-combo-render-smoke-1",
+  "script_path": "docs/diagnostics/apply_combo_render_guard_smoke.py",
+  "sha256": "0ed72fc7e30957e667f87a60f5444812fd02e34e2dda9a184e79bf47ca3984cd",
+  "timeout_seconds": 480
 }
