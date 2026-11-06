@@ -1,6 +1,6 @@
 {
-  "id": "enable-live-batches-1",
-  "script_path": "docs/diagnostics/enable_live_batches.py",
-  "sha256": "8058a5a280ad059872b8d7c33e9baa91e3e6955a65082d6bf46b2d9e9c26c991",
-  "timeout_seconds": 360
+  "id": "inspect-post-enable-failure-1",
+  "script_path": "docs/diagnostics/inspect_failed_prompt.py",
+  "sha256": "7ea09324065bf8c0ca5d329ab5c993aee6c8643252da8c10c8c2e2df48a98b74",
+  "timeout_seconds": 120
 }
