@@ -1,6 +1,6 @@
 {
-  "id": "inspect-new-comfy-errors-after-mime-1",
-  "script_path": "docs/diagnostics/inspect_comfy_execution_errors.py",
-  "sha256": "2cb9af50bfe9a69ca23e017d4a5373b5483fa9c93046216db97f18b0adbec625",
-  "timeout_seconds": 150
+  "id": "deploy-vision-context-32k-1",
+  "script_path": "docs/diagnostics/deploy_vision_context_32k.py",
+  "sha256": "68546b2c98f10efcb30a82db888a7c9cbc89dcced5433ab7fc199bd1fdd65774",
+  "timeout_seconds": 360
 }
