@@ -1,4 +1,7 @@
 {
   "id": "inspect-plan-structure-1",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "JOB 10eros_full OUTPUT_NODES ['2551:4379', '2551:2890'] COUNT 2\nTEXT_SHAPE node 2551:4379 field text chars 1328 canonical [] rough [] timeline_count 0 shot_directive_count 0 contains_fenced_code False newline_count 10\nTEXT_SHAPE node 2551:2890 field text chars 1328 canonical [] rough [] timeline_count 0 shot_directive_count 0 contains_fenced_code False newline_count 10\nJOB 10eros_full OUTPUT_NODES ['2551:4379', '2551:2890'] COUNT 2\nTEXT_SHAPE node 2551:4379 field text chars 1328 canonical [] rough [] timeline_count 0 shot_directive_count 0 contains_fenced_code False newline_count 10\nTEXT_SHAPE node 2551:2890 field text chars 1328 canonical [] rough [] timeline_count 0 shot_directive_count 0 contains_fenced_code False newline_count 10\nJOB 10eros_full OUTPUT_NODES ['2551:4379', '2551:2890'] COUNT 2\nTEXT_SHAPE node 2551:4379 field text chars 1328 canonical [] rough [] timeline_count 0 shot_directive_count 0 contains_fenced_code False newline_count 10\nTEXT_SHAPE node 2551:2890 field text chars 1328 canonical [] rough [] timeline_count 0 shot_directive_count 0 contains_fenced_code False newline_count 10\n",
+  "stderr": ""
 }
