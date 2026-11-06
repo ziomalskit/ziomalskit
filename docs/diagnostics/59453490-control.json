@@ -1,6 +1,6 @@
 {
-  "id": "capture-vision-receipt-20261106-g",
-  "script_path": "docs/diagnostics/capture_real_vision_receipt.py",
-  "sha256": "7bc50f38fcea72a6227fa94cdc1fc69da7dd8996b7ad15bcfaef2cdeb2dd50c1",
-  "timeout_seconds": 750
+  "id": "deploy-concise-vision-20261106-h",
+  "script_path": "docs/diagnostics/deploy_concise_vision_and_replay.py",
+  "sha256": "d349fa5a76f52b7df7c0020c8b10b6ca9884945be33cf0ae89e187ae213d9cbf",
+  "timeout_seconds": 900
 }
