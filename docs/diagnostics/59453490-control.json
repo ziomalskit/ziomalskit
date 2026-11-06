@@ -1,6 +1,6 @@
 {
-  "id": "native-identity-why-fails-1",
-  "script_path": "docs/diagnostics/inspect_native_identity_live.py",
-  "sha256": "0a97a537bb3174a7700422c567c77c13ccb3d86e6069c1bc6b6bd24afe175a57",
-  "timeout_seconds": 120
+  "id": "fix-canonical-native-1",
+  "script_path": "docs/diagnostics/fix_native_symlink_and_resume.py",
+  "sha256": "04966c5e5f19cb28531fe8e611dfa848adfef04b2824c93a86b5f9a8261863d4",
+  "timeout_seconds": 300
 }
