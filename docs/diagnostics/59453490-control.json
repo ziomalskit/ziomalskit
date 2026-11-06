@@ -1,6 +1,6 @@
 {
-  "id": "replay-patched-prompt-only-20261106-f",
-  "script_path": "docs/diagnostics/replay_one_patched_prompt_only.py",
-  "sha256": "8bd618c6f02c40843cf60e2e93d43f78d180d24c1b4862e2d765520e07a5c46d",
-  "timeout_seconds": 960
+  "id": "capture-vision-receipt-20261106-g",
+  "script_path": "docs/diagnostics/capture_real_vision_receipt.py",
+  "sha256": "7bc50f38fcea72a6227fa94cdc1fc69da7dd8996b7ad15bcfaef2cdeb2dd50c1",
+  "timeout_seconds": 750
 }
