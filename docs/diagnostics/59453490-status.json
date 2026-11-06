@@ -1,4 +1,7 @@
 {
   "id": "deploy-inline-shot-repair-20261107-10",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 1,
+  "stdout": "ROLLED_BACK\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<stdin>\", line 66, in <module>\nAssertionError: PREVIOUS_OUTPUT_NOT_VALIDATED\n"
 }
