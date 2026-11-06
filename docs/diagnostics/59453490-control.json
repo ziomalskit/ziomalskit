@@ -1,6 +1,6 @@
 {
-  "id": "deploy-vision-output-8k-20261106-e",
-  "script_path": "docs/diagnostics/deploy_vision_output_8k.py",
-  "sha256": "152f8fed3d990b037edc194ccba68d5f280fd2f17d2ed8da064fac766f36dd8b",
-  "timeout_seconds": 450
+  "id": "replay-patched-prompt-only-20261106-f",
+  "script_path": "docs/diagnostics/replay_one_patched_prompt_only.py",
+  "sha256": "8bd618c6f02c40843cf60e2e93d43f78d180d24c1b4862e2d765520e07a5c46d",
+  "timeout_seconds": 960
 }
