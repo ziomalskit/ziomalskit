@@ -1,7 +1,4 @@
 {
-  "id": "start-download-1",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "{\n  \"state\": \"running\",\n  \"pid\": 254,\n  \"download_pid\": 255,\n  \"present_bytes\": 0,\n  \"total_bytes\": 278009016136,\n  \"elapsed_seconds\": 0\n}\n",
-  "stderr": ""
+  "id": "patch-and-init-1",
+  "state": "running"
 }
