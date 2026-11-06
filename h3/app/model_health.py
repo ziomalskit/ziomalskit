@@ -86,11 +86,14 @@ def lora_health(root: Path, identifier: str, entry: dict, *, bridge=False, full_
 def verify_bridge_files(root: Path, comfy_root: Path, entry: dict, expected: dict) -> None:
     """Pinned Bunny v0.3 prefers bundled files; no shadow may bypass SHA256."""
     verify_file(root, "semantic_bridge/" + entry["filename"], expected)
+    # Docker keeps the installed node tree in the image and links it into the
+    # instance. Verify files beneath that actual code directory as well.
+    nodes_root = (comfy_root / "custom_nodes").resolve(strict=True)
     for folder in ("BUNNY_H3_Conditioning_Bridge", "bunny-h3-semantic-bridge"):
-        relative = "custom_nodes/" + folder + "/models/" + entry["filename"]
+        relative = folder + "/models/" + entry["filename"]
         try:
-            with parent_directory(comfy_root, relative) as (directory, name):
+            with parent_directory(nodes_root, relative) as (directory, name):
                 os.stat(name, dir_fd=directory, follow_symlinks=False)
         except FileNotFoundError:
             continue
-        verify_file(comfy_root, relative, expected)
+        verify_file(nodes_root, relative, expected)
