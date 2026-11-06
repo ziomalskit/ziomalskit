@@ -1,6 +1,6 @@
 {
-  "id": "inspect-markers-20261107-8",
-  "script_path": "docs/diagnostics/inspect_final_markers.py",
-  "sha256": "41a2bcc5b84c2751592404cccc2c00aa546c974864800943741a83c3c59c0c5f",
-  "timeout_seconds": 75
+  "id": "probe-inline-shot-fix-20261107-9",
+  "script_path": "docs/diagnostics/probe_inline_shot_repair.py",
+  "sha256": "25b58d59f8581ca9e246aedcafdbd0f1dfa4a28c796e677ef144375db45e151c",
+  "timeout_seconds": 80
 }
