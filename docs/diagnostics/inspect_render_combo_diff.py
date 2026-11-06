@@ -1,7 +1,7 @@
 """No-inference synthetic render-graph comparison; inspect one CustomCombo only."""
 import asyncio,importlib,json,os,pathlib,sys,site
 site.addsitedir('/opt/aj/venv/lib/python3.12/site-packages')
-os.environ.update({'PANEL_ROOT':'/workspace/H3_VAST_MOBILE','COMFY_ROOT':'/workspace/ComfyUI',
+os.environ.update({'PANEL_ROOT':'/workspace/H3_VAST_MOBILE','COMFY_ROOT':'/workspace/ComfyUI','COMFY_PYTHON':'/opt/aj/venv/bin/python',
                    'PATH':'/opt/aj/venv/bin:/usr/local/cuda/bin:/usr/local/bin:/usr/bin:/bin',
                    'CUDA_HOME':'/usr/local/cuda','LD_LIBRARY_PATH':'/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64'})
 sys.path.insert(0,'/workspace/H3_VAST_MOBILE')
