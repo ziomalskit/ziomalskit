@@ -1,6 +1,6 @@
 {
-  "id": "fix-widgets-probe-1",
-  "script_path": "docs/diagnostics/fix_widgets_probe.py",
-  "sha256": "e0f2dadebea6ca89ea80da0e58ee3c599e210bded836f60df43c30d79e056696",
-  "timeout_seconds": 600
+  "id": "inspect-live-aj-1",
+  "script_path": "docs/diagnostics/inspect_live_aj.py",
+  "sha256": "bd5b3c9c77194540188d4d1eb16baeb56ec691c4468fd309ae8bc9660e7eac94",
+  "timeout_seconds": 120
 }
