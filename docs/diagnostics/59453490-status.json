@@ -1,7 +1,4 @@
 {
-  "id": "inspect-start-1",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "render started (pid 1939)\nprompt started (pid 2331)\npanel started (pid 2670)\npanel stopped\npanel started (pid 2716)\npinned versions OK\nCUDA kernel and target GPU OK\nv20 SageAttention source/ABI and MiniMax CUDA kernel OK\nLLM actual executable OK\nrender service OK\nprompt service OK\npanel service OK\nERROR: model integrity: [Errno 20] Not a directory: 'custom_nodes'\nRESULT: NOT READY\n{\"elapsed_seconds\": 210.28832091391087, \"end_monotonic\": 29970343.89577102, \"id\": \"d269bca748814f4da935bc9ed0bb43ff\", \"stage\": \"preflight\", \"start_monotonic\": 29970133.607450105, \"status\": \"failed\"}\nAJ Docker blocked: missing image/runtime capability or failed stage. Check GPU exposure, driver, cgroups, disk and stage output; rerun the same command. No render submitted.\n\n",
-  "stderr": ""
+  "id": "fix-bridge-start-1",
+  "state": "running"
 }
