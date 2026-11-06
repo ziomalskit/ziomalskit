@@ -1,4 +1,7 @@
 {
   "id": "patch-and-init-1",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 1,
+  "stdout": "Cgroup v1 patch installed with exact source checksum\n{\"available_ram_bytes\": 58508201984, \"effective_cpus\": 30.71999}\nAJ Docker blocked: Need at least 96 GiB available RAM and 8 effective CPUs; choose a larger allocation\nAJ_INIT_EXIT=1\nMODEL_TRANSFER_STATUS {\n  \"state\": \"running\",\n  \"pid\": 254,\n  \"download_pid\": 255,\n  \"present_bytes\": 66280487368,\n  \"total_bytes\": 278009016136,\n  \"elapsed_seconds\": 150\n}\n",
+  "stderr": ""
 }
