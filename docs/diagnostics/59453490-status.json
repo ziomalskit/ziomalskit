@@ -1,4 +1,7 @@
 {
   "id": "probe-four-combo-index-1",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "COMFY_CLI_OK True EXIT 0 ERROR_CODE None ERROR_MESSAGE  VALID True\nFOUR_STAGES_INDEX_1_ADDED 4\n",
+  "stderr": ""
 }
