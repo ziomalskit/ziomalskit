@@ -1,6 +1,6 @@
 {
-  "id": "apply-primitive-smoke-1",
-  "script_path": "docs/diagnostics/apply_primitive_and_smoke.py",
-  "sha256": "3da608c6ec9c2a7b349c923a881cc08eae47efe84280af6460fa624905cf93c1",
-  "timeout_seconds": 480
+  "id": "full-start-gates-1",
+  "script_path": "docs/diagnostics/recheck_full_start.py",
+  "sha256": "0524450ff6bf2f27ca8bbe68bfc2f3faf2645d5d54d1a586ab3be2203438fc5a",
+  "timeout_seconds": 1800
 }
