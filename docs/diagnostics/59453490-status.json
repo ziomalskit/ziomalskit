@@ -1,7 +1,4 @@
 {
-  "id": "replay-one-fullgpu-prompt-20261107-6",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "WRITER_OFFLOAD_100 ['2551:2640:2445', '2551:2640:4275']\nONE_PROMPT_ONLY_SUBMITTED\nRESULT error False SECONDS 176\nERROR_NODE aj_final_timeline AJFinalPromptTimeGuard ValueError\n",
-  "stderr": ""
+  "id": "inspect-final-timeline-20261107-7",
+  "state": "running"
 }
