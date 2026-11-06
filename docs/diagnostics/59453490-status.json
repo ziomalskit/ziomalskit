@@ -1,4 +1,7 @@
 {
   "id": "inspect-render-diff-2",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  File \"<stdin>\", line 27, in <module>\n  File \"/usr/lib/python3.12/asyncio/runners.py\", line 194, in run\n    return runner.run(main)\n           ^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/runners.py\", line 118, in run\n    return self._loop.run_until_complete(task)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/base_events.py\", line 687, in run_until_complete\n    return future.result()\n           ^^^^^^^^^^^^^^^\n  File \"<stdin>\", line 23, in check\n  File \"/workspace/H3_VAST_MOBILE/app/main.py\", line 1784, in _prepare_workflow_api\n    envelope = preview_envelope if preview_envelope is not None else await run_cli_envelope(\n                                                                     ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/workspace/H3_VAST_MOBILE/app/main.py\", line 965, in run_cli_envelope\n    raise RuntimeError(err.decode(errors=\"replace\") or f\"comfy-cli exited {proc.returncode}\")\nRuntimeError: /usr/bin/python3: No module named comfy_cli\n\n"
 }
