@@ -1,6 +1,6 @@
 {
-  "id": "publish-access-1",
-  "script_path": "docs/diagnostics/publish_access.py",
-  "sha256": "fa2d933d3481930f292ddad5dc1f5f20b4f25f66583af2b52e814733f3cbe980",
-  "timeout_seconds": 600
+  "id": "inspect-widgets-1",
+  "script_path": "docs/diagnostics/inspect_widgets.py",
+  "sha256": "c1350c12e4ec400154b3d056ffe7aa303a3dd2606c49bfb4aebde04afe5a6f61",
+  "timeout_seconds": 90
 }
