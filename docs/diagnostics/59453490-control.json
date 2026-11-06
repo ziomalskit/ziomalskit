@@ -1,6 +1,6 @@
 {
-  "id": "full-start-gates-1",
-  "script_path": "docs/diagnostics/recheck_full_start.py",
-  "sha256": "0524450ff6bf2f27ca8bbe68bfc2f3faf2645d5d54d1a586ab3be2203438fc5a",
-  "timeout_seconds": 1800
+  "id": "enable-live-batches-1",
+  "script_path": "docs/diagnostics/enable_live_batches.py",
+  "sha256": "8058a5a280ad059872b8d7c33e9baa91e3e6955a65082d6bf46b2d9e9c26c991",
+  "timeout_seconds": 360
 }
