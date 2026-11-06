@@ -1,6 +1,6 @@
 {
-  "id": "inspect-plan-structure-1",
-  "script_path": "docs/diagnostics/inspect_creative_plan_structure.py",
-  "sha256": "140f6947bc525dee64ceb3bd3065c516273c68cef8498ec5fbf6306c9b5e5382",
+  "id": "inspect-history-node-routing-1",
+  "script_path": "docs/diagnostics/inspect_history_nodes_structure.py",
+  "sha256": "5bdec9c4016839ae8a4ffc7406ce27cff9de8afb6bbf82d5df0e76bf4c23c142",
   "timeout_seconds": 120
 }
