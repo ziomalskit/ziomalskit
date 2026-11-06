@@ -207,8 +207,19 @@ class V20Hooks:
         chain = a.descriptor["api"]["output_chains"]
         for key, expected in chain["nodes"].items():
             actual = prompt.get(key)
-            if (not isinstance(actual, dict) or actual.get("class_type") != expected["class_type"] or
-                    actual.get("inputs") != expected["inputs"]):
+            if not isinstance(actual, dict) or actual.get("class_type") != expected["class_type"]:
+                a.fail(f"visual/audio output chain {key} changed")
+            # ComfyUI 0.38's CustomCombo backend accepts a frontend-defined choice;
+            # the converter omits frontend option labels and the default index=0.
+            # Only these two pinned selectors have that exact representation.
+            frontend_combo = (
+                key in {"6036:6962:6950:6899", "6036:7225:7216:7218"}
+                and expected == {"class_type": "CustomCombo", "inputs": {
+                    "choice": "scale_extension", "index": 0, "option1": "scale_ref",
+                    "option2": "scale_extension", "option3": "", "option4": "", "option5": ""}}
+                and actual.get("inputs") == {"choice": "scale_extension"}
+            )
+            if not frontend_combo and actual.get("inputs") != expected["inputs"]:
                 a.fail(f"visual/audio output chain {key} changed")
         create = prompt[chain["create_video"]]["inputs"]
         for field, decoder in ((chain["visual_input"], chain["visual_decoder"]),
