@@ -1,6 +1,6 @@
 {
-  "id": "fix-soundfile-1",
-  "script_path": "docs/diagnostics/fix_soundfile.py",
-  "sha256": "f2b794051295081d1645a66e8ffd5bbfdc44fe677b681dbd2cc0abe46782a7b4",
-  "timeout_seconds": 1200
+  "id": "publish-access-1",
+  "script_path": "docs/diagnostics/publish_access.py",
+  "sha256": "fa2d933d3481930f292ddad5dc1f5f20b4f25f66583af2b52e814733f3cbe980",
+  "timeout_seconds": 600
 }
