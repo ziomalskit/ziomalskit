@@ -1,4 +1,7 @@
 {
   "id": "deploy-vision-context-32k-1",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "HISTORICAL_TERMINAL_JOBS 100\nUPDATED_CONTROLLER 0\nUPDATED_CONTROLLER 1\nPANEL_RESTARTED\nLIVE_SERVICE 7860 401\nLIVE_SERVICE 8189 200\nVISION_CONTEXT_32768_ENABLED\nNO_JOBS_SUBMITTED\n",
+  "stderr": ""
 }
