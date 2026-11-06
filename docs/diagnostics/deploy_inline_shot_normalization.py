@@ -50,14 +50,14 @@ try:
     spec=importlib.util.spec_from_file_location('aj_inline_temporal_live',list(targets)[0])
     mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
     # Use an isolated, synthetic fixture: ComfyUI history is cleared on restart.
-    plan = "[Shot 1]\\nTimeline: 00:00.000-00:01.000\\nOne action.\\n"
+    plan = "[Shot 1]\nTimeline: 00:00.000-00:01.000\nOne action.\n"
     final = (
-        "subject_definitions:\\nObject\\n"
-        "summary:\\nOne description references [Shot 1] inline.\\n"
-        "retention_analysis:\\nThe object remains consistent.\\n"
-        "detailed_description:\\n[Shot 1]\\nOne action.\\n"
-        "overall_soundscape:\\nQuiet.\\n"
-        "non_diegetic_music:\\nNone.\\n"
+        "subject_definitions:\nObject\n"
+        "summary:\nOne description references [Shot 1] inline.\n"
+        "retention_analysis:\nThe object remains consistent.\n"
+        "detailed_description:\n[Shot 1]\nOne action.\n"
+        "overall_soundscape:\nQuiet.\n"
+        "non_diegetic_music:\nNone.\n"
     )
     normalized = mod.final_timeline(final, plan, 1.0, canonicalize=True)
     assert normalized.count("[Shot 1]") == 1 and "references Shot 1 inline" in normalized, 'SYNTHETIC_GUARD_FIX_FAILED'
