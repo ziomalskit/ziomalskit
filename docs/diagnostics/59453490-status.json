@@ -1,4 +1,7 @@
 {
   "id": "patch-and-init-2",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "Cgroup v1 patch installed with exact source checksum\n{\"available_ram_bytes\": 117143556096, \"effective_cpus\": 30.71999}\n{\"disk\": {\"known_stack_bytes\": 278009016136, \"missing_download_bytes\": 152875728857, \"download_staging_bytes\": 0, \"largest_download_bytes\": 40222982192, \"retained_partial_bytes\": 842848679, \"generated_source_bytes\": 0, \"generated_output_estimate_bytes\": 0, \"minimum_free_bytes\": 152875728857, \"free_bytes\": 5343267975168, \"generated_source_and_output_space\": \"conservative BF16 estimate from pinned shards\", \"pending_artifacts\": []}, \"reserve_bytes\": 34359738368}\nReusing AJ-verified SageAttention eb615cf6cf4d221338033340ee2de1c37fbdba4a\nRuntime health PASS; Full renders and long-sequence VRAM still PENDING.\nNo weights downloaded. To explicitly transfer/resume models: aj-docker models\nAJ_INIT_EXIT=0\nMODEL_TRANSFER_STATUS {\n  \"state\": \"running\",\n  \"pid\": 254,\n  \"download_pid\": 255,\n  \"present_bytes\": 124290438600,\n  \"total_bytes\": 278009016136,\n  \"elapsed_seconds\": 315\n}\n",
+  "stderr": ""
 }
