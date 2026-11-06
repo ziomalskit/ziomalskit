@@ -1,7 +1,4 @@
 {
-  "id": "inspect-stage-headroom-20261107-f",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "FAILED 1 2551:2640:7386 TimeoutError {'aj_headroom_mb': 57344, 'aj_allow_sampling': False, 'timeout_seconds': 300, 'model': 'Llama-Joycaption-Beta-One-Hf-Llava-F16.gguf', 'n_gpu_layers': 32, 'ctx_size': 8192, 'max_tokens': 1600}\nFAILED 2 2551:2640:7386 TimeoutError {'aj_headroom_mb': 57344, 'aj_allow_sampling': False, 'timeout_seconds': 300, 'model': 'Llama-Joycaption-Beta-One-Hf-Llava-F16.gguf', 'n_gpu_layers': 32, 'ctx_size': 8192, 'max_tokens': 1600}\nFAILED 3 2551:2640:7386 TimeoutError {'aj_headroom_mb': 57344, 'aj_allow_sampling': False, 'timeout_seconds': 300, 'model': 'Llama-Joycaption-Beta-One-Hf-Llava-F16.gguf', 'n_gpu_layers': 32, 'ctx_size': 8192, 'max_tokens': 1600}\nGPU_NOW 57331 / 39920 / 97887 / 0\n",
-  "stderr": ""
+  "id": "identify-vram-owner-20261107-g",
+  "state": "running"
 }
