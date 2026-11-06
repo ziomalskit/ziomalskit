@@ -1,4 +1,7 @@
 {
   "id": "replay-patched-prompt-only-20261106-f",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "PREVIOUS_FAILURE_REPLAY_PROMPT_ONLY 336 nodes NEW_CONTEXT 65536 OUTPUT 8192\nONE_PROMPT_ACCEPTED\nRESULT_STATUS error COMPLETED False ELAPSED_S 144\nERROR 2551:2640:2441 AJPromptTextProcessor ValueError NON_NATURAL_COMPLETION\n",
+  "stderr": ""
 }
