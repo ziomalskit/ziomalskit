@@ -1,4 +1,7 @@
 {
   "id": "deploy-inline-shot-repair-20261107-11",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 1,
+  "stdout": "ROLLED_BACK\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<stdin>\", line 62, in <module>\n  File \"/workspace/H3_VAST_MOBILE/custom_nodes/aj_production/temporal.py\", line 224, in final_timeline\n    replacements.append((start + header.end() + stamp.start(1), start + header.end() + stamp.end(1), timecode(expected)))\n^^^^^^^^^^^^^^\n  File \"/workspace/H3_VAST_MOBILE/custom_nodes/aj_production/temporal.py\", line 188, in final_answer\n    raise ValueError(\"compiler final answer violates the v20 six-section contract\")\nValueError: compiler final answer violates the v20 six-section contract\n"
 }
