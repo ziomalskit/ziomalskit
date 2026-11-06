@@ -34,6 +34,14 @@ def generate(native_class, values):
             if system_text:  # cli_context::add_system_prompt omits an empty preset
                 messages.append({'role': 'system', 'content': system_text})
         text = Path(command[command.index('-f') + 1]).read_bytes().decode('utf-8')
+        if str(values['model']).startswith('Mistral-Small-3.2-24B-Instruct-2506-'):
+            text += (
+                "\n\n[Vision analysis completion guidance]\n"
+                "Retain every required heading, reference, observed detail, and uncertainty. "
+                "Write a complete, information-rich but concise analysis, aiming for 1200-1800 tokens "
+                "and never more than 2400 tokens. Avoid repetition or additional commentary. "
+                "End the answer immediately after its final required section.\n"
+            )
         content = text
         if '--image' in command:
             # The OpenAI-compatible multimodal endpoint expects a real image
