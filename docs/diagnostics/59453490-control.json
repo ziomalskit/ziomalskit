@@ -1,6 +1,4 @@
 {
-  "id": "deploy-inline-shot-repair-20261107-12",
-  "script_path": "docs/diagnostics/deploy_inline_shot_normalization.py",
-  "sha256": "4ceb92cc67eddb06dffc0d6125c5397e0af313ac4ff230f3a626effdcb1e567b",
-  "timeout_seconds": 780
+  "id": "close-diagnostic-bridge-20261107-13",
+  "action": "close"
 }
