@@ -1,7 +1,4 @@
 {
-  "id": "deploy-concise-vision-20261106-h",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "CONCISE_MISTRAL_INSTRUCTION_DEPLOYED TARGETS 2\nONE_PROMPT_ONLY_REPLAY_ACCEPTED\nREPLAY_STATUS error False\nERROR_NODE 2551:2640:2445 AJPromptTextProcessor TimeoutError OTHER\n",
-  "stderr": ""
+  "id": "fast-stage3-20261107-1",
+  "state": "running"
 }
