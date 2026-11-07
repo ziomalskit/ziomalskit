@@ -1,7 +1,4 @@
 {
-  "id": "measure-sampler-costs-20261107-d",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "NUMERIC_RENDER_FIELDS [('ResizeImageMaskAlt', {'resize_type.megapixels': 1.0, 'resize_type.megapixel_priority': 0.5, 'resize_type.multiple_of': 32}), ('ResizeImageMaskAlt', {'resize_type.megapixels': 1.0, 'resize_type.megapixel_priority': 0.5, 'resize_type.multiple_of': 32}), ('ResizeImageMaskAlt', {'resize_type.megapixels': 1.0, 'resize_type.megapixel_priority': 0.5, 'resize_type.multiple_of': 32}), ('ResizeImageMaskAlt', {'resize_type.megapixels': 1.0, 'resize_type.megapixel_priority': 0.5, 'resize_type.multiple_of': 32}), ('ResizeImageMaskAlt', {'resize_type.megapixels': 1.0, 'resize_type.megapixel_priority': 0.5, 'resize_type.multiple_of': 32}), ('CreateVideo', {'fps': 24.0}), ('MergeImageBatchAndAudioList', {'fps': 24.0}), ('MergeImageBatchAndAudioList', {'fps': 24.0}), ('MiniMaxH3SigmaShift', {'shift_video': 6.0}), ('SpectrumApplyMiniMaxH3', {'window_size': 2.0, 'warmup_steps': 5, 'tail_actual_steps': 1}), ('SolidMask', {'width': 32, 'height': 32}), ('BasicScheduler', {'steps': 4}), ('BasicScheduler', {'steps': 24}), ('ImageFromBatch', {'length': 1}), ('AJFrozenDuration', {'legal_frame_count': 481})]\nSAMPLING_RELEVANT [('ModelAttentionBackend', 2), ('PathchSageAttentionKJ', 2), ('MiniMaxH3MemoryEfficientSageAttentionPatch', 1), ('MiniMaxH3SigmaShift', 1), ('MiniMaxLowVRAMAttention', 1), ('BlockSparseAttention', 1), ('SetLatentNoiseMask', 1), ('LTXVSeparateAVLatent', 1), ('LTXVConcatAVLatent', 1), ('KSamplerSelect', 2), ('RandomNoise', 2), ('BasicScheduler', 2), ('SamplerCustomAdvanced', 2)]\nQUEUE 8188 1 0\nQUEUE 8189 1 0\nNOW {'prompt_failed': 138, 'completed': 3, 'render_running': 1, 'render_queued_auto': 1, 'prompt_running': 1, 'prompt_queued': 6}\nGPU 100, 30138, 67113, 526.68, 0x0000000000000000\n",
-  "stderr": ""
+  "id": "inspect-ssh-key-layout-20261107-e",
+  "state": "running"
 }
