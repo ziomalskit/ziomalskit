@@ -1,6 +1,6 @@
 {
-  "id": "deploy-surgical-selector-20261107-next06",
-  "script_path": "docs/diagnostics/deploy_surgical_cached_selector.py",
-  "sha256": "7ba249f8de8dbd15560fdc9f9bd2e58c96eda936df6730b85c056d85af4ceeb0",
-  "timeout_seconds": 330
+  "id": "preflight-cached-no-generation-20261107-next07",
+  "script_path": "docs/diagnostics/preflight_cached_no_inference.py",
+  "sha256": "83ed26ac60c3bcfb0e3bec79037ca45e63882b7b6eb70d1367f8afdc467c6b3f",
+  "timeout_seconds": 290
 }
