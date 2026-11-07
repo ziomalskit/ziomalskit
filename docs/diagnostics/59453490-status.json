@@ -1,7 +1,4 @@
 {
-  "id": "deploy-post-mp4-vram-release-20261107-next09",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "POST_RENDER_VRAM_RELEASE_DEPLOYED FILES 2\nCACHED_STAGE_FIX_RETAINED PANEL_HEALTHY\nNO_NEW_GENERATION_SUBMITTED\n",
-  "stderr": ""
+  "id": "measure-current-slow-stack-20261107",
+  "state": "running"
 }
