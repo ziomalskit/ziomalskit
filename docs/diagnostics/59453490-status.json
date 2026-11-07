@@ -1,7 +1,4 @@
 {
-  "id": "preflight-cached-no-generation-20261107-next07",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "EXIT 0\nOFFLINE_CACHED_MODE durable_text\nCONVERTED_NODES 97 SELECTORS [0, 0, 1, 1] VISION_ANALYSIS [0, 0] DURABLE_NODES 3\nPROMPT_API_CONVERSION_PASS\n\n",
-  "stderr": ""
+  "id": "inspect-live-render-cleanup-20261107-next08",
+  "state": "running"
 }
