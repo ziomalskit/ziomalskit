@@ -1,6 +1,6 @@
 {
-  "id": "preflight-identity-cached-fix-20261107-next03",
-  "script_path": "docs/diagnostics/preflight_queue_identity_migration.py",
-  "sha256": "7c26a755f4e3b503d8011b9d6e573d497df8a49798dbf5cae71c84142e9cadeb",
-  "timeout_seconds": 95
+  "id": "deploy-cached-selector-fix-20261107-next04",
+  "script_path": "docs/diagnostics/deploy_cached_selector_fix.py",
+  "sha256": "2db42b696554dc5c883e8443efb4dfcca0a6347b1c425537b3afa94b8720f17f",
+  "timeout_seconds": 330
 }
