@@ -1,4 +1,7 @@
 {
   "id": "deploy-surgical-selector-20261107-next06",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "CACHED_SELECTOR_FIX_LIVE 2 FILES\nORIGINAL_LIVE_MODIFICATIONS_PRESERVED\nPANEL_AND_COMFY_HEALTHY\nNO_NEW_JOB_NO_GPU_INFERENCE\n",
+  "stderr": ""
 }
