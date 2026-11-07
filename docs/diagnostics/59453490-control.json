@@ -1,6 +1,6 @@
 {
-  "id": "verify-queue-reclaimer-20261107-l",
-  "script_path": "docs/diagnostics/verify_vram_reclaimer_and_queue.py",
-  "sha256": "cc3268c33c9badf929a3bc2a11801ea9f44eb0a6bd0907e26f6c19e25be24868",
-  "timeout_seconds": 120
+  "id": "inspect-failure-nov7-next-01",
+  "script_path": "docs/diagnostics/inspect_recent_failed_jobs.py",
+  "sha256": "2505cd2b03a2c17844faebb634c7f53c463a1cdbb33962c2126bc5f981d54f1c",
+  "timeout_seconds": 130
 }
