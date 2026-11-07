@@ -2733,6 +2733,17 @@ async def render_job(job: dict) -> None:
     job["render_started_at"] = time.time()
     res = await submit_and_watch(job, execution_workflow(job, "render"), "render", approved_prompt=approved)
     await _finish_watched_job(job, "render", res)
+    # ComfyUI may retain tens of GB of H3 weights after writing the MP4.
+    # The next vision job then waits indefinitely for the frozen GPU
+    # headroom despite the render queue being idle. Free the completed
+    # render's model residency before admitting the next queue item.
+    # Never convert a successful MP4 into a failed job if cleanup fails.
+    if job.get("status") == "completed":
+        try:
+            await prepare_render_model_boundary()
+        except Exception as error:
+            job["render_cleanup_warning"] = "idle renderer VRAM cleanup failed: " + type(error).__name__
+            save_state()
 
 
 def _handle_worker_error(job: dict, service: str, error: Exception) -> None:
