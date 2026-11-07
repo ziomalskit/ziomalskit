@@ -1,6 +1,6 @@
 {
-  "id": "inspect-ssh-key-layout-20261107-e",
-  "script_path": "docs/diagnostics/inspect_ssh_rotation_layout.py",
-  "sha256": "2bf5de3e94d5cd1cfad064a310e199b71c9de7ff5c57b2e46ab1fda1bbb33fb2",
-  "timeout_seconds": 80
+  "id": "install-rotating-ssh-key-20261107-f",
+  "script_path": "docs/diagnostics/install_gh_ssh_rotator.py",
+  "sha256": "c17a43617ece012a417d5075688fd3bdc10e6a18d5ad7e95a52e260b1b257529",
+  "timeout_seconds": 160
 }
