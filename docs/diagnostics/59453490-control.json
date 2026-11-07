@@ -1,6 +1,6 @@
 {
-  "id": "measure-sampler-costs-20261107-d",
-  "script_path": "docs/diagnostics/inspect_h3_numeric_cost.py",
-  "sha256": "2c934d70a716a16b471d4121edacb48a5075a64213a3012da0aaa3eb0c272139",
-  "timeout_seconds": 110
+  "id": "inspect-ssh-key-layout-20261107-e",
+  "script_path": "docs/diagnostics/inspect_ssh_rotation_layout.py",
+  "sha256": "2bf5de3e94d5cd1cfad064a310e199b71c9de7ff5c57b2e46ab1fda1bbb33fb2",
+  "timeout_seconds": 80
 }
