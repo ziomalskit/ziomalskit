@@ -1,6 +1,6 @@
 {
-  "id": "profile-render-settings-20261107-c",
-  "script_path": "docs/diagnostics/inspect_render_quality_costs.py",
-  "sha256": "c81419f80eab8c5bea21a79bb0892542d8f4b36409473aecc70e361d55dc3806",
+  "id": "measure-sampler-costs-20261107-d",
+  "script_path": "docs/diagnostics/inspect_h3_numeric_cost.py",
+  "sha256": "2c934d70a716a16b471d4121edacb48a5075a64213a3012da0aaa3eb0c272139",
   "timeout_seconds": 110
 }
