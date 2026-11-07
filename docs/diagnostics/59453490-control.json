@@ -1,6 +1,6 @@
 {
-  "id": "deploy-bounded-vram-reclaimer-20261107-k",
-  "script_path": "docs/diagnostics/deploy_idle_vram_reclaimer.py",
-  "sha256": "68e273b998fbb94d90ebcdc3b6a74b439795714e94b36faab2731014d72e4966",
-  "timeout_seconds": 110
+  "id": "verify-queue-reclaimer-20261107-l",
+  "script_path": "docs/diagnostics/verify_vram_reclaimer_and_queue.py",
+  "sha256": "cc3268c33c9badf929a3bc2a11801ea9f44eb0a6bd0907e26f6c19e25be24868",
+  "timeout_seconds": 120
 }
