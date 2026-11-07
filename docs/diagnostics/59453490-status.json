@@ -1,7 +1,4 @@
 {
-  "id": "install-rotating-ssh-key-20261107-f",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "ROTATOR_ALIVE True\nMANAGED_RESTRICTED_KEY_INSTALLED True\nORIGINAL_USER_KEYS_PRESERVED True\nNO_SSHD_RESTART True\n",
-  "stderr": ""
+  "id": "profile-panel-latency-20261107-g",
+  "state": "running"
 }
