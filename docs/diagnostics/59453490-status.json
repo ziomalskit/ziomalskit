@@ -1,4 +1,7 @@
 {
   "id": "deploy-bounded-vram-reclaimer-20261107-k",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "RECLAIMER_STARTED_PID 94083\nNO_COMFY_SERVICE_RESTARTED\nNO_NEW_GENERATION_SUBMITTED\n",
+  "stderr": ""
 }
