@@ -1,4 +1,7 @@
 {
   "id": "preflight-identity-cached-fix-20261107-next03",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "QUEUE_COUNT 140 BATCH_COUNT 14 STATUS_COUNTS {'prompt_failed': 138, 'completed': 2}\nCONTEXT_EXAMPLE job status prompt_failed keys ['audio', 'conditioning_bridge', 'duration_contract', 'duration_seconds', 'effective_duration_ms', 'effective_duration_seconds', 'hard_restart_after_seconds', 'legal_frame_count', 'lora_identity', 'lora_registry_identity', 'loras', 'model', 'pictures', 'profile', 'profile_identity', 'prompt', 'prompt_mode', 'render_settings', 'requested_duration_seconds', 'soft_timeout_minutes', 'workflow_adapter_id', 'workflow_adapter_identity', 'workflow_adapter_schema_version', 'workflow_baseline_sha256', 'workflow_id', 'workflow_prompt_identity', 'workflow_render_identity'] workflow_id h3_v20 adapter_id_prefix cb3f6b6887 render_id_prefix c7414c4586\nCONTEXT_EXAMPLE batch status None keys ['audio', 'conditioning_bridge', 'duration_contract', 'duration_seconds', 'effective_duration_ms', 'effective_duration_seconds', 'hard_restart_after_seconds', 'legal_frame_count', 'lora_identity', 'lora_registry_identity', 'loras', 'model', 'pictures', 'profile', 'profile_identity', 'prompt', 'prompt_mode', 'render_settings', 'requested_duration_seconds', 'soft_timeout_minutes', 'workflow_adapter_id', 'workflow_adapter_identity', 'workflow_adapter_schema_version', 'workflow_baseline_sha256', 'workflow_id', 'workflow_prompt_identity', 'workflow_render_identity'] workflow_id h3_v20 adapter_id_prefix cb3f6b6887 render_id_prefix c7414c4586\nPUBLICATION_FILE False\nJOBS_ACTIVE 0\n",
+  "stderr": ""
 }
