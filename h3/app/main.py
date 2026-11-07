@@ -1834,10 +1834,9 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
                 "2551:5422:5069": "MMH3 Ref2VA Step 3 Creative",
                 "2551:5422:5070": "MMH3 Ref2VA Step 4 Compiler",
             }
-            # Durable Step 0-2 analysis deliberately prunes unused Step 1/2
-            # writer branches. Do not demand their removed UI-only selectors.
-            # Step 3/4 selectors, and all selectors in cold/partial analysis,
-            # must still match the exact frozen production choices.
+            # In cached_text mode the durable Step 0-2 analysis has already
+            # replaced the original writer branches. Pruned selectors do not
+            # need fixing; surviving Step 3/4 selectors must still be pinned.
             fully_cached_analysis = set(analysis_texts or {}) == {
                 "visual_facts", "expanded_intent", "reference_map"
             }
@@ -1851,13 +1850,14 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
                         or stage_node.get("inputs") != {"choice": expected_choice}):
                     raise RuntimeError("Pinned production step selector changed; refusing implicit Disabled stage")
                 stage_node["inputs"]["index"] = 1
-            # Expand Mistral vision input context and output budget to avoid
-            # multimodal context overflow and incomplete Step 1/2 responses.
+            # Real llama-server HTTP 400 on the first vision stage:
+            # 8192 context slots are insufficient for multimodal image tokens,
+            # the prompt and 2048 reserved output tokens. Retain the original
+            # sampled-output budget and model; expand only the two pinned
+            # Mistral Small 3.2 analysis stages to 32768 context slots.
             for node_id in ("2551:2640:2441", "2551:2640:2447"):
                 node = prepared.get(node_id)
                 if node is None and fully_cached_analysis:
-                    # The cached, verified analysis replaced this model node
-                    # with a durable AJAnalysisText input before pruning.
                     continue
                 if (not isinstance(node, dict) or node.get("class_type") != "AJPromptTextProcessor"
                         or node.get("inputs", {}).get("ctx_size") != 8192
@@ -1868,8 +1868,7 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
                 node["inputs"]["ctx_size"] = 65536
                 node["inputs"]["max_tokens"] = 8192
             if job.get("profile") == "10eros_full":
-                # Qwen3.5-27B has 64 transformer blocks, so the old cap of 50
-                # left 14 on CPU despite plentiful RTX PRO 6000 VRAM.
+                # Qwen3.5-27B has 64 blocks; 50 GPU layers left 14 on CPU.
                 writer_nodes = [
                     (identifier, candidate) for identifier, candidate in prepared.items()
                     if isinstance(candidate, dict) and candidate.get("class_type") in {
@@ -2748,17 +2747,21 @@ async def render_job(job: dict) -> None:
     job["render_started_at"] = time.time()
     res = await submit_and_watch(job, execution_workflow(job, "render"), "render", approved_prompt=approved)
     await _finish_watched_job(job, "render", res)
-    # ComfyUI may retain tens of GB of H3 weights after writing the MP4.
-    # The next vision job then waits indefinitely for the frozen GPU
-    # headroom despite the render queue being idle. Free the completed
-    # render's model residency before admitting the next queue item.
-    # Never convert a successful MP4 into a failed job if cleanup fails.
+    # Release H3 weights retained by the otherwise idle ComfyUI renderer.
+    # Without this boundary, cached video weights can consume ~39 GiB
+    # after the MP4 is saved and block the next vision model's headroom lease.
+    # Failure to free caching never invalidates an already completed MP4.
     if job.get("status") == "completed":
         try:
             await prepare_render_model_boundary()
         except Exception as error:
-            job["render_cleanup_warning"] = "idle renderer VRAM cleanup failed: " + type(error).__name__
-            save_state()
+            try:
+                job["render_cleanup_warning"] = (
+                    "idle renderer VRAM cleanup failed: " + type(error).__name__
+                )
+                save_state()
+            except Exception:
+                pass
 
 
 def _handle_worker_error(job: dict, service: str, error: Exception) -> None:
