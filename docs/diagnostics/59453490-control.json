@@ -1,6 +1,6 @@
 {
-  "id": "inspect-live-render-cleanup-20261107-next08",
-  "script_path": "docs/diagnostics/inspect_render_cleanup_hook.py",
-  "sha256": "02fc4c7b86d683912d792c1969c561d19c1db1c0ffcb58f5b0080c8131f8dd14",
-  "timeout_seconds": 75
+  "id": "deploy-post-mp4-vram-release-20261107-next09",
+  "script_path": "docs/diagnostics/deploy_post_render_vram_release.py",
+  "sha256": "70a0ce21f07248579059e1d029fc7b5596d82d7a505daa6751562959e5cc5667",
+  "timeout_seconds": 340
 }
