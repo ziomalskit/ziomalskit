@@ -1,7 +1,4 @@
 {
-  "id": "inspect-after-vram-reclaim-20261107-i",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "TOTAL_JOBS 130\nLATEST_STATUSES {'prompt_queued': 6, 'prompt_running': 1, 'prompt_failed': 22, 'completed': 1}\nJOB 0 status prompt_queued profile 10eros_full error  prompt_accepted False\nJOB 1 status prompt_queued profile 10eros_full error  prompt_accepted False\nJOB 2 status prompt_queued profile 10eros_full error  prompt_accepted False\nJOB 3 status prompt_queued profile 10eros_full error  prompt_accepted False\nJOB 4 status prompt_queued profile 10eros_full error  prompt_accepted False\nJOB 5 status prompt_queued profile 10eros_full error  prompt_accepted False\nJOB 6 status prompt_running profile 10eros_full error  prompt_accepted True\n  HISTORY None completed None\nJOB 7 status prompt_failed profile 10eros_full error ComfyUI execution failed or was interrupted prompt_accepted True\n  HISTORY error completed False\n  ERROR 2551:2640:7386 AJPromptTextProcessor TimeoutError Prompt Worker paused by render priority or unknown GPU state\nCOMFY_QUEUE 8188 running 0 pending 0\nCOMFY_QUEUE 8189 running 1 pending 0\n",
-  "stderr": ""
+  "id": "check-supervisor-20261107-j",
+  "state": "running"
 }
