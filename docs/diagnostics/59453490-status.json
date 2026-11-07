@@ -1,4 +1,7 @@
 {
   "id": "inspect-live-render-cleanup-20261107-next08",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "LIVE_SHA256 133955720a2c8b5aa6828aade44ba4142d856ec3162e860a080a4c5780bba506\nHAS_POST_RENDER_FREE False\nRENDER_TAIL async def render_job(job: dict) -> None:\n    if job.get(\"cancel_requested\"):\n        job[\"status\"] = \"cancelled\"\n        save_state()\n        return\n    approved = final_prompt_for_render(job)\n    if not approved:\n        job[\"status\"] = \"render_failed\"\n        job[\"error\"] = \"missing final prompt\"\n        save_state()\n        return\n\n    job[\"render_started_at\"] = time.time()\n    res = await submit_and_watch(job, execution_workflow(job, \"render\"), \"render\", approved_prompt=approved)\n    await _finish_watched_job(job, \"render\", res)\n\n\n\n",
+  "stderr": ""
 }
