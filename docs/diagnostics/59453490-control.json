@@ -1,6 +1,6 @@
 {
-  "id": "profile-panel-latency-20261107-g",
-  "script_path": "docs/diagnostics/profile_panel_latency.py",
-  "sha256": "f5fb5c1c2f5b5a11ec30c706276072664efdbd685cf5f416c0ee991b402d865f",
-  "timeout_seconds": 95
+  "id": "audit-true-persistence-20261107-h",
+  "script_path": "docs/diagnostics/audit_recovery_durability.py",
+  "sha256": "5aa51b24faa8b4f7c40fdbd531fcd2ee12054165e9d727d74063c24c6cdb4ebb",
+  "timeout_seconds": 130
 }
