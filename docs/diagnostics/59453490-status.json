@@ -1,7 +1,4 @@
 {
-  "id": "deploy-cached-selector-fix-20261107-next04",
-  "state": "completed",
-  "exit_code": 1,
-  "stdout": "QUEUE_STATUS {'prompt_failed': 138, 'completed': 2}\nCONTROLLER_SOURCE h3 789c4c35a36df7\n",
-  "stderr": "Traceback (most recent call last):\n  File \"<stdin>\", line 31, in <module>\nAssertionError: UNEXPECTED_LIVE_SOURCE_ABORT\n"
+  "id": "inspect-live-guard-anchors-20261107-next05",
+  "state": "running"
 }
