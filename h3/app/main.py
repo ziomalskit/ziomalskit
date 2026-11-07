@@ -1834,8 +1834,19 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
                 "2551:5422:5069": "MMH3 Ref2VA Step 3 Creative",
                 "2551:5422:5070": "MMH3 Ref2VA Step 4 Compiler",
             }
+            # Durable Step 0-2 analysis deliberately prunes unused Step 1/2
+            # writer branches. Do not demand their removed UI-only selectors.
+            # Step 3/4 selectors, and all selectors in cold/partial analysis,
+            # must still match the exact frozen production choices.
+            fully_cached_analysis = set(analysis_texts or {}) == {
+                "visual_facts", "expanded_intent", "reference_map"
+            }
             for node_id, expected_choice in stage_choices.items():
                 stage_node = prepared.get(node_id)
+                if stage_node is None and fully_cached_analysis and node_id in {
+                    "2551:5422:5067", "2551:5422:5068"
+                }:
+                    continue
                 if (not isinstance(stage_node, dict) or stage_node.get("class_type") != "CustomCombo"
                         or stage_node.get("inputs") != {"choice": expected_choice}):
                     raise RuntimeError("Pinned production step selector changed; refusing implicit Disabled stage")
@@ -1844,6 +1855,10 @@ async def _prepare_workflow_api(workflow: Path, service: str, *, preview_envelop
             # multimodal context overflow and incomplete Step 1/2 responses.
             for node_id in ("2551:2640:2441", "2551:2640:2447"):
                 node = prepared.get(node_id)
+                if node is None and fully_cached_analysis:
+                    # The cached, verified analysis replaced this model node
+                    # with a durable AJAnalysisText input before pruning.
+                    continue
                 if (not isinstance(node, dict) or node.get("class_type") != "AJPromptTextProcessor"
                         or node.get("inputs", {}).get("ctx_size") != 8192
                         or node["inputs"].get("max_tokens") != 2048
