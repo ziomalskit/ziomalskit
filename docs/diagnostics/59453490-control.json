@@ -1,6 +1,6 @@
 {
-  "id": "deploy-post-mp4-vram-release-20261107-next09",
-  "script_path": "docs/diagnostics/deploy_post_render_vram_release.py",
-  "sha256": "70a0ce21f07248579059e1d029fc7b5596d82d7a505daa6751562959e5cc5667",
-  "timeout_seconds": 340
+  "id": "measure-current-slow-stack-20261107",
+  "script_path": "docs/diagnostics/profile_aj_performance_nov7.py",
+  "sha256": "8790d2c5e94fd75b7876442d949e589c9759c9d48a018cd79c6d36bf6d302e24",
+  "timeout_seconds": 100
 }
