@@ -1,6 +1,6 @@
 {
-  "id": "audit-true-persistence-20261107-h",
-  "script_path": "docs/diagnostics/audit_recovery_durability.py",
-  "sha256": "5aa51b24faa8b4f7c40fdbd531fcd2ee12054165e9d727d74063c24c6cdb4ebb",
-  "timeout_seconds": 130
+  "id": "compare-live-controller-20261107-i",
+  "script_path": "docs/diagnostics/compare_live_controller_git.py",
+  "sha256": "362d39d84e79463555fe4c615eebf37865c9016e9750937e6a37ee7fd3062aee",
+  "timeout_seconds": 80
 }
