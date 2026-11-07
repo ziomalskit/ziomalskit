@@ -1,6 +1,6 @@
 {
-  "id": "check-supervisor-20261107-j",
-  "script_path": "docs/diagnostics/check_supervisor_idle_cleaner.py",
-  "sha256": "ddd7fbab46fadfdf8f77d459a472de4d6c87ec93a8b41e0aaa8dc9c02d74b438",
-  "timeout_seconds": 90
+  "id": "deploy-bounded-vram-reclaimer-20261107-k",
+  "script_path": "docs/diagnostics/deploy_idle_vram_reclaimer.py",
+  "sha256": "68e273b998fbb94d90ebcdc3b6a74b439795714e94b36faab2731014d72e4966",
+  "timeout_seconds": 110
 }
