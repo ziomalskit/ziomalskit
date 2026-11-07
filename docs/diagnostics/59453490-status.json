@@ -1,4 +1,7 @@
 {
   "id": "verify-queue-reclaimer-20261107-l",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "RECLAIMER_ALIVE True\nRECLAIMER_EVENTS []\nLATEST_30 {'prompt_queued': 6, 'prompt_running': 1, 'prompt_failed': 22, 'completed': 1}\nJOB 0 prompt_queued has_mp4 False prompt_id False\nJOB 1 prompt_queued has_mp4 False prompt_id False\nJOB 2 prompt_queued has_mp4 False prompt_id False\nJOB 3 prompt_queued has_mp4 False prompt_id False\nJOB 4 prompt_queued has_mp4 False prompt_id False\nJOB 5 prompt_queued has_mp4 False prompt_id False\nJOB 6 prompt_running has_mp4 False prompt_id True\nJOB 7 prompt_failed has_mp4 False prompt_id True\nJOB 8 prompt_failed has_mp4 False prompt_id True\nJOB 9 prompt_failed has_mp4 False prompt_id True\nJOB 10 prompt_failed has_mp4 False prompt_id False\nJOB 11 prompt_failed has_mp4 False prompt_id False\nCOMFY_QUEUE 8188 0 0\nCOMFY_QUEUE 8189 1 0\nGPU_FREE_USED 74842, 22409\n",
+  "stderr": ""
 }
