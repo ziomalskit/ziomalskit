@@ -1,7 +1,4 @@
 {
-  "id": "inspect-ssh-key-layout-20261107-e",
-  "state": "completed",
-  "exit_code": 0,
-  "stdout": "SSHD_CONFIG_READABLE True\nCONFIG pubkeyauthentication yes\nCONFIG authorizedkeyscommand none\nCONFIG authorizedkeyscommanduser none\nCONFIG authorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2\nPATH /root/.ssh exists True dir writable True\nPATH /root/.ssh/authorized_keys exists True file writable True\nPATH /etc/ssh/sshd_config.d exists True dir writable True\n",
-  "stderr": ""
+  "id": "install-rotating-ssh-key-20261107-f",
+  "state": "running"
 }
