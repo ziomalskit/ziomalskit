@@ -1,6 +1,6 @@
 {
-  "id": "attribute-live-slowdown-20261107-b",
-  "script_path": "docs/diagnostics/attribute_live_slowdown.py",
-  "sha256": "328584958f5aba33c24701de7542a8e542b1c4157c7c4e9fb83e31ab68d22757",
-  "timeout_seconds": 95
+  "id": "profile-render-settings-20261107-c",
+  "script_path": "docs/diagnostics/inspect_render_quality_costs.py",
+  "sha256": "c81419f80eab8c5bea21a79bb0892542d8f4b36409473aecc70e361d55dc3806",
+  "timeout_seconds": 110
 }
