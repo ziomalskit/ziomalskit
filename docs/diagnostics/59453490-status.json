@@ -1,4 +1,7 @@
 {
   "id": "profile-panel-latency-20261107-g",
-  "state": "running"
+  "state": "completed",
+  "exit_code": 0,
+  "stdout": "LATENCY panel median_ms 2.5 max_ms 17.9 codes [401, 401, 401]\nLATENCY render_queue median_ms 4.6 max_ms 6.7 codes [200, 200, 200]\nLATENCY prompt_queue median_ms 2.4 max_ms 4.0 codes [200, 200, 200]\nLATENCY render_health median_ms 2.6 max_ms 4.9 codes [200, 200, 200]\nLATENCY prompt_health median_ms 4.7 max_ms 7.6 codes [200, 200, 200]\n",
+  "stderr": ""
 }
