@@ -1,6 +1,6 @@
 {
-  "id": "inspect-failure-nov7-next-01",
-  "script_path": "docs/diagnostics/inspect_recent_failed_jobs.py",
-  "sha256": "2505cd2b03a2c17844faebb634c7f53c463a1cdbb33962c2126bc5f981d54f1c",
-  "timeout_seconds": 130
+  "id": "inspect-pruned-stage-20261107-next02",
+  "script_path": "docs/diagnostics/inspect_cached_step_selector_failures.py",
+  "sha256": "a4fcbca34ee25722dc28d4f3124fa4e017738f3d25ff6528872ca360e830ca29",
+  "timeout_seconds": 90
 }
